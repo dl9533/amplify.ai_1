@@ -40,6 +40,12 @@ class TestDwaSelection:
     """Tests for DWA selection management."""
 
     @pytest.mark.asyncio
+    async def test_get_dwas_for_role_returns_empty_when_no_repo(self, activity_agent):
+        """Should return empty list when no repository is set."""
+        result = await activity_agent.get_dwas_for_role(onet_code="15-1252.00")
+        assert result == []
+
+    @pytest.mark.asyncio
     async def test_get_dwas_for_role_mapping(self, activity_agent, mock_dwa_list):
         """Should retrieve DWAs for a mapped O*NET occupation."""
         activity_agent._dwa_repo = AsyncMock()
@@ -91,6 +97,12 @@ class TestDwaSelection:
 
 class TestBrainstormingFlow:
     """Tests for brainstorming-style activity selection."""
+
+    @pytest.mark.asyncio
+    async def test_process_default_state(self, activity_agent):
+        """Should return ready message when no DWAs are loaded."""
+        response = await activity_agent.process("Hello")
+        assert "Ready" in response.get("message", "") or "ready" in response.get("message", "").lower()
 
     @pytest.mark.asyncio
     async def test_process_asks_about_activity_relevance(self, activity_agent, mock_dwa_list):
