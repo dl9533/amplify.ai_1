@@ -4,11 +4,15 @@ This module provides a scheduler using APScheduler to run the OnetSyncJob
 weekly on Sunday at 2am UTC.
 """
 
+import asyncio
 import logging
-from typing import Any
+from typing import Any, Optional
 
+from apscheduler.job import Job
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+
+from app.modules.discovery.services.onet_sync import OnetSyncJob
 
 
 logger = logging.getLogger(__name__)
@@ -26,12 +30,16 @@ class OnetSyncScheduler:
 
     JOB_ID = "onet_weekly_sync"
 
-    def __init__(self) -> None:
+    def __init__(self, sync_job: OnetSyncJob) -> None:
         """Initialize the scheduler with APScheduler.
 
         Creates a BackgroundScheduler and configures the weekly sync job
         to run every Sunday at 2am UTC.
+
+        Args:
+            sync_job: The OnetSyncJob instance to use for synchronization.
         """
+        self._sync_job = sync_job
         self._scheduler = BackgroundScheduler(timezone="UTC")
         self._configure_jobs()
 
@@ -59,17 +67,22 @@ class OnetSyncScheduler:
         """Execute the O*NET sync job.
 
         This method is called by the scheduler to run the sync.
-        Override or extend this method to provide actual sync implementation.
+        Uses asyncio.run() to bridge the async OnetSyncJob with the
+        synchronous APScheduler callback.
 
         Returns:
             Dictionary with sync results.
         """
         logger.info("Starting O*NET weekly sync job")
-        # The actual sync implementation will be injected or configured
-        # This is a placeholder for the scheduled execution
-        return {"success": True, "message": "Sync triggered"}
+        try:
+            result = asyncio.run(self._sync_job.sync_occupations())
+            logger.info("O*NET sync completed: %s", result)
+            return result
+        except Exception as e:
+            logger.error("O*NET sync failed: %s", str(e))
+            return {"success": False, "error": str(e)}
 
-    def get_job(self, job_id: str) -> Any:
+    def get_job(self, job_id: str) -> Optional[Job]:
         """Get a scheduled job by its ID.
 
         Args:
@@ -80,14 +93,17 @@ class OnetSyncScheduler:
         """
         return self._scheduler.get_job(job_id)
 
-    def trigger_manual_sync(self) -> None:
+    def trigger_manual_sync(self) -> dict[str, Any]:
         """Trigger a manual sync outside of the schedule.
 
         Allows administrators to manually trigger a sync when needed,
         without waiting for the scheduled weekly run.
+
+        Returns:
+            Dictionary with sync results from the sync job.
         """
         logger.info("Manual O*NET sync triggered")
-        self._run_sync()
+        return self._run_sync()
 
     def start(self) -> None:
         """Start the scheduler.
