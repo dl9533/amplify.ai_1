@@ -10,3 +10,11 @@ sys.path.insert(0, str(discovery_path))
 
 # Configure pytest-asyncio
 pytest_plugins = ("pytest_asyncio",)
+
+
+def pytest_configure(config):
+    """Register custom markers."""
+    config.addinivalue_line(
+        "markers",
+        "integration: mark test as an integration test",
+    )
