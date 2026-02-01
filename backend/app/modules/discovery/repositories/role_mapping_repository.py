@@ -12,6 +12,26 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.modules.discovery.models.session import DiscoveryRoleMapping
 
 
+def _validate_confidence_score(score: float | None, allow_none: bool = True) -> None:
+    """Validate that confidence score is within valid range.
+
+    Args:
+        score: Confidence score to validate.
+        allow_none: Whether None is a valid value.
+
+    Raises:
+        ValueError: If score is outside the valid range (0.0-1.0).
+    """
+    if score is None:
+        if not allow_none:
+            raise ValueError("confidence_score is required")
+        return
+    if score < 0.0 or score > 1.0:
+        raise ValueError(
+            f"confidence_score must be between 0.0 and 1.0, got {score}"
+        )
+
+
 class DiscoveryRoleMappingRepository:
     """Repository for DiscoveryRoleMapping CRUD and query operations.
 
@@ -55,7 +75,11 @@ class DiscoveryRoleMappingRepository:
 
         Returns:
             The created DiscoveryRoleMapping instance.
+
+        Raises:
+            ValueError: If confidence_score is outside the range 0.0-1.0.
         """
+        _validate_confidence_score(confidence_score, allow_none=True)
         mapping = DiscoveryRoleMapping(
             session_id=session_id,
             source_role=source_role,
@@ -136,7 +160,11 @@ class DiscoveryRoleMappingRepository:
 
         Returns:
             Updated DiscoveryRoleMapping if found, None otherwise.
+
+        Raises:
+            ValueError: If confidence_score is outside the range 0.0-1.0.
         """
+        _validate_confidence_score(confidence_score, allow_none=False)
         mapping = await self.get_by_id(mapping_id)
         if mapping is None:
             return None
@@ -174,13 +202,28 @@ class DiscoveryRoleMappingRepository:
         Finds all unconfirmed mappings for the session with confidence
         scores >= threshold and marks them as user_confirmed.
 
+        Note:
+            This method has a potential race condition: between the SELECT
+            query and the subsequent UPDATE, other transactions may modify
+            the mappings (e.g., change confidence scores or confirm them).
+            In typical usage this is acceptable because:
+            - Bulk confirmation is usually a one-time user action
+            - Re-confirming an already-confirmed mapping is idempotent
+            - Confidence scores rarely change after initial mapping
+            For high-concurrency scenarios requiring strict consistency,
+            consider using SELECT FOR UPDATE or database-level locking.
+
         Args:
             session_id: UUID of the session whose mappings to confirm.
-            threshold: Minimum confidence score to auto-confirm.
+            threshold: Minimum confidence score to auto-confirm (0.0-1.0).
 
         Returns:
             Number of mappings confirmed.
+
+        Raises:
+            ValueError: If threshold is outside the range 0.0-1.0.
         """
+        _validate_confidence_score(threshold, allow_none=False)
         stmt = select(DiscoveryRoleMapping).where(
             and_(
                 DiscoveryRoleMapping.session_id == session_id,

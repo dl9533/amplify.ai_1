@@ -477,3 +477,245 @@ async def test_get_mapping_by_source_role_not_found(mock_db_session):
 
     result = await repo.get_by_source_role(uuid4(), "Nonexistent Role")
     assert result is None
+
+
+# --- Validation Tests ---
+
+
+@pytest.mark.asyncio
+async def test_create_with_negative_confidence_score_raises_error(mock_db_session):
+    """Should raise ValueError when confidence_score is negative."""
+    repo = DiscoveryRoleMappingRepository(mock_db_session)
+
+    with pytest.raises(ValueError) as exc_info:
+        await repo.create(
+            session_id=uuid4(),
+            source_role="Developer",
+            onet_code="15-1252.00",
+            confidence_score=-0.1,
+        )
+
+    assert "confidence_score must be between 0.0 and 1.0" in str(exc_info.value)
+    mock_db_session.add.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_create_with_confidence_score_greater_than_one_raises_error(mock_db_session):
+    """Should raise ValueError when confidence_score is greater than 1.0."""
+    repo = DiscoveryRoleMappingRepository(mock_db_session)
+
+    with pytest.raises(ValueError) as exc_info:
+        await repo.create(
+            session_id=uuid4(),
+            source_role="Developer",
+            onet_code="15-1252.00",
+            confidence_score=1.5,
+        )
+
+    assert "confidence_score must be between 0.0 and 1.0" in str(exc_info.value)
+    mock_db_session.add.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_create_with_confidence_score_at_zero_boundary(mock_db_session):
+    """Should accept confidence_score of exactly 0.0."""
+    repo = DiscoveryRoleMappingRepository(mock_db_session)
+
+    mapping = await repo.create(
+        session_id=uuid4(),
+        source_role="Developer",
+        onet_code="15-1252.00",
+        confidence_score=0.0,
+    )
+
+    assert mapping.confidence_score == 0.0
+    mock_db_session.add.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_create_with_confidence_score_at_one_boundary(mock_db_session):
+    """Should accept confidence_score of exactly 1.0."""
+    repo = DiscoveryRoleMappingRepository(mock_db_session)
+
+    mapping = await repo.create(
+        session_id=uuid4(),
+        source_role="Developer",
+        onet_code="15-1252.00",
+        confidence_score=1.0,
+    )
+
+    assert mapping.confidence_score == 1.0
+    mock_db_session.add.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_update_confidence_score_negative_raises_error(mock_db_session):
+    """Should raise ValueError when updating with negative confidence_score."""
+    repo = DiscoveryRoleMappingRepository(mock_db_session)
+
+    with pytest.raises(ValueError) as exc_info:
+        await repo.update_confidence_score(uuid4(), -0.5)
+
+    assert "confidence_score must be between 0.0 and 1.0" in str(exc_info.value)
+    mock_db_session.execute.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_update_confidence_score_greater_than_one_raises_error(mock_db_session):
+    """Should raise ValueError when updating with confidence_score > 1.0."""
+    repo = DiscoveryRoleMappingRepository(mock_db_session)
+
+    with pytest.raises(ValueError) as exc_info:
+        await repo.update_confidence_score(uuid4(), 2.0)
+
+    assert "confidence_score must be between 0.0 and 1.0" in str(exc_info.value)
+    mock_db_session.execute.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_update_confidence_score_at_zero_boundary(mock_db_session):
+    """Should accept updating confidence_score to exactly 0.0."""
+    repo = DiscoveryRoleMappingRepository(mock_db_session)
+    mapping_id = uuid4()
+
+    mock_mapping = DiscoveryRoleMapping(
+        id=mapping_id,
+        session_id=uuid4(),
+        source_role="Manager",
+        onet_code="11-1021.00",
+        confidence_score=0.75,
+    )
+
+    mock_result = mock_db_session.execute.return_value
+    mock_result.scalar_one_or_none.return_value = mock_mapping
+
+    updated = await repo.update_confidence_score(mapping_id, 0.0)
+
+    assert updated.confidence_score == 0.0
+
+
+@pytest.mark.asyncio
+async def test_update_confidence_score_at_one_boundary(mock_db_session):
+    """Should accept updating confidence_score to exactly 1.0."""
+    repo = DiscoveryRoleMappingRepository(mock_db_session)
+    mapping_id = uuid4()
+
+    mock_mapping = DiscoveryRoleMapping(
+        id=mapping_id,
+        session_id=uuid4(),
+        source_role="Manager",
+        onet_code="11-1021.00",
+        confidence_score=0.75,
+    )
+
+    mock_result = mock_db_session.execute.return_value
+    mock_result.scalar_one_or_none.return_value = mock_mapping
+
+    updated = await repo.update_confidence_score(mapping_id, 1.0)
+
+    assert updated.confidence_score == 1.0
+
+
+@pytest.mark.asyncio
+async def test_bulk_confirm_negative_threshold_raises_error(mock_db_session):
+    """Should raise ValueError when threshold is negative."""
+    repo = DiscoveryRoleMappingRepository(mock_db_session)
+
+    with pytest.raises(ValueError) as exc_info:
+        await repo.bulk_confirm_above_threshold(uuid4(), -0.1)
+
+    assert "confidence_score must be between 0.0 and 1.0" in str(exc_info.value)
+    mock_db_session.execute.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_bulk_confirm_threshold_greater_than_one_raises_error(mock_db_session):
+    """Should raise ValueError when threshold is greater than 1.0."""
+    repo = DiscoveryRoleMappingRepository(mock_db_session)
+
+    with pytest.raises(ValueError) as exc_info:
+        await repo.bulk_confirm_above_threshold(uuid4(), 1.01)
+
+    assert "confidence_score must be between 0.0 and 1.0" in str(exc_info.value)
+    mock_db_session.execute.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_bulk_confirm_at_threshold_boundary(mock_db_session):
+    """Should confirm mappings with score exactly at threshold."""
+    repo = DiscoveryRoleMappingRepository(mock_db_session)
+    session_id = uuid4()
+    threshold = 0.85
+
+    # Mapping with score exactly at threshold
+    mapping_at_threshold = DiscoveryRoleMapping(
+        id=uuid4(),
+        session_id=session_id,
+        source_role="Developer",
+        onet_code="15-1252.00",
+        confidence_score=0.85,  # Exactly at threshold
+        user_confirmed=False,
+    )
+
+    mock_result = mock_db_session.execute.return_value
+    mock_scalars = MagicMock()
+    mock_scalars.all.return_value = [mapping_at_threshold]
+    mock_result.scalars.return_value = mock_scalars
+
+    count = await repo.bulk_confirm_above_threshold(session_id, threshold)
+
+    assert count == 1
+    assert mapping_at_threshold.user_confirmed is True
+
+
+@pytest.mark.asyncio
+async def test_bulk_confirm_with_zero_threshold(mock_db_session):
+    """Should accept threshold of exactly 0.0."""
+    repo = DiscoveryRoleMappingRepository(mock_db_session)
+    session_id = uuid4()
+
+    mapping = DiscoveryRoleMapping(
+        id=uuid4(),
+        session_id=session_id,
+        source_role="Developer",
+        onet_code="15-1252.00",
+        confidence_score=0.0,
+        user_confirmed=False,
+    )
+
+    mock_result = mock_db_session.execute.return_value
+    mock_scalars = MagicMock()
+    mock_scalars.all.return_value = [mapping]
+    mock_result.scalars.return_value = mock_scalars
+
+    count = await repo.bulk_confirm_above_threshold(session_id, 0.0)
+
+    assert count == 1
+    assert mapping.user_confirmed is True
+
+
+@pytest.mark.asyncio
+async def test_bulk_confirm_with_one_threshold(mock_db_session):
+    """Should accept threshold of exactly 1.0."""
+    repo = DiscoveryRoleMappingRepository(mock_db_session)
+    session_id = uuid4()
+
+    # Only perfect scores get confirmed
+    mapping = DiscoveryRoleMapping(
+        id=uuid4(),
+        session_id=session_id,
+        source_role="Developer",
+        onet_code="15-1252.00",
+        confidence_score=1.0,
+        user_confirmed=False,
+    )
+
+    mock_result = mock_db_session.execute.return_value
+    mock_scalars = MagicMock()
+    mock_scalars.all.return_value = [mapping]
+    mock_result.scalars.return_value = mock_scalars
+
+    count = await repo.bulk_confirm_above_threshold(session_id, 1.0)
+
+    assert count == 1
+    assert mapping.user_confirmed is True
