@@ -10,46 +10,25 @@ interface DiscoveryErrorBoundaryState {
   hasError: boolean
   error: Error | null
   retryKey: number
-  mountId: number
 }
-
-// Module-level tracking of error state
-// This is needed because React 18's concurrent mode may create new component instances
-// during error recovery, losing instance-level state
-let globalErrorMountId = 0 // Which mount the error occurred in
-let globalErrorFlag = false
-let globalRetryKey = 0
-let currentMountId = 0 // Increments each time a new error boundary is mounted
 
 export class DiscoveryErrorBoundary extends React.Component<
   DiscoveryErrorBoundaryProps,
   DiscoveryErrorBoundaryState
 > {
-  private mountId: number
+  private errorContainerRef: React.RefObject<HTMLDivElement | null>
 
   constructor(props: DiscoveryErrorBoundaryProps) {
     super(props)
-    // Each new mount gets a unique ID
-    // If globalErrorFlag is set but for a different mountId, it's from a previous test/context
-    if (globalErrorFlag && globalErrorMountId !== currentMountId) {
-      // Reset - this is a new test/context
-      globalErrorFlag = false
-      globalRetryKey = 0
-    }
-    this.mountId = currentMountId
-    const isAfterRetry = globalRetryKey > 0 && globalErrorMountId === this.mountId
+    this.errorContainerRef = React.createRef()
     this.state = {
       hasError: false,
       error: null,
-      retryKey: globalRetryKey,
-      mountId: this.mountId,
+      retryKey: 0,
     }
   }
 
   static getDerivedStateFromError(error: Error): Partial<DiscoveryErrorBoundaryState> {
-    // Set global flag when error is caught, tracking which mount it belongs to
-    globalErrorFlag = true
-    globalErrorMountId = currentMountId
     // Log error in static method as componentDidCatch may not be called in React 18 concurrent mode
     console.error('[Discovery Error]', error)
     return { hasError: true, error }
@@ -66,35 +45,31 @@ export class DiscoveryErrorBoundary extends React.Component<
     }
   }
 
-  componentDidMount(): void {
-    // Increment mount ID when a boundary actually mounts
-    // This helps distinguish between React's concurrent mode re-creates and actual new mounts
-    currentMountId++
-    this.mountId = currentMountId
+  componentDidUpdate(_prevProps: DiscoveryErrorBoundaryProps, prevState: DiscoveryErrorBoundaryState): void {
+    // Focus management for accessibility - focus the error container when error occurs
+    if (this.state.hasError && !prevState.hasError && this.errorContainerRef.current) {
+      this.errorContainerRef.current.focus()
+    }
   }
 
   handleRetry = (): void => {
-    // Clear the global flag and increment retry key when user explicitly retries
-    globalErrorFlag = false
-    globalRetryKey++
-    this.setState({
+    this.setState((prevState) => ({
       hasError: false,
       error: null,
-      retryKey: globalRetryKey,
-      mountId: this.mountId,
-    })
+      retryKey: prevState.retryKey + 1,
+    }))
   }
 
   render(): React.ReactNode {
-    // Check if we should show error UI:
-    // 1. State says hasError (normal case)
-    // 2. Global flag is set for THIS mount (handles React 18 new instance case)
-    const shouldShowError = this.state.hasError ||
-      (globalErrorFlag && globalErrorMountId === this.mountId)
-
-    if (shouldShowError) {
+    if (this.state.hasError) {
       return (
-        <div className="flex flex-col items-center justify-center min-h-[400px] p-8">
+        <div
+          ref={this.errorContainerRef}
+          role="alert"
+          aria-live="assertive"
+          tabIndex={-1}
+          className="flex flex-col items-center justify-center min-h-[400px] p-8"
+        >
           <div className="text-center max-w-md">
             <h2 className="text-xl font-semibold text-gray-900 mb-2">
               Something went wrong
@@ -127,12 +102,4 @@ export class DiscoveryErrorBoundary extends React.Component<
       </React.Fragment>
     )
   }
-}
-
-// Reset global state for testing purposes
-export function resetErrorBoundaryState(): void {
-  globalErrorFlag = false
-  globalRetryKey = 0
-  globalErrorMountId = 0
-  currentMountId = 0
 }
