@@ -22,12 +22,18 @@ const PHASE_DESCRIPTIONS: Record<Phase, string> = {
   LATER: 'Lower priority - future planning',
 }
 
+/** Validates if a string is a valid Phase */
+function isValidPhase(phase: string): phase is Phase {
+  return PHASES.includes(phase as Phase)
+}
+
 export function KanbanTimeline({
   items,
   onPhaseChange,
 }: KanbanTimelineProps): React.ReactElement {
   const [draggedItemId, setDraggedItemId] = useState<string | null>(null)
   const [dragOverPhase, setDragOverPhase] = useState<Phase | null>(null)
+  const [announcement, setAnnouncement] = useState<string>('')
 
   const itemsByPhase = useMemo(() => {
     const grouped: Record<Phase, KanbanItem[]> = {
@@ -37,8 +43,13 @@ export function KanbanTimeline({
     }
 
     items.forEach((item) => {
-      if (grouped[item.phase as Phase]) {
-        grouped[item.phase as Phase].push(item)
+      if (isValidPhase(item.phase)) {
+        grouped[item.phase].push(item)
+      } else {
+        console.warn(
+          `KanbanTimeline: Invalid phase "${item.phase}" for item "${item.id}". ` +
+            `Expected one of: ${PHASES.join(', ')}`
+        )
       }
     })
 
@@ -52,8 +63,12 @@ export function KanbanTimeline({
         e.dataTransfer.effectAllowed = 'move'
         e.dataTransfer.setData('text/plain', itemId)
       }
+      const item = items.find((i) => i.id === itemId)
+      if (item) {
+        setAnnouncement(`Started dragging ${item.name}`)
+      }
     },
-    []
+    [items]
   )
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -83,11 +98,38 @@ export function KanbanTimeline({
       setDragOverPhase(null)
 
       if (draggedItemId) {
+        const item = items.find((i) => i.id === draggedItemId)
         onPhaseChange(draggedItemId, phase)
         setDraggedItemId(null)
+        if (item) {
+          setAnnouncement(`Moved ${item.name} to ${PHASE_LABELS[phase]} phase`)
+        }
       }
     },
-    [draggedItemId, onPhaseChange]
+    [draggedItemId, onPhaseChange, items]
+  )
+
+  const handleKeyboardMove = useCallback(
+    (itemId: string, direction: 'left' | 'right') => {
+      const item = items.find((i) => i.id === itemId)
+      if (!item) return
+
+      const currentPhaseIndex = PHASES.indexOf(item.phase)
+      let newPhaseIndex: number
+
+      if (direction === 'left') {
+        newPhaseIndex = Math.max(0, currentPhaseIndex - 1)
+      } else {
+        newPhaseIndex = Math.min(PHASES.length - 1, currentPhaseIndex + 1)
+      }
+
+      if (newPhaseIndex !== currentPhaseIndex) {
+        const newPhase = PHASES[newPhaseIndex]
+        onPhaseChange(itemId, newPhase)
+        setAnnouncement(`Moved ${item.name} to ${PHASE_LABELS[newPhase]} phase`)
+      }
+    },
+    [items, onPhaseChange]
   )
 
   return (
@@ -96,6 +138,16 @@ export function KanbanTimeline({
       role="region"
       aria-label="Kanban timeline board"
     >
+      {/* Live region for announcements */}
+      <div
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        className="sr-only"
+      >
+        {announcement}
+      </div>
+
       {PHASES.map((phase) => {
         const columnItems = itemsByPhase[phase]
         const isDropTarget = dragOverPhase === phase
@@ -116,6 +168,7 @@ export function KanbanTimeline({
             onDrop={(e) => handleDrop(e, phase)}
             role="group"
             aria-label={`${PHASE_LABELS[phase]} phase column with ${count} items`}
+            aria-dropeffect={draggedItemId ? 'move' : 'none'}
           >
             {/* Column Header */}
             <div className="p-3 border-b border-gray-200">
@@ -139,6 +192,8 @@ export function KanbanTimeline({
                     key={item.id}
                     item={item}
                     onDragStart={handleDragStart}
+                    onKeyboardMove={handleKeyboardMove}
+                    isGrabbed={draggedItemId === item.id}
                   />
                 ))
               ) : (
