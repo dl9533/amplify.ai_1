@@ -316,3 +316,70 @@ async def test_validate_row_count(file_upload_service):
     )
 
     assert result["row_count"] > 100000
+
+
+@pytest.mark.asyncio
+async def test_upload_file_validates_size(file_upload_service, mock_s3_client):
+    """Should validate file size before uploading."""
+    session_id = uuid4()
+    # Create content that exceeds the max file size
+    large_content = b"x" * (101 * 1024 * 1024)  # 101MB
+
+    with pytest.raises(ValueError, match="File size exceeds"):
+        await file_upload_service.upload_file(
+            session_id=session_id,
+            file_name="large.csv",
+            file_content=large_content
+        )
+
+    # S3 upload should not have been called
+    mock_s3_client.upload_fileobj.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_upload_and_register_cleans_up_on_db_failure(
+    file_upload_service, mock_s3_client, mock_upload_repo
+):
+    """Should clean up S3 file when database registration fails."""
+    session_id = uuid4()
+    file_content = b"Name,Role\nJohn,Engineer"
+    file_name = "test.csv"
+
+    # Make S3 upload succeed
+    mock_s3_client.upload_fileobj.return_value = None
+
+    # Make database registration fail
+    mock_upload_repo.create.side_effect = Exception("Database error")
+
+    with pytest.raises(Exception, match="Database error"):
+        await file_upload_service.upload_and_register(
+            session_id=session_id,
+            file_name=file_name,
+            file_content=file_content
+        )
+
+    # S3 cleanup should have been attempted
+    mock_s3_client.delete_object.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_delete_upload_handles_not_found(file_upload_service, mock_upload_repo):
+    """Should raise ValueError when upload doesn't exist."""
+    upload_id = uuid4()
+    mock_upload_repo.get_by_id.return_value = None
+
+    with pytest.raises(ValueError, match="Upload not found"):
+        await file_upload_service.delete_upload(upload_id)
+
+
+@pytest.mark.asyncio
+async def test_extract_unique_values_invalid_column(file_upload_service):
+    """Should raise ValueError when column doesn't exist in file."""
+    file_content = b"Name,Role\nJohn,Engineer\nJane,Manager"
+
+    with pytest.raises(ValueError, match="Column 'NonExistent' not found"):
+        await file_upload_service.extract_unique_values(
+            file_content=file_content,
+            file_name="test.csv",
+            column_name="NonExistent"
+        )

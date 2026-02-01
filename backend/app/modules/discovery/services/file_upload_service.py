@@ -89,6 +89,12 @@ class FileUploadService:
     # Supported file extensions
     SUPPORTED_EXTENSIONS = {".csv", ".xlsx", ".xls"}
 
+    # Sample row limit for preview
+    SAMPLE_ROW_LIMIT = 5
+
+    # Row limit for type detection sampling
+    TYPE_DETECTION_ROW_LIMIT = 100
+
     # Column name patterns for role mapping suggestions
     ROLE_PATTERNS = [
         "job title",
@@ -149,7 +155,14 @@ class FileUploadService:
             Dictionary containing:
             - file_url: S3 URL of the uploaded file
             - s3_key: The S3 key used for storage
+
+        Raises:
+            ValueError: If file fails validation (size or type).
+            RuntimeError: If S3 upload fails.
         """
+        # Validate file before upload
+        await self.validate_file(file_name, file_content)
+
         # Generate unique S3 key with session prefix
         unique_id = uuid4()
         s3_key = f"sessions/{session_id}/{unique_id}_{file_name}"
@@ -158,11 +171,14 @@ class FileUploadService:
         file_obj = io.BytesIO(file_content)
 
         # Upload to S3
-        await self.s3_client.upload_fileobj(
-            fileobj=file_obj,
-            bucket=self.bucket_name,
-            key=s3_key,
-        )
+        try:
+            await self.s3_client.upload_fileobj(
+                fileobj=file_obj,
+                bucket=self.bucket_name,
+                key=s3_key,
+            )
+        except Exception as e:
+            raise RuntimeError(f"Failed to upload file to S3: {e}") from e
 
         # Construct S3 URL
         file_url = f"s3://{self.bucket_name}/{s3_key}"
@@ -241,8 +257,8 @@ class FileUploadService:
         # Detect column types from data
         column_types = self._detect_column_types(header, data_rows)
 
-        # Extract sample values (up to 5 rows)
-        sample_values = data_rows[:5]
+        # Extract sample values (up to SAMPLE_ROW_LIMIT rows)
+        sample_values = data_rows[:self.SAMPLE_ROW_LIMIT]
 
         return {
             "row_count": len(data_rows),
@@ -290,7 +306,7 @@ class FileUploadService:
             column_types = self._detect_column_types(header, data_rows)
 
             # Extract sample values
-            sample_values = data_rows[:5]
+            sample_values = data_rows[:self.SAMPLE_ROW_LIMIT]
 
             workbook.close()
 
@@ -340,7 +356,7 @@ class FileUploadService:
         for col_idx in range(num_columns):
             # Get non-empty values for this column
             values = []
-            for row in data_rows[:100]:  # Sample first 100 rows
+            for row in data_rows[:self.TYPE_DETECTION_ROW_LIMIT]:  # Sample rows for type detection
                 if col_idx < len(row) and row[col_idx]:
                     values.append(str(row[col_idx]).strip())
 
@@ -461,14 +477,25 @@ class FileUploadService:
             file_content=file_content,
         )
 
-        # Register in database
-        upload_record = await self.upload_repo.create(
-            session_id=session_id,
-            file_name=file_name,
-            file_url=upload_result["file_url"],
-            row_count=parsed_data["row_count"],
-            detected_schema=parsed_data["detected_schema"],
-        )
+        # Register in database with rollback on failure
+        try:
+            upload_record = await self.upload_repo.create(
+                session_id=session_id,
+                file_name=file_name,
+                file_url=upload_result["file_url"],
+                row_count=parsed_data["row_count"],
+                detected_schema=parsed_data["detected_schema"],
+            )
+        except Exception as e:
+            # Clean up orphaned S3 file
+            try:
+                await self.s3_client.delete_object(
+                    bucket=self.bucket_name,
+                    key=upload_result["s3_key"],
+                )
+            except Exception:
+                pass  # Best effort cleanup
+            raise
 
         return {
             "upload_id": upload_record.id,
@@ -498,10 +525,13 @@ class FileUploadService:
         s3_key = self._extract_s3_key(file_url)
 
         # Delete from S3
-        await self.s3_client.delete_object(
-            bucket=self.bucket_name,
-            key=s3_key,
-        )
+        try:
+            await self.s3_client.delete_object(
+                bucket=self.bucket_name,
+                key=s3_key,
+            )
+        except Exception as e:
+            raise RuntimeError(f"Failed to delete file from S3: {e}") from e
 
         # Delete from database
         await self.upload_repo.delete(upload_id)
@@ -539,14 +569,17 @@ class FileUploadService:
         """
         s3_key = self._extract_s3_key(file_url)
 
-        presigned_url = await self.s3_client.generate_presigned_url(
-            client_method="get_object",
-            params={
-                "Bucket": self.bucket_name,
-                "Key": s3_key,
-            },
-            expires_in=expires_in,
-        )
+        try:
+            presigned_url = await self.s3_client.generate_presigned_url(
+                client_method="get_object",
+                params={
+                    "Bucket": self.bucket_name,
+                    "Key": s3_key,
+                },
+                expires_in=expires_in,
+            )
+        except Exception as e:
+            raise RuntimeError(f"Failed to generate presigned URL: {e}") from e
 
         return presigned_url
 
@@ -568,27 +601,24 @@ class FileUploadService:
 
         Returns:
             Dictionary mapping unique values to their occurrence counts.
-        """
-        # Parse the file
-        parsed = await self.parse_file(
-            file_name=file_name,
-            file_content=file_content,
-        )
 
-        columns = parsed["detected_schema"]["columns"]
+        Raises:
+            ValueError: If column name does not exist in the file.
+        """
+        # Get file extension to determine parsing strategy
+        extension = self._get_file_extension(file_name)
+
+        # Parse once and get both columns and all rows
+        if extension == ".csv":
+            columns, all_rows = await self._get_csv_columns_and_rows(file_content)
+        else:
+            columns, all_rows = await self._get_xlsx_columns_and_rows(file_content)
 
         # Find column index
-        try:
-            col_idx = columns.index(column_name)
-        except ValueError:
-            return {}
+        if column_name not in columns:
+            raise ValueError(f"Column '{column_name}' not found in file")
 
-        # Need to re-parse to get all rows
-        extension = self._get_file_extension(file_name)
-        if extension == ".csv":
-            all_rows = await self._get_all_csv_rows(file_content)
-        else:
-            all_rows = await self._get_all_xlsx_rows(file_content)
+        col_idx = columns.index(column_name)
 
         # Extract values from the column
         values = []
@@ -599,8 +629,10 @@ class FileUploadService:
         # Count unique values
         return dict(Counter(values))
 
-    async def _get_all_csv_rows(self, file_content: bytes) -> list[list[str]]:
-        """Get all data rows from CSV content."""
+    async def _get_csv_columns_and_rows(
+        self, file_content: bytes
+    ) -> tuple[list[str], list[list[str]]]:
+        """Get columns and all data rows from CSV content in a single parse."""
         try:
             text_content = file_content.decode("utf-8")
         except UnicodeDecodeError:
@@ -608,10 +640,16 @@ class FileUploadService:
 
         reader = csv.reader(io.StringIO(text_content))
         rows = list(reader)
-        return rows[1:] if rows else []  # Skip header
 
-    async def _get_all_xlsx_rows(self, file_content: bytes) -> list[list[str]]:
-        """Get all data rows from XLSX content."""
+        if not rows:
+            return [], []
+
+        return rows[0], rows[1:]  # columns, data rows
+
+    async def _get_xlsx_columns_and_rows(
+        self, file_content: bytes
+    ) -> tuple[list[str], list[list[str]]]:
+        """Get columns and all data rows from XLSX content in a single parse."""
         try:
             import openpyxl
 
@@ -619,22 +657,25 @@ class FileUploadService:
             sheet = workbook.active
 
             if sheet is None:
-                return []
+                return [], []
 
             rows = list(sheet.iter_rows(values_only=True))
             workbook.close()
 
             if not rows:
-                return []
+                return [], []
 
-            # Convert to strings, skip header
-            return [
+            # Convert to strings
+            columns = [str(cell) if cell is not None else "" for cell in rows[0]]
+            data_rows = [
                 [str(cell) if cell is not None else "" for cell in row]
                 for row in rows[1:]
             ]
 
+            return columns, data_rows
+
         except ImportError:
-            return []
+            return [], []
 
     async def validate_file(
         self,
