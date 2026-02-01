@@ -72,6 +72,39 @@ class TestWorkingMemory:
 
         mock_repos["working_memory_repo"].delete_by_session_id.assert_called_once_with(session_id)
 
+    @pytest.mark.asyncio
+    async def test_get_working_memory_returns_empty_dict_when_none(
+        self, memory_service, mock_repos
+    ):
+        """Should return empty dict when no memory exists for session."""
+        session_id = uuid4()
+        mock_repos["working_memory_repo"].get_by_session_id.return_value = None
+
+        result = await memory_service.get_working_memory(
+            session_id=session_id,
+            working_memory_repo=mock_repos["working_memory_repo"],
+        )
+
+        assert result == {}
+        mock_repos["working_memory_repo"].get_by_session_id.assert_called_once_with(session_id)
+
+    @pytest.mark.asyncio
+    async def test_update_working_memory_handles_missing_session(
+        self, memory_service, mock_repos
+    ):
+        """Should use updates as context when session not found."""
+        session_id = uuid4()
+        mock_repos["working_memory_repo"].get_by_session_id.return_value = None
+        updates = {"current_step": "upload", "last_action": "started"}
+
+        await memory_service.update_working_memory(
+            session_id=session_id,
+            updates=updates,
+            working_memory_repo=mock_repos["working_memory_repo"],
+        )
+
+        mock_repos["working_memory_repo"].update.assert_called_once_with(session_id, updates)
+
 
 class TestEpisodicMemory:
     """Tests for episodic memory operations."""

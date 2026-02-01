@@ -29,6 +29,8 @@ class AgentMemoryService:
             The session context dictionary.
         """
         memory = await working_memory_repo.get_by_session_id(session_id)
+        if memory is None:
+            return {}
         return memory.context
 
     async def update_working_memory(
@@ -45,7 +47,10 @@ class AgentMemoryService:
             working_memory_repo: Repository for working memory operations.
         """
         memory = await working_memory_repo.get_by_session_id(session_id)
-        merged_context = {**memory.context, **updates}
+        if memory is None:
+            merged_context = updates
+        else:
+            merged_context = {**memory.context, **updates}
         await working_memory_repo.update(session_id, merged_context)
 
     async def clear_working_memory(
