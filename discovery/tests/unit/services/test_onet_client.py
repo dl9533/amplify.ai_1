@@ -315,6 +315,7 @@ class TestErrorHandling:
                 await onet_client.search_occupations("software")
 
             assert exc_info.value.status_code == 429
+            assert exc_info.value.retry_after == 60
 
     @pytest.mark.asyncio
     async def test_auth_error_raised_on_401(self, onet_client):
@@ -426,3 +427,145 @@ class TestHttpxAsyncClient:
             call_args = mock_client.get.call_args
             headers = call_args.kwargs.get("headers", {})
             assert headers.get("Accept") == "application/json"
+
+    @pytest.mark.asyncio
+    async def test_async_client_has_timeout(self, onet_client):
+        """Should configure httpx.AsyncClient with timeout."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"occupation": []}
+        mock_response.raise_for_status = MagicMock()
+
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.get.return_value = mock_response
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_class.return_value = mock_client
+
+            await onet_client.search_occupations("test")
+
+            mock_client_class.assert_called_once_with(timeout=30.0)
+
+
+class TestEdgeCases:
+    """Tests for edge cases and error conditions."""
+
+    @pytest.mark.asyncio
+    async def test_rate_limit_with_invalid_retry_after_header(self, onet_client):
+        """Should handle non-numeric Retry-After header gracefully."""
+        mock_response = MagicMock()
+        mock_response.status_code = 429
+        mock_response.headers = {"Retry-After": "invalid-value"}
+        mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+            message="Too Many Requests",
+            request=MagicMock(),
+            response=mock_response,
+        )
+
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.get.return_value = mock_response
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_class.return_value = mock_client
+
+            with pytest.raises(OnetRateLimitError) as exc_info:
+                await onet_client.search_occupations("software")
+
+            assert exc_info.value.status_code == 429
+            assert exc_info.value.retry_after is None
+
+    @pytest.mark.asyncio
+    async def test_rate_limit_without_retry_after_header(self, onet_client):
+        """Should handle missing Retry-After header gracefully."""
+        mock_response = MagicMock()
+        mock_response.status_code = 429
+        mock_response.headers = {}
+        mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+            message="Too Many Requests",
+            request=MagicMock(),
+            response=mock_response,
+        )
+
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.get.return_value = mock_response
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_class.return_value = mock_client
+
+            with pytest.raises(OnetRateLimitError) as exc_info:
+                await onet_client.search_occupations("software")
+
+            assert exc_info.value.status_code == 429
+            assert exc_info.value.retry_after is None
+
+    def test_empty_api_key_creates_valid_auth(self):
+        """Should create Basic Auth even with empty API key."""
+        mock_settings = MagicMock(spec=Settings)
+        mock_settings.onet_api_key = MagicMock()
+        mock_settings.onet_api_key.get_secret_value.return_value = ""
+        mock_settings.onet_api_base_url = "https://services.onetcenter.org/ws/"
+
+        client = OnetApiClient(settings=mock_settings)
+        auth = client._get_auth()
+
+        assert isinstance(auth, httpx.BasicAuth)
+
+    @pytest.mark.asyncio
+    async def test_search_occupations_missing_occupation_key(self, onet_client):
+        """Should return empty list when response is missing 'occupation' key."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {}  # Missing 'occupation' key
+        mock_response.raise_for_status = MagicMock()
+
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.get.return_value = mock_response
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_class.return_value = mock_client
+
+            results = await onet_client.search_occupations("software")
+
+            assert results == []
+
+    @pytest.mark.asyncio
+    async def test_get_work_activities_missing_element_key(self, onet_client):
+        """Should return empty list when response is missing 'element' key."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {}  # Missing 'element' key
+        mock_response.raise_for_status = MagicMock()
+
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.get.return_value = mock_response
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_class.return_value = mock_client
+
+            results = await onet_client.get_work_activities("15-1252.00")
+
+            assert results == []
+
+    @pytest.mark.asyncio
+    async def test_get_tasks_missing_task_key(self, onet_client):
+        """Should return empty list when response is missing 'task' key."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {}  # Missing 'task' key
+        mock_response.raise_for_status = MagicMock()
+
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.get.return_value = mock_response
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_class.return_value = mock_client
+
+            results = await onet_client.get_tasks("15-1252.00")
+
+            assert results == []

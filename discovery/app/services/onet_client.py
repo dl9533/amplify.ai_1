@@ -86,7 +86,7 @@ class OnetApiClient:
         url = f"{self.base_url}{endpoint}"
         headers = {"Accept": "application/json"}
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(
                 url=url,
                 auth=self._get_auth(),
