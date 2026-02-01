@@ -204,13 +204,21 @@ class DiscoverySessionService:
         Returns:
             Dictionary containing:
             - session_id: UUID of the session
-            - current_step: Current step number
-            - status: Current session status
-            - row_count: Number of rows in latest upload (0 if no upload)
-            - role_mapping_count: Number of role mappings
-            - candidate_count: Number of candidates
+            - exists: Boolean indicating if session was found
+            - current_step: Current step number (only if exists)
+            - status: Current session status (only if exists)
+            - row_count: Number of rows in latest upload (only if exists)
+            - role_mapping_count: Number of role mappings (only if exists)
+            - candidate_count: Number of candidates (only if exists)
         """
         session = await self.session_repo.get_by_id(session_id)
+
+        # Return early if session doesn't exist
+        if session is None:
+            return {
+                "session_id": session_id,
+                "exists": False,
+            }
 
         # Get latest upload for row count
         upload = await self.upload_repo.get_latest_for_session(session_id)
@@ -224,8 +232,9 @@ class DiscoverySessionService:
 
         return {
             "session_id": session_id,
-            "current_step": session.current_step if session else 0,
-            "status": session.status if session else None,
+            "exists": True,
+            "current_step": session.current_step,
+            "status": session.status,
             "row_count": row_count,
             "role_mapping_count": len(role_mappings),
             "candidate_count": len(candidates),
@@ -335,7 +344,11 @@ class DiscoverySessionService:
 
         Returns:
             List of created DiscoveryAnalysisResult instances.
+            Returns empty list if results is empty.
         """
+        if not results:
+            return []
+
         created_results = []
         for result_data in results:
             result = await self.analysis_result_repo.create(
@@ -391,12 +404,20 @@ class DiscoverySessionService:
 
         Marks each candidate as selected_for_build=True.
 
+        Note: This method makes N database calls where N is the number of candidates.
+        This is a known trade-off since the repository's select_for_build method
+        updates a single record. Bulk optimization could be added to the repository
+        layer in the future if performance becomes a concern.
+
         Args:
             candidate_ids: List of candidate UUIDs to select.
 
         Returns:
             List of updated AgentificationCandidate instances.
         """
+        if not candidate_ids:
+            return []
+
         selected = []
         for candidate_id in candidate_ids:
             candidate = await self.candidate_repo.select_for_build(candidate_id)
@@ -409,6 +430,12 @@ class DiscoverySessionService:
 
         Aggregates all selected candidates with their role mappings and
         analysis results for handoff to the intake process.
+
+        Note: This method makes 2*N database calls where N is the number of
+        selected candidates (one for role mapping, one for analysis results per
+        candidate). This is a known trade-off as bulk fetching would require
+        repository-level changes. Consider optimizing if performance becomes
+        a concern with large numbers of candidates.
 
         Args:
             session_id: UUID of the session to create bundle for.
@@ -434,12 +461,24 @@ class DiscoverySessionService:
             candidate_bundle = {
                 "id": candidate.id,
                 "name": candidate.name,
+                "description": candidate.description,
+                "priority_tier": candidate.priority_tier,
+                "estimated_impact": candidate.estimated_impact,
                 "role_mapping": {
                     "source_role": role_mapping.source_role if role_mapping else None,
                     "onet_code": role_mapping.onet_code if role_mapping else None,
                 },
                 "analysis_results": [
-                    {"ai_exposure_score": r.ai_exposure_score} for r in analysis_results
+                    {
+                        "dimension": r.dimension,
+                        "dimension_value": r.dimension_value,
+                        "ai_exposure_score": r.ai_exposure_score,
+                        "impact_score": r.impact_score,
+                        "complexity_score": r.complexity_score,
+                        "priority_score": r.priority_score,
+                        "breakdown": r.breakdown,
+                    }
+                    for r in analysis_results
                 ],
             }
             candidates_data.append(candidate_bundle)

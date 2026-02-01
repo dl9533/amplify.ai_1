@@ -111,6 +111,18 @@ async def test_advance_step(session_service, mock_session_repo):
 
 
 @pytest.mark.asyncio
+async def test_advance_step_when_session_not_found(session_service, mock_session_repo):
+    """Should return None when session is not found."""
+    session_id = uuid4()
+    mock_session_repo.get_by_id.return_value = None
+
+    result = await session_service.advance_step(session_id)
+
+    assert result is None
+    mock_session_repo.update_step.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_advance_step_updates_status_to_in_progress(session_service, mock_session_repo):
     """Should update status to IN_PROGRESS when advancing from step 1."""
     session_id = uuid4()
@@ -145,6 +157,18 @@ async def test_go_to_step(session_service, mock_session_repo):
 
 
 @pytest.mark.asyncio
+async def test_go_to_step_when_session_not_found(session_service, mock_session_repo):
+    """Should return None when session is not found."""
+    session_id = uuid4()
+    mock_session_repo.get_by_id.return_value = None
+
+    result = await session_service.go_to_step(session_id, step=3)
+
+    assert result is None
+    mock_session_repo.update_step.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_go_to_step_rejects_invalid_step(session_service, mock_session_repo):
     """Should reject invalid step numbers."""
     session_id = uuid4()
@@ -155,6 +179,19 @@ async def test_go_to_step_rejects_invalid_step(session_service, mock_session_rep
 
     with pytest.raises(ValueError, match="Step must be between 1 and 5"):
         await session_service.go_to_step(session_id, step=6)
+
+    mock_session_repo.update_step.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_go_to_step_with_step_zero(session_service, mock_session_repo):
+    """Should reject step < 1."""
+    session_id = uuid4()
+
+    with pytest.raises(ValueError, match="Step must be between 1 and 5"):
+        await session_service.go_to_step(session_id, step=0)
+
+    mock_session_repo.update_step.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -213,11 +250,30 @@ async def test_get_session_summary(session_service, mock_session_repo, mock_uplo
     summary = await session_service.get_session_summary(session_id)
 
     assert summary["session_id"] == session_id
+    assert summary["exists"] is True
     assert summary["current_step"] == 3
     assert summary["status"] == SessionStatus.IN_PROGRESS
     assert summary["row_count"] == 1500
     assert summary["role_mapping_count"] == 3
     assert summary["candidate_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_get_session_summary_when_session_not_found(session_service, mock_session_repo, mock_upload_repo, mock_role_mapping_repo, mock_candidate_repo):
+    """Should return a dict indicating session doesn't exist when not found."""
+    session_id = uuid4()
+    mock_session_repo.get_by_id.return_value = None
+
+    summary = await session_service.get_session_summary(session_id)
+
+    assert summary["session_id"] == session_id
+    assert summary["exists"] is False
+    assert "current_step" not in summary
+    assert "status" not in summary
+    # Should not call other repos when session doesn't exist
+    mock_upload_repo.get_latest_for_session.assert_not_called()
+    mock_role_mapping_repo.get_by_session_id.assert_not_called()
+    mock_candidate_repo.get_by_session_id.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -313,6 +369,22 @@ async def test_store_analysis_results(session_service, mock_analysis_result_repo
 
 
 @pytest.mark.asyncio
+async def test_store_analysis_results_with_empty_list(session_service, mock_analysis_result_repo):
+    """Should return empty list when given empty results."""
+    session_id = uuid4()
+    role_mapping_id = uuid4()
+
+    result = await session_service.store_analysis_results(
+        session_id=session_id,
+        role_mapping_id=role_mapping_id,
+        results=[]
+    )
+
+    assert result == []
+    mock_analysis_result_repo.create.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_create_candidate(session_service, mock_candidate_repo):
     """Should create an agentification candidate."""
     session_id = uuid4()
@@ -352,8 +424,17 @@ async def test_select_candidates_for_build(session_service, mock_candidate_repo)
 
 
 @pytest.mark.asyncio
+async def test_select_candidates_for_build_empty_list(session_service, mock_candidate_repo):
+    """Should return empty list when given empty input."""
+    result = await session_service.select_candidates_for_build([])
+
+    assert result == []
+    mock_candidate_repo.select_for_build.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_get_handoff_bundle(session_service, mock_session_repo, mock_candidate_repo, mock_role_mapping_repo, mock_analysis_result_repo):
-    """Should prepare a handoff bundle for intake."""
+    """Should prepare a handoff bundle for intake with complete candidate data."""
     session_id = uuid4()
 
     mock_session = MagicMock()
@@ -361,19 +442,65 @@ async def test_get_handoff_bundle(session_service, mock_session_repo, mock_candi
     mock_session_repo.get_by_id.return_value = mock_session
 
     mock_candidates = [
-        MagicMock(id=uuid4(), name="Agent1", selected_for_build=True, role_mapping_id=uuid4()),
-        MagicMock(id=uuid4(), name="Agent2", selected_for_build=True, role_mapping_id=uuid4()),
+        MagicMock(
+            id=uuid4(),
+            name="Agent1",
+            description="Test agent description",
+            priority_tier=PriorityTier.NOW,
+            estimated_impact=0.85,
+            selected_for_build=True,
+            role_mapping_id=uuid4()
+        ),
+        MagicMock(
+            id=uuid4(),
+            name="Agent2",
+            description="Another agent",
+            priority_tier=PriorityTier.NEXT_QUARTER,
+            estimated_impact=0.72,
+            selected_for_build=True,
+            role_mapping_id=uuid4()
+        ),
     ]
     mock_candidate_repo.get_selected_for_build.return_value = mock_candidates
 
     mock_role_mapping_repo.get_by_id.return_value = MagicMock(source_role="Engineer", onet_code="15-1252.00")
-    mock_analysis_result_repo.get_by_role_mapping_id.return_value = [MagicMock(ai_exposure_score=0.85)]
+
+    mock_analysis_result = MagicMock(
+        dimension=AnalysisDimension.ROLE,
+        dimension_value="Engineer",
+        ai_exposure_score=0.85,
+        impact_score=0.80,
+        complexity_score=0.60,
+        priority_score=0.75,
+        breakdown={"detail": "test"}
+    )
+    mock_analysis_result_repo.get_by_role_mapping_id.return_value = [mock_analysis_result]
 
     bundle = await session_service.get_handoff_bundle(session_id)
 
     assert "session_id" in bundle
     assert "candidates" in bundle
     assert len(bundle["candidates"]) == 2
+
+    # Verify complete candidate data is included
+    candidate_bundle = bundle["candidates"][0]
+    assert "id" in candidate_bundle
+    assert "name" in candidate_bundle
+    assert "description" in candidate_bundle
+    assert "priority_tier" in candidate_bundle
+    assert "estimated_impact" in candidate_bundle
+    assert "role_mapping" in candidate_bundle
+    assert "analysis_results" in candidate_bundle
+
+    # Verify full analysis result fields
+    analysis_result = candidate_bundle["analysis_results"][0]
+    assert "dimension" in analysis_result
+    assert "dimension_value" in analysis_result
+    assert "ai_exposure_score" in analysis_result
+    assert "impact_score" in analysis_result
+    assert "complexity_score" in analysis_result
+    assert "priority_score" in analysis_result
+    assert "breakdown" in analysis_result
 
 
 @pytest.mark.asyncio
