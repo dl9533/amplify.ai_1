@@ -15,3 +15,6 @@ export type { DWA, GWA, UseActivitySelectionsReturn } from './useActivitySelecti
 
 export { useAnalysisResults } from './useAnalysisResults'
 export type { Dimension, PriorityTier, AnalysisResult, UseAnalysisResultsReturn } from './useAnalysisResults'
+
+export { useRoadmap } from './useRoadmap'
+export type { Phase, RoadmapCandidate, UseRoadmapReturn } from './useRoadmap'
