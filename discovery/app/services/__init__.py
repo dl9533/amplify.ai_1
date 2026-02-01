@@ -7,6 +7,7 @@ from app.services.analysis_service import (
     get_scoring_service,
 )
 from app.services.memory_service import AgentMemoryService
+from app.services.roadmap_service import RoadmapService, get_roadmap_service
 from app.services.role_mapping_service import (
     OnetService,
     RoleMappingService,
@@ -22,8 +23,10 @@ __all__ = [
     "AnalysisService",
     "get_activity_service",
     "get_analysis_service",
+    "get_roadmap_service",
     "get_scoring_service",
     "OnetService",
+    "RoadmapService",
     "RoleMappingService",
     "get_onet_service",
     "get_role_mapping_service",
