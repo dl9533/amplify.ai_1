@@ -6,3 +6,6 @@ export type { UploadedFile, UseFileUploadOptions, UseFileUploadReturn } from './
 
 export { useRoleMappings } from './useRoleMappings'
 export type { RoleMapping, UseRoleMappingsReturn } from './useRoleMappings'
+
+export { useOnetSearch } from './useOnetSearch'
+export type { OnetOccupation, UseOnetSearchReturn } from './useOnetSearch'
