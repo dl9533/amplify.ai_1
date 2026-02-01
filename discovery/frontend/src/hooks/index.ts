@@ -9,3 +9,6 @@ export type { RoleMapping, UseRoleMappingsReturn } from './useRoleMappings'
 
 export { useOnetSearch } from './useOnetSearch'
 export type { OnetOccupation, UseOnetSearchReturn } from './useOnetSearch'
+
+export { useActivitySelections } from './useActivitySelections'
+export type { DWA, GWA, UseActivitySelectionsReturn } from './useActivitySelections'
