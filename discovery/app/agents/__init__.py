@@ -3,6 +3,7 @@ from app.agents.activity_agent import ActivitySubagent
 from app.agents.analysis_agent import AnalysisSubagent
 from app.agents.base import BaseSubagent
 from app.agents.mapping_agent import MappingSubagent
+from app.agents.orchestrator import DiscoveryOrchestrator
 from app.agents.roadmap_agent import RoadmapSubagent
 from app.agents.upload_agent import UploadSubagent
 
@@ -10,6 +11,7 @@ __all__ = [
     "ActivitySubagent",
     "AnalysisSubagent",
     "BaseSubagent",
+    "DiscoveryOrchestrator",
     "MappingSubagent",
     "RoadmapSubagent",
     "UploadSubagent",
