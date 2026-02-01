@@ -1,6 +1,12 @@
 """Quick action chip generator for conversational UI."""
+import logging
 from dataclasses import dataclass
-from typing import Optional, Union
+from typing import TYPE_CHECKING, Optional, Union
+
+if TYPE_CHECKING:
+    from app.agents.message_formatter import QuickAction
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -11,9 +17,14 @@ class Chip:
         label: Display text for the chip.
         value: Value sent to API when chip is selected.
         type: Chip type, typically "choice".
-        icon: Optional icon identifier for the chip.
         style: Visual style, "primary" for recommended or "secondary".
         disabled: Whether the chip is disabled/unclickable.
+        icon: Optional icon identifier for the chip.
+
+    Note:
+        The field ordering (required fields first, optional `icon` last) is
+        intentional and valid in Python 3.10+ where fields with defaults can
+        follow fields without defaults in dataclasses.
     """
 
     label: str
@@ -22,6 +33,16 @@ class Chip:
     style: str
     disabled: bool
     icon: Optional[str] = None
+
+    def to_quick_action(self) -> "QuickAction":
+        """Convert this Chip to a QuickAction for message formatting.
+
+        Returns:
+            A QuickAction with the chip's label and value.
+        """
+        from app.agents.message_formatter import QuickAction
+
+        return QuickAction(label=self.label, value=self.value)
 
 
 class QuickActionChipGenerator:
@@ -85,6 +106,12 @@ class QuickActionChipGenerator:
             label = choice.get("label", "")
             icon = choice.get("icon")
             disabled = choice.get("disabled", False)
+
+            if not label:
+                logger.warning(
+                    "Dict choice has empty or missing label: %r",
+                    choice,
+                )
         else:
             label = str(choice)
             icon = None
@@ -102,14 +129,11 @@ class QuickActionChipGenerator:
     def generate_column_chips(
         self,
         columns: list[str],
-        context: str,
     ) -> list[Chip]:
         """Generate chips for column selection in data upload flows.
 
         Args:
             columns: List of column names to create chips for.
-            context: Context identifier (e.g., "role_column", "name_column")
-                for potential future styling or filtering.
 
         Returns:
             List of Chip objects for column selection.
@@ -141,7 +165,8 @@ class QuickActionChipGenerator:
 
         Returns:
             List of Chip objects with occupation titles as labels
-            and O*NET codes as values.
+            and O*NET codes as values. Suggestions missing required
+            fields (code or title) are skipped with a warning.
         """
         if not suggestions:
             return []
@@ -150,6 +175,16 @@ class QuickActionChipGenerator:
         for suggestion in suggestions:
             code = suggestion.get("code", "")
             title = suggestion.get("title", "")
+
+            # Skip suggestions missing required fields
+            if not code or not title:
+                logger.warning(
+                    "Skipping O*NET suggestion with missing required fields: "
+                    "code=%r, title=%r",
+                    code,
+                    title,
+                )
+                continue
 
             chips.append(
                 Chip(

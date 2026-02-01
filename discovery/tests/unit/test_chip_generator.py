@@ -84,7 +84,6 @@ class TestContextualChips:
         """Should generate chips for column selection."""
         result = generator.generate_column_chips(
             columns=["Name", "Department", "Title"],
-            context="role_column",
         )
 
         assert len(result) == 3
@@ -94,7 +93,6 @@ class TestContextualChips:
         """Should set type to choice for column chips."""
         result = generator.generate_column_chips(
             columns=["Name", "Email"],
-            context="name_column",
         )
 
         assert all(chip.type == "choice" for chip in result)
@@ -230,3 +228,108 @@ class TestChipDataclass:
         )
 
         assert chip.icon is None
+
+    def test_chip_to_quick_action(self):
+        """Should convert Chip to QuickAction."""
+        chip = Chip(
+            label="Test Label",
+            value="test_value",
+            type="choice",
+            style="primary",
+            disabled=False,
+            icon="star",
+        )
+
+        quick_action = chip.to_quick_action()
+
+        assert quick_action.label == "Test Label"
+        assert quick_action.value == "test_value"
+
+
+class TestEdgeCases:
+    """Tests for edge cases and validation."""
+
+    def test_generate_with_empty_choices_list(self, generator):
+        """Should return empty list when choices is empty."""
+        result = generator.generate(choices=[])
+
+        assert result == []
+
+    def test_generate_onet_chips_with_empty_suggestions(self, generator):
+        """Should return empty list when suggestions is empty."""
+        result = generator.generate_onet_chips([])
+
+        assert result == []
+
+    def test_generate_onet_chips_skips_missing_code(self, generator):
+        """Should skip suggestions missing code field."""
+        suggestions = [
+            {"title": "Software Developer", "score": 0.95},  # missing code
+            {"code": "15-1254.00", "title": "Web Developer", "score": 0.85},
+        ]
+
+        result = generator.generate_onet_chips(suggestions)
+
+        assert len(result) == 1
+        assert result[0].label == "Web Developer"
+
+    def test_generate_onet_chips_skips_missing_title(self, generator):
+        """Should skip suggestions missing title field."""
+        suggestions = [
+            {"code": "15-1252.00", "score": 0.95},  # missing title
+            {"code": "15-1254.00", "title": "Web Developer", "score": 0.85},
+        ]
+
+        result = generator.generate_onet_chips(suggestions)
+
+        assert len(result) == 1
+        assert result[0].value == "15-1254.00"
+
+    def test_generate_onet_chips_skips_empty_code(self, generator):
+        """Should skip suggestions with empty code."""
+        suggestions = [
+            {"code": "", "title": "Software Developer", "score": 0.95},
+            {"code": "15-1254.00", "title": "Web Developer", "score": 0.85},
+        ]
+
+        result = generator.generate_onet_chips(suggestions)
+
+        assert len(result) == 1
+        assert result[0].label == "Web Developer"
+
+    def test_generate_onet_chips_skips_empty_title(self, generator):
+        """Should skip suggestions with empty title."""
+        suggestions = [
+            {"code": "15-1252.00", "title": "", "score": 0.95},
+            {"code": "15-1254.00", "title": "Web Developer", "score": 0.85},
+        ]
+
+        result = generator.generate_onet_chips(suggestions)
+
+        assert len(result) == 1
+        assert result[0].value == "15-1254.00"
+
+    def test_dict_choice_with_empty_label_creates_chip(self, generator):
+        """Should create chip even with empty label (logs warning)."""
+        result = generator.generate(
+            choices=[{"label": "", "icon": "warning"}],
+        )
+
+        assert len(result) == 1
+        assert result[0].label == ""
+        assert result[0].icon == "warning"
+
+    def test_dict_choice_missing_label_creates_chip(self, generator):
+        """Should create chip with empty label when label key missing."""
+        result = generator.generate(
+            choices=[{"icon": "info"}],
+        )
+
+        assert len(result) == 1
+        assert result[0].label == ""
+
+    def test_generate_column_chips_with_empty_columns(self, generator):
+        """Should return empty list for empty columns."""
+        result = generator.generate_column_chips(columns=[])
+
+        assert result == []
