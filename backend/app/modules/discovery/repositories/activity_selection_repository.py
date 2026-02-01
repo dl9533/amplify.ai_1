@@ -6,7 +6,7 @@ Work Activity) selection records including CRUD operations and bulk operations.
 
 from uuid import UUID
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.discovery.models.session import DiscoveryActivitySelection
@@ -198,9 +198,14 @@ class DiscoveryActivitySelectionRepository:
             selections.append(selection)
 
         await self.session.commit()
-        for selection in selections:
-            await self.session.refresh(selection)
-        return selections
+
+        # Batch refresh: fetch all created selections in a single query
+        selection_ids = [s.id for s in selections]
+        stmt = select(DiscoveryActivitySelection).where(
+            DiscoveryActivitySelection.id.in_(selection_ids)
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
 
     async def get_selected_for_role_mapping(
         self, role_mapping_id: UUID
@@ -216,7 +221,7 @@ class DiscoveryActivitySelectionRepository:
         stmt = select(DiscoveryActivitySelection).where(
             and_(
                 DiscoveryActivitySelection.role_mapping_id == role_mapping_id,
-                DiscoveryActivitySelection.selected == True,  # noqa: E712
+                DiscoveryActivitySelection.selected.is_(True),
             )
         )
         result = await self.session.execute(stmt)
@@ -236,7 +241,7 @@ class DiscoveryActivitySelectionRepository:
         stmt = select(DiscoveryActivitySelection).where(
             and_(
                 DiscoveryActivitySelection.session_id == session_id,
-                DiscoveryActivitySelection.user_modified == True,  # noqa: E712
+                DiscoveryActivitySelection.user_modified.is_(True),
             )
         )
         result = await self.session.execute(stmt)
@@ -268,17 +273,9 @@ class DiscoveryActivitySelectionRepository:
         Returns:
             Number of selections deleted.
         """
-        stmt = select(DiscoveryActivitySelection).where(
+        stmt = delete(DiscoveryActivitySelection).where(
             DiscoveryActivitySelection.role_mapping_id == role_mapping_id
         )
         result = await self.session.execute(stmt)
-        selections = list(result.scalars().all())
-
-        if not selections:
-            return 0
-
-        for selection in selections:
-            await self.session.delete(selection)
-
         await self.session.commit()
-        return len(selections)
+        return result.rowcount

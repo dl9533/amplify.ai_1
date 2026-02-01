@@ -316,6 +316,25 @@ async def test_bulk_create_selections(mock_db_session):
     role_mapping_id = uuid4()
     dwa_ids = ["4.A.1.a.1", "4.A.2.b.3", "4.A.3.c.5"]
 
+    # Create mock selections that will be returned by the batch refresh query
+    mock_selections = [
+        DiscoveryActivitySelection(
+            id=uuid4(),
+            session_id=session_id,
+            role_mapping_id=role_mapping_id,
+            dwa_id=dwa_id,
+            selected=True,
+            user_modified=False,
+        )
+        for dwa_id in dwa_ids
+    ]
+
+    # Configure mock to return selections from the batch refresh query
+    mock_result = mock_db_session.execute.return_value
+    mock_scalars = MagicMock()
+    mock_scalars.all.return_value = mock_selections
+    mock_result.scalars.return_value = mock_scalars
+
     selections = await repo.bulk_create(
         session_id=session_id,
         role_mapping_id=role_mapping_id,
@@ -343,6 +362,25 @@ async def test_bulk_create_selections_with_selected_false(mock_db_session):
     session_id = uuid4()
     role_mapping_id = uuid4()
     dwa_ids = ["4.A.1.a.1", "4.A.2.b.3"]
+
+    # Create mock selections that will be returned by the batch refresh query
+    mock_selections = [
+        DiscoveryActivitySelection(
+            id=uuid4(),
+            session_id=session_id,
+            role_mapping_id=role_mapping_id,
+            dwa_id=dwa_id,
+            selected=False,
+            user_modified=False,
+        )
+        for dwa_id in dwa_ids
+    ]
+
+    # Configure mock to return selections from the batch refresh query
+    mock_result = mock_db_session.execute.return_value
+    mock_scalars = MagicMock()
+    mock_scalars.all.return_value = mock_selections
+    mock_result.scalars.return_value = mock_scalars
 
     selections = await repo.bulk_create(
         session_id=session_id,
@@ -517,34 +555,18 @@ async def test_delete_selection_not_found(mock_db_session):
 
 @pytest.mark.asyncio
 async def test_delete_by_role_mapping(mock_db_session):
-    """Should delete all selections for a role mapping."""
+    """Should delete all selections for a role mapping using bulk delete."""
     repo = DiscoveryActivitySelectionRepository(mock_db_session)
     role_mapping_id = uuid4()
 
-    # Create mock selections
-    selection1 = DiscoveryActivitySelection(
-        id=uuid4(),
-        session_id=uuid4(),
-        role_mapping_id=role_mapping_id,
-        dwa_id="4.A.1.a.1",
-    )
-    selection2 = DiscoveryActivitySelection(
-        id=uuid4(),
-        session_id=uuid4(),
-        role_mapping_id=role_mapping_id,
-        dwa_id="4.A.2.b.3",
-    )
-
-    # Configure mock to return selections
+    # Configure mock to return rowcount from bulk delete
     mock_result = mock_db_session.execute.return_value
-    mock_scalars = MagicMock()
-    mock_scalars.all.return_value = [selection1, selection2]
-    mock_result.scalars.return_value = mock_scalars
+    mock_result.rowcount = 2
 
     count = await repo.delete_by_role_mapping_id(role_mapping_id)
 
     assert count == 2
-    assert mock_db_session.delete.call_count == 2
+    mock_db_session.execute.assert_called_once()
     mock_db_session.commit.assert_called()
 
 
@@ -553,14 +575,12 @@ async def test_delete_by_role_mapping_none_found(mock_db_session):
     """Should return 0 when no selections found for role mapping."""
     repo = DiscoveryActivitySelectionRepository(mock_db_session)
 
-    # Configure mock to return empty list
+    # Configure mock to return rowcount of 0 from bulk delete
     mock_result = mock_db_session.execute.return_value
-    mock_scalars = MagicMock()
-    mock_scalars.all.return_value = []
-    mock_result.scalars.return_value = mock_scalars
+    mock_result.rowcount = 0
 
     count = await repo.delete_by_role_mapping_id(uuid4())
 
     assert count == 0
-    mock_db_session.delete.assert_not_called()
-    mock_db_session.commit.assert_not_called()
+    mock_db_session.execute.assert_called_once()
+    mock_db_session.commit.assert_called()
