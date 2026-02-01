@@ -4,6 +4,13 @@ import { useDiscoverySessions, DiscoverySession } from '@/hooks/useDiscoverySess
 
 const GENERIC_ERROR_MESSAGE = 'An error occurred while loading sessions. Please try again.'
 
+const STATUS_COLORS: Record<string, string> = {
+  Draft: 'bg-gray-100 text-gray-700',
+  'In Progress': 'bg-blue-100 text-blue-700',
+  Completed: 'bg-green-100 text-green-700',
+  Archived: 'bg-yellow-100 text-yellow-700',
+}
+
 interface DeleteConfirmModalProps {
   isOpen: boolean
   sessionName: string
@@ -112,13 +119,6 @@ interface SessionCardProps {
 }
 
 function SessionCard({ session, onDelete, isDeleting }: SessionCardProps) {
-  const statusColors: Record<string, string> = {
-    Draft: 'bg-gray-100 text-gray-700',
-    'In Progress': 'bg-blue-100 text-blue-700',
-    Completed: 'bg-green-100 text-green-700',
-    Archived: 'bg-yellow-100 text-yellow-700',
-  }
-
   const formatDate = (dateString: string) => {
     const date = new Date(dateString)
     return date.toLocaleDateString('en-US', {
@@ -134,7 +134,7 @@ function SessionCard({ session, onDelete, isDeleting }: SessionCardProps) {
         <div className="flex-1">
           <h3 className="text-lg font-medium text-gray-900">{session.name}</h3>
           <div className="mt-2 flex items-center gap-3">
-            <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${statusColors[session.status]}`}>
+            <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${STATUS_COLORS[session.status]}`}>
               {session.status}
             </span>
             <span className="text-sm text-gray-500">
@@ -174,8 +174,50 @@ interface PaginationProps {
   onPageChange: (page: number) => void
 }
 
+/**
+ * Generates page numbers with ellipsis for large page counts
+ * Shows: first page, last page, current page, and 1 page on each side of current
+ */
+function getPageNumbers(currentPage: number, totalPages: number): (number | 'ellipsis')[] {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, i) => i + 1)
+  }
+
+  const pages: (number | 'ellipsis')[] = []
+  const showLeftEllipsis = currentPage > 3
+  const showRightEllipsis = currentPage < totalPages - 2
+
+  // Always show first page
+  pages.push(1)
+
+  if (showLeftEllipsis) {
+    pages.push('ellipsis')
+  }
+
+  // Pages around current
+  const start = Math.max(2, currentPage - 1)
+  const end = Math.min(totalPages - 1, currentPage + 1)
+
+  for (let i = start; i <= end; i++) {
+    if (!pages.includes(i)) {
+      pages.push(i)
+    }
+  }
+
+  if (showRightEllipsis) {
+    pages.push('ellipsis')
+  }
+
+  // Always show last page
+  if (!pages.includes(totalPages)) {
+    pages.push(totalPages)
+  }
+
+  return pages
+}
+
 function Pagination({ currentPage, totalPages, onPageChange }: PaginationProps) {
-  const pages = Array.from({ length: totalPages }, (_, i) => i + 1)
+  const pages = getPageNumbers(currentPage, totalPages)
 
   return (
     <nav role="navigation" aria-label="Pagination" className="flex items-center justify-center gap-2 mt-6">
@@ -189,22 +231,28 @@ function Pagination({ currentPage, totalPages, onPageChange }: PaginationProps) 
         Previous
       </button>
       <div className="flex items-center gap-1">
-        {pages.map((page) => (
-          <button
-            key={page}
-            type="button"
-            onClick={() => onPageChange(page)}
-            className={`px-3 py-2 text-sm font-medium rounded-md ${
-              page === currentPage
-                ? 'bg-blue-600 text-white'
-                : 'text-gray-700 bg-white border hover:bg-gray-50'
-            }`}
-            aria-label={`Page ${page}`}
-            aria-current={page === currentPage ? 'page' : undefined}
-          >
-            {page}
-          </button>
-        ))}
+        {pages.map((page, index) =>
+          page === 'ellipsis' ? (
+            <span key={`ellipsis-${index}`} className="px-3 py-2 text-sm text-gray-500">
+              ...
+            </span>
+          ) : (
+            <button
+              key={page}
+              type="button"
+              onClick={() => onPageChange(page)}
+              className={`px-3 py-2 text-sm font-medium rounded-md ${
+                page === currentPage
+                  ? 'bg-blue-600 text-white'
+                  : 'text-gray-700 bg-white border hover:bg-gray-50'
+              }`}
+              aria-label={`Page ${page}`}
+              aria-current={page === currentPage ? 'page' : undefined}
+            >
+              {page}
+            </button>
+          )
+        )}
       </div>
       <button
         type="button"
@@ -237,7 +285,12 @@ export function DiscoverySessionList() {
 
   const handleCreateSession = useCallback(async () => {
     const name = `New Discovery ${new Date().toLocaleDateString()}`
-    await createSession(name)
+    try {
+      await createSession(name)
+    } catch (err) {
+      console.error('Failed to create session:', err)
+      // Error state is already set by the hook
+    }
   }, [createSession])
 
   const handleDeleteClick = useCallback((session: DiscoverySession) => {
@@ -246,8 +299,14 @@ export function DiscoverySessionList() {
 
   const handleConfirmDelete = useCallback(async () => {
     if (sessionToDelete) {
-      await deleteSession(sessionToDelete.id)
-      setSessionToDelete(null)
+      try {
+        await deleteSession(sessionToDelete.id)
+        setSessionToDelete(null)
+      } catch (err) {
+        console.error('Failed to delete session:', err)
+        // Keep modal open on failure - don't clear sessionToDelete
+        // Error state is already set by the hook
+      }
     }
   }, [sessionToDelete, deleteSession])
 

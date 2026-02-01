@@ -57,6 +57,24 @@ const mockSessions: DiscoverySession[] = [
 
 const PAGE_SIZE = 10
 
+/**
+ * Sanitizes session name by removing potentially dangerous characters
+ */
+function sanitizeName(name: string): string {
+  return name.replace(/[<>]/g, '').trim()
+}
+
+/**
+ * Validates session name
+ */
+function validateName(name: string): { isValid: boolean; error?: string } {
+  const sanitized = sanitizeName(name)
+  if (!sanitized || sanitized.length === 0) {
+    return { isValid: false, error: 'Session name cannot be empty' }
+  }
+  return { isValid: true }
+}
+
 export function useDiscoverySessions(): UseDiscoverySessionsReturn {
   const [sessions, setSessions] = useState<DiscoverySession[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -92,14 +110,25 @@ export function useDiscoverySessions(): UseDiscoverySessionsReturn {
   }, [fetchSessions])
 
   const createSession = useCallback(async (name: string): Promise<DiscoverySession> => {
+    // Validate and sanitize name
+    const validation = validateName(name)
+    if (!validation.isValid) {
+      const error = new Error(validation.error || 'Invalid session name')
+      setError(error.message)
+      throw error
+    }
+
+    const sanitizedName = sanitizeName(name)
+
     try {
       setIsCreating(true)
+      setError(null)
       // Simulate API delay
       await new Promise((resolve) => setTimeout(resolve, 200))
 
       const newSession: DiscoverySession = {
         id: `session-${Date.now()}`,
-        name,
+        name: sanitizedName,
         status: 'Draft',
         currentStep: 1,
         totalSteps: 5,
@@ -109,6 +138,10 @@ export function useDiscoverySessions(): UseDiscoverySessionsReturn {
 
       setSessions((prev) => [newSession, ...prev])
       return newSession
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to create session'
+      setError(errorMessage)
+      throw err
     } finally {
       setIsCreating(false)
     }
@@ -117,10 +150,15 @@ export function useDiscoverySessions(): UseDiscoverySessionsReturn {
   const deleteSession = useCallback(async (id: string): Promise<void> => {
     try {
       setIsDeleting(id)
+      setError(null)
       // Simulate API delay
       await new Promise((resolve) => setTimeout(resolve, 200))
 
       setSessions((prev) => prev.filter((session) => session.id !== id))
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to delete session'
+      setError(errorMessage)
+      throw err
     } finally {
       setIsDeleting(null)
     }
