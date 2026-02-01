@@ -1,3 +1,5 @@
+export { ChatPanel } from './ChatPanel'
+export type { ChatPanelProps, ChatMessage, QuickAction } from './ChatPanel'
 export { DiscoveryLayout } from './DiscoveryLayout'
 export type { DiscoveryLayoutProps } from './DiscoveryLayout'
 export { StepIndicator } from './StepIndicator'
