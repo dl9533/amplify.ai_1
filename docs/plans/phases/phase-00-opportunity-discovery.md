@@ -10502,4 +10502,892 @@ After completing all 70 tasks:
    git commit -m "feat(discovery): complete Phase 0 - Opportunity Discovery with O*NET integration"
    ```
 
+---
+
+## Part 9: API Configuration & Integration (Tasks 71-77)
+
+### Task 71: Configuration Module with Pydantic Settings
+
+**Files:**
+- Create: `discovery/app/config.py`
+- Test: `discovery/tests/unit/test_config.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/test_config.py
+"""Tests for configuration module."""
+import os
+import pytest
+from unittest.mock import patch
+
+
+def test_settings_loads_from_environment():
+    """Test that settings loads from environment variables."""
+    with patch.dict(os.environ, {
+        "ONET_API_KEY": "test-onet-key",
+        "ANTHROPIC_API_KEY": "test-anthropic-key",
+        "POSTGRES_HOST": "localhost",
+        "POSTGRES_PORT": "5432",
+        "POSTGRES_USER": "test",
+        "POSTGRES_PASSWORD": "test",
+        "POSTGRES_DB": "test_db",
+    }):
+        from app.config import Settings
+        settings = Settings()
+
+        assert settings.onet_api_key == "test-onet-key"
+        assert settings.anthropic_api_key == "test-anthropic-key"
+        assert settings.postgres_host == "localhost"
+
+
+def test_settings_database_url_property():
+    """Test that database_url is constructed correctly."""
+    with patch.dict(os.environ, {
+        "ONET_API_KEY": "key",
+        "ANTHROPIC_API_KEY": "key",
+        "POSTGRES_HOST": "localhost",
+        "POSTGRES_PORT": "5432",
+        "POSTGRES_USER": "user",
+        "POSTGRES_PASSWORD": "pass",
+        "POSTGRES_DB": "db",
+    }):
+        from app.config import Settings
+        settings = Settings()
+
+        assert settings.database_url == "postgresql+asyncpg://user:pass@localhost:5432/db"
+
+
+def test_settings_onet_api_base_url_default():
+    """Test O*NET API base URL has sensible default."""
+    with patch.dict(os.environ, {
+        "ONET_API_KEY": "key",
+        "ANTHROPIC_API_KEY": "key",
+        "POSTGRES_HOST": "localhost",
+        "POSTGRES_PORT": "5432",
+        "POSTGRES_USER": "user",
+        "POSTGRES_PASSWORD": "pass",
+        "POSTGRES_DB": "db",
+    }):
+        from app.config import Settings
+        settings = Settings()
+
+        assert settings.onet_api_base_url == "https://services.onetcenter.org/ws/"
+
+
+def test_settings_anthropic_model_default():
+    """Test Anthropic model has sensible default."""
+    with patch.dict(os.environ, {
+        "ONET_API_KEY": "key",
+        "ANTHROPIC_API_KEY": "key",
+        "POSTGRES_HOST": "localhost",
+        "POSTGRES_PORT": "5432",
+        "POSTGRES_USER": "user",
+        "POSTGRES_PASSWORD": "pass",
+        "POSTGRES_DB": "db",
+    }):
+        from app.config import Settings
+        settings = Settings()
+
+        assert settings.anthropic_model == "claude-sonnet-4-20250514"
+
+
+def test_get_settings_returns_cached_instance():
+    """Test that get_settings returns cached singleton."""
+    from app.config import get_settings
+
+    settings1 = get_settings()
+    settings2 = get_settings()
+
+    assert settings1 is settings2
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/test_config.py -v`
+Expected: FAIL with "ModuleNotFoundError: No module named 'app.config'"
+
+**Step 3: Write minimal implementation**
+
+(Implementer determines the code)
+
+config.py should include:
+- Pydantic BaseSettings with environment variable support
+- Database configuration (POSTGRES_*)
+- Redis configuration (REDIS_URL)
+- S3 configuration (S3_*, AWS_*)
+- O*NET API configuration (ONET_API_KEY, ONET_API_BASE_URL)
+- Anthropic configuration (ANTHROPIC_API_KEY, ANTHROPIC_MODEL)
+- Application settings (API_HOST, API_PORT, DEBUG, LOG_LEVEL)
+- Computed properties: database_url, redis_url
+- get_settings() function with lru_cache for singleton
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/test_config.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/config.py discovery/tests/unit/test_config.py
+git commit -m "feat(discovery): add configuration module with pydantic-settings"
+```
+
+---
+
+### Task 72: Update .env.example with API Keys
+
+**Files:**
+- Modify: `discovery/.env.example`
+- Test: (Manual verification)
+
+**Step 1: Verify current .env.example exists**
+
+Run: `cat discovery/.env.example`
+Expected: Shows existing environment variables
+
+**Step 2: Update .env.example with API keys**
+
+Add the following to `discovery/.env.example`:
+
+```bash
+# =============================================================================
+# Discovery Module Environment Variables
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Database (PostgreSQL)
+# -----------------------------------------------------------------------------
+POSTGRES_HOST=postgres
+POSTGRES_PORT=5432
+POSTGRES_USER=discovery
+POSTGRES_PASSWORD=discovery_dev
+POSTGRES_DB=discovery
+
+# -----------------------------------------------------------------------------
+# Cache (Redis)
+# -----------------------------------------------------------------------------
+REDIS_URL=redis://redis:6379/0
+
+# -----------------------------------------------------------------------------
+# Storage (S3 / LocalStack for development)
+# -----------------------------------------------------------------------------
+S3_ENDPOINT_URL=http://localstack:4566
+S3_BUCKET=discovery-uploads
+AWS_ACCESS_KEY_ID=test
+AWS_SECRET_ACCESS_KEY=test
+AWS_REGION=us-east-1
+
+# -----------------------------------------------------------------------------
+# O*NET API (https://services.onetcenter.org/developer/)
+# Get your API key at: https://services.onetcenter.org/developer/registration
+# -----------------------------------------------------------------------------
+ONET_API_KEY=your_onet_api_key_here
+ONET_API_BASE_URL=https://services.onetcenter.org/ws/
+
+# -----------------------------------------------------------------------------
+# Anthropic API (for AI chat/orchestrator)
+# Get your API key at: https://console.anthropic.com/
+# -----------------------------------------------------------------------------
+ANTHROPIC_API_KEY=your_anthropic_api_key_here
+ANTHROPIC_MODEL=claude-sonnet-4-20250514
+
+# -----------------------------------------------------------------------------
+# Application
+# -----------------------------------------------------------------------------
+API_HOST=0.0.0.0
+API_PORT=8001
+DEBUG=true
+LOG_LEVEL=INFO
+```
+
+**Step 3: Verify changes**
+
+Run: `cat discovery/.env.example | grep -E "(ONET|ANTHROPIC)"`
+Expected: Shows ONET_API_KEY, ONET_API_BASE_URL, ANTHROPIC_API_KEY, ANTHROPIC_MODEL
+
+**Step 4: Commit**
+
+```bash
+git add discovery/.env.example
+git commit -m "docs(discovery): update .env.example with O*NET and Anthropic API keys"
+```
+
+---
+
+### Task 73: O*NET API Service Implementation
+
+**Files:**
+- Modify: `discovery/app/services/role_mapping_service.py`
+- Create: `discovery/app/services/onet_client.py`
+- Test: `discovery/tests/unit/services/test_onet_client.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/services/test_onet_client.py
+"""Tests for O*NET API client."""
+import pytest
+from unittest.mock import AsyncMock, patch, MagicMock
+import httpx
+
+
+@pytest.fixture
+def mock_settings():
+    """Mock settings with test API key."""
+    settings = MagicMock()
+    settings.onet_api_key = "test-api-key"
+    settings.onet_api_base_url = "https://services.onetcenter.org/ws/"
+    return settings
+
+
+@pytest.mark.asyncio
+async def test_search_occupations(mock_settings):
+    """Test searching for occupations by keyword."""
+    from app.services.onet_client import OnetApiClient
+
+    mock_response = {
+        "occupation": [
+            {"code": "15-1252.00", "title": "Software Developers"},
+            {"code": "15-1251.00", "title": "Computer Programmers"},
+        ]
+    }
+
+    with patch("httpx.AsyncClient") as mock_client_class:
+        mock_client = AsyncMock()
+        mock_client.__aenter__.return_value = mock_client
+        mock_client.__aexit__.return_value = None
+        mock_response_obj = MagicMock()
+        mock_response_obj.json.return_value = mock_response
+        mock_response_obj.raise_for_status = MagicMock()
+        mock_client.get.return_value = mock_response_obj
+        mock_client_class.return_value = mock_client
+
+        client = OnetApiClient(mock_settings)
+        results = await client.search_occupations("software developer")
+
+        assert len(results) == 2
+        assert results[0]["code"] == "15-1252.00"
+
+
+@pytest.mark.asyncio
+async def test_get_occupation_details(mock_settings):
+    """Test getting occupation details by code."""
+    from app.services.onet_client import OnetApiClient
+
+    mock_response = {
+        "code": "15-1252.00",
+        "title": "Software Developers",
+        "description": "Research, design, and develop computer software.",
+    }
+
+    with patch("httpx.AsyncClient") as mock_client_class:
+        mock_client = AsyncMock()
+        mock_client.__aenter__.return_value = mock_client
+        mock_client.__aexit__.return_value = None
+        mock_response_obj = MagicMock()
+        mock_response_obj.json.return_value = mock_response
+        mock_response_obj.raise_for_status = MagicMock()
+        mock_client.get.return_value = mock_response_obj
+        mock_client_class.return_value = mock_client
+
+        client = OnetApiClient(mock_settings)
+        result = await client.get_occupation("15-1252.00")
+
+        assert result["code"] == "15-1252.00"
+        assert result["title"] == "Software Developers"
+
+
+@pytest.mark.asyncio
+async def test_get_work_activities(mock_settings):
+    """Test getting work activities for an occupation."""
+    from app.services.onet_client import OnetApiClient
+
+    mock_response = {
+        "element": [
+            {"id": "4.A.1.a.1", "name": "Getting Information", "score": {"value": 4.5}},
+            {"id": "4.A.2.a.1", "name": "Analyzing Data", "score": {"value": 4.2}},
+        ]
+    }
+
+    with patch("httpx.AsyncClient") as mock_client_class:
+        mock_client = AsyncMock()
+        mock_client.__aenter__.return_value = mock_client
+        mock_client.__aexit__.return_value = None
+        mock_response_obj = MagicMock()
+        mock_response_obj.json.return_value = mock_response
+        mock_response_obj.raise_for_status = MagicMock()
+        mock_client.get.return_value = mock_response_obj
+        mock_client_class.return_value = mock_client
+
+        client = OnetApiClient(mock_settings)
+        results = await client.get_work_activities("15-1252.00")
+
+        assert len(results) == 2
+        assert results[0]["id"] == "4.A.1.a.1"
+
+
+@pytest.mark.asyncio
+async def test_api_authentication(mock_settings):
+    """Test that API calls include proper authentication."""
+    from app.services.onet_client import OnetApiClient
+
+    with patch("httpx.AsyncClient") as mock_client_class:
+        mock_client = AsyncMock()
+        mock_client.__aenter__.return_value = mock_client
+        mock_client.__aexit__.return_value = None
+        mock_response_obj = MagicMock()
+        mock_response_obj.json.return_value = {"occupation": []}
+        mock_response_obj.raise_for_status = MagicMock()
+        mock_client.get.return_value = mock_response_obj
+        mock_client_class.return_value = mock_client
+
+        client = OnetApiClient(mock_settings)
+        await client.search_occupations("test")
+
+        # Verify auth was passed
+        call_kwargs = mock_client_class.call_args[1]
+        assert "auth" in call_kwargs
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/services/test_onet_client.py -v`
+Expected: FAIL with "ModuleNotFoundError"
+
+**Step 3: Write minimal implementation**
+
+(Implementer determines the code)
+
+onet_client.py should include:
+- OnetApiClient class with settings injection
+- HTTP Basic Auth using API key as username
+- search_occupations(keyword: str) -> List[dict]
+- get_occupation(code: str) -> Optional[dict]
+- get_work_activities(code: str) -> List[dict]
+- get_tasks(code: str) -> List[dict]
+- Error handling with custom exceptions
+- Rate limiting awareness
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/services/test_onet_client.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/services/onet_client.py discovery/tests/unit/services/test_onet_client.py
+git commit -m "feat(discovery): implement O*NET API client with authentication"
+```
+
+---
+
+### Task 74: Anthropic LLM Service for Chat
+
+**Files:**
+- Create: `discovery/app/services/llm_service.py`
+- Modify: `discovery/app/services/chat_service.py`
+- Test: `discovery/tests/unit/services/test_llm_service.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/services/test_llm_service.py
+"""Tests for LLM service."""
+import pytest
+from unittest.mock import AsyncMock, patch, MagicMock
+
+
+@pytest.fixture
+def mock_settings():
+    """Mock settings with test API key."""
+    settings = MagicMock()
+    settings.anthropic_api_key = "test-anthropic-key"
+    settings.anthropic_model = "claude-sonnet-4-20250514"
+    return settings
+
+
+@pytest.mark.asyncio
+async def test_generate_response(mock_settings):
+    """Test generating a response from the LLM."""
+    from app.services.llm_service import LLMService
+
+    mock_message = MagicMock()
+    mock_message.content = [MagicMock(text="This is a test response.")]
+
+    with patch("anthropic.AsyncAnthropic") as mock_anthropic:
+        mock_client = AsyncMock()
+        mock_client.messages.create.return_value = mock_message
+        mock_anthropic.return_value = mock_client
+
+        service = LLMService(mock_settings)
+        response = await service.generate_response(
+            system_prompt="You are a helpful assistant.",
+            user_message="Hello, how are you?"
+        )
+
+        assert response == "This is a test response."
+
+
+@pytest.mark.asyncio
+async def test_generate_response_with_context(mock_settings):
+    """Test generating a response with conversation context."""
+    from app.services.llm_service import LLMService
+
+    mock_message = MagicMock()
+    mock_message.content = [MagicMock(text="Based on our previous discussion...")]
+
+    with patch("anthropic.AsyncAnthropic") as mock_anthropic:
+        mock_client = AsyncMock()
+        mock_client.messages.create.return_value = mock_message
+        mock_anthropic.return_value = mock_client
+
+        service = LLMService(mock_settings)
+        response = await service.generate_response(
+            system_prompt="You are a helpful assistant.",
+            user_message="What did we discuss?",
+            conversation_history=[
+                {"role": "user", "content": "Tell me about AI"},
+                {"role": "assistant", "content": "AI is artificial intelligence..."},
+            ]
+        )
+
+        assert "previous discussion" in response
+
+
+@pytest.mark.asyncio
+async def test_stream_response(mock_settings):
+    """Test streaming a response from the LLM."""
+    from app.services.llm_service import LLMService
+
+    async def mock_stream():
+        chunks = [
+            MagicMock(type="content_block_delta", delta=MagicMock(text="Hello ")),
+            MagicMock(type="content_block_delta", delta=MagicMock(text="world!")),
+        ]
+        for chunk in chunks:
+            yield chunk
+
+    with patch("anthropic.AsyncAnthropic") as mock_anthropic:
+        mock_client = AsyncMock()
+        mock_client.messages.stream.return_value.__aenter__.return_value = mock_stream()
+        mock_anthropic.return_value = mock_client
+
+        service = LLMService(mock_settings)
+        chunks = []
+        async for chunk in service.stream_response(
+            system_prompt="You are helpful.",
+            user_message="Say hello"
+        ):
+            chunks.append(chunk)
+
+        assert "".join(chunks) == "Hello world!"
+
+
+def test_llm_service_requires_api_key():
+    """Test that service raises error without API key."""
+    from app.services.llm_service import LLMService
+
+    settings = MagicMock()
+    settings.anthropic_api_key = None
+
+    with pytest.raises(ValueError, match="API key"):
+        LLMService(settings)
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/services/test_llm_service.py -v`
+Expected: FAIL with "ModuleNotFoundError"
+
+**Step 3: Write minimal implementation**
+
+(Implementer determines the code)
+
+llm_service.py should include:
+- LLMService class with settings injection
+- Anthropic client initialization with API key
+- generate_response(system_prompt, user_message, conversation_history=None) -> str
+- stream_response(system_prompt, user_message, conversation_history=None) -> AsyncIterator[str]
+- Error handling for API failures
+- Max tokens and temperature configuration
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/services/test_llm_service.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/services/llm_service.py discovery/tests/unit/services/test_llm_service.py
+git commit -m "feat(discovery): implement Anthropic LLM service for chat"
+```
+
+---
+
+### Task 75: Update OnetService to Use Real API
+
+**Files:**
+- Modify: `discovery/app/services/role_mapping_service.py`
+- Modify: `discovery/app/services/__init__.py`
+- Test: `discovery/tests/unit/services/test_role_mapping_service.py`
+
+**Step 1: Write the failing test**
+
+```python
+# Update discovery/tests/unit/services/test_role_mapping_service.py
+"""Tests for role mapping service with real O*NET API."""
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+
+
+@pytest.fixture
+def mock_onet_client():
+    """Mock O*NET API client."""
+    client = AsyncMock()
+    client.search_occupations.return_value = [
+        {"code": "15-1252.00", "title": "Software Developers", "relevance_score": 95},
+        {"code": "15-1251.00", "title": "Computer Programmers", "relevance_score": 80},
+    ]
+    client.get_occupation.return_value = {
+        "code": "15-1252.00",
+        "title": "Software Developers",
+        "description": "Research, design, and develop computer software.",
+    }
+    return client
+
+
+@pytest.mark.asyncio
+async def test_onet_service_search_uses_api_client(mock_onet_client):
+    """Test that OnetService uses the API client for searches."""
+    from app.services.role_mapping_service import OnetService
+
+    service = OnetService(onet_client=mock_onet_client)
+    results = await service.search("software developer")
+
+    assert len(results) == 2
+    assert results[0]["code"] == "15-1252.00"
+    mock_onet_client.search_occupations.assert_called_once_with("software developer")
+
+
+@pytest.mark.asyncio
+async def test_onet_service_get_occupation_uses_api_client(mock_onet_client):
+    """Test that OnetService uses the API client for occupation details."""
+    from app.services.role_mapping_service import OnetService
+
+    service = OnetService(onet_client=mock_onet_client)
+    result = await service.get_occupation("15-1252.00")
+
+    assert result["code"] == "15-1252.00"
+    mock_onet_client.get_occupation.assert_called_once_with("15-1252.00")
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/services/test_role_mapping_service.py -v`
+Expected: FAIL (service still raises NotImplementedError)
+
+**Step 3: Write minimal implementation**
+
+(Implementer determines the code)
+
+Update OnetService to:
+- Accept OnetApiClient as dependency
+- Implement search() using client.search_occupations()
+- Implement get_occupation() using client.get_occupation()
+- Add get_onet_service() dependency that creates client with settings
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/services/test_role_mapping_service.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/services/role_mapping_service.py discovery/app/services/__init__.py
+git add discovery/tests/unit/services/test_role_mapping_service.py
+git commit -m "feat(discovery): connect OnetService to real O*NET API client"
+```
+
+---
+
+### Task 76: Update ChatService to Use LLM
+
+**Files:**
+- Modify: `discovery/app/services/chat_service.py`
+- Modify: `discovery/app/services/__init__.py`
+- Test: `discovery/tests/unit/services/test_chat_service.py`
+
+**Step 1: Write the failing test**
+
+```python
+# Update discovery/tests/unit/services/test_chat_service.py
+"""Tests for chat service with real LLM."""
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
+
+
+@pytest.fixture
+def mock_llm_service():
+    """Mock LLM service."""
+    service = AsyncMock()
+    service.generate_response.return_value = "I can help you with that!"
+    return service
+
+
+@pytest.fixture
+def mock_context_service():
+    """Mock context service for session context."""
+    service = AsyncMock()
+    service.get_session_context.return_value = {
+        "current_step": 1,
+        "step_name": "upload",
+        "session_data": {},
+    }
+    return service
+
+
+@pytest.mark.asyncio
+async def test_chat_service_sends_message_to_llm(mock_llm_service, mock_context_service):
+    """Test that ChatService uses LLM for responses."""
+    from app.services.chat_service import ChatService
+
+    session_id = uuid4()
+    service = ChatService(
+        llm_service=mock_llm_service,
+        context_service=mock_context_service,
+    )
+
+    result = await service.send_message(session_id, "Hello!")
+
+    assert result is not None
+    assert result["response"] == "I can help you with that!"
+    mock_llm_service.generate_response.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_chat_service_includes_session_context(mock_llm_service, mock_context_service):
+    """Test that chat includes session context in system prompt."""
+    from app.services.chat_service import ChatService
+
+    session_id = uuid4()
+    service = ChatService(
+        llm_service=mock_llm_service,
+        context_service=mock_context_service,
+    )
+
+    await service.send_message(session_id, "What should I do?")
+
+    call_args = mock_llm_service.generate_response.call_args
+    system_prompt = call_args[1]["system_prompt"]
+    assert "upload" in system_prompt.lower() or "step" in system_prompt.lower()
+
+
+@pytest.mark.asyncio
+async def test_chat_service_returns_quick_actions(mock_llm_service, mock_context_service):
+    """Test that chat returns relevant quick actions."""
+    from app.services.chat_service import ChatService
+
+    session_id = uuid4()
+    service = ChatService(
+        llm_service=mock_llm_service,
+        context_service=mock_context_service,
+    )
+
+    result = await service.send_message(session_id, "Hello!")
+
+    assert "quick_actions" in result
+    assert isinstance(result["quick_actions"], list)
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/services/test_chat_service.py -v`
+Expected: FAIL (service still raises NotImplementedError)
+
+**Step 3: Write minimal implementation**
+
+(Implementer determines the code)
+
+Update ChatService to:
+- Accept LLMService and ContextService as dependencies
+- Implement send_message() using LLM with session context
+- Build system prompt based on current step
+- Return response with quick_actions based on step
+- Implement get_history() using memory/storage
+- Implement stream_response() for SSE
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/services/test_chat_service.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/services/chat_service.py discovery/app/services/__init__.py
+git add discovery/tests/unit/services/test_chat_service.py
+git commit -m "feat(discovery): connect ChatService to Anthropic LLM"
+```
+
+---
+
+### Task 77: Integration Test with Real APIs
+
+**Files:**
+- Create: `discovery/tests/integration/test_api_integration.py`
+- Test: (Self-testing)
+
+**Step 1: Write the integration test**
+
+```python
+# discovery/tests/integration/test_api_integration.py
+"""Integration tests for API connectivity.
+
+These tests require real API keys to be set in environment.
+Skip if keys not available.
+"""
+import os
+import pytest
+
+
+pytestmark = pytest.mark.skipif(
+    not os.getenv("ONET_API_KEY") or os.getenv("ONET_API_KEY") == "your_onet_api_key_here",
+    reason="O*NET API key not configured"
+)
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_onet_api_connectivity():
+    """Test that O*NET API is reachable with valid credentials."""
+    from app.config import get_settings
+    from app.services.onet_client import OnetApiClient
+
+    settings = get_settings()
+    client = OnetApiClient(settings)
+
+    # Search for a common occupation
+    results = await client.search_occupations("software")
+
+    assert len(results) > 0
+    assert any("software" in r.get("title", "").lower() for r in results)
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_onet_get_occupation_details():
+    """Test fetching specific occupation details."""
+    from app.config import get_settings
+    from app.services.onet_client import OnetApiClient
+
+    settings = get_settings()
+    client = OnetApiClient(settings)
+
+    # Get Software Developers occupation
+    result = await client.get_occupation("15-1252.00")
+
+    assert result is not None
+    assert result["code"] == "15-1252.00"
+    assert "Software" in result["title"]
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_onet_get_work_activities():
+    """Test fetching work activities for an occupation."""
+    from app.config import get_settings
+    from app.services.onet_client import OnetApiClient
+
+    settings = get_settings()
+    client = OnetApiClient(settings)
+
+    activities = await client.get_work_activities("15-1252.00")
+
+    assert len(activities) > 0
+    assert all("id" in a for a in activities)
+
+
+@pytest.mark.skipif(
+    not os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_API_KEY") == "your_anthropic_api_key_here",
+    reason="Anthropic API key not configured"
+)
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_anthropic_api_connectivity():
+    """Test that Anthropic API is reachable with valid credentials."""
+    from app.config import get_settings
+    from app.services.llm_service import LLMService
+
+    settings = get_settings()
+    service = LLMService(settings)
+
+    response = await service.generate_response(
+        system_prompt="You are a helpful assistant. Respond with exactly: 'API connection successful'",
+        user_message="Test connection"
+    )
+
+    assert "successful" in response.lower() or len(response) > 0
+
+
+@pytest.mark.skipif(
+    not os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_API_KEY") == "your_anthropic_api_key_here",
+    reason="Anthropic API key not configured"
+)
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_chat_service_end_to_end():
+    """Test complete chat flow with real LLM."""
+    from app.config import get_settings
+    from app.services.llm_service import LLMService
+    from app.services.chat_service import ChatService
+    from app.services.context_service import ContextService
+    from uuid import uuid4
+
+    settings = get_settings()
+    llm_service = LLMService(settings)
+    context_service = ContextService()
+
+    chat_service = ChatService(
+        llm_service=llm_service,
+        context_service=context_service,
+    )
+
+    session_id = uuid4()
+    result = await chat_service.send_message(
+        session_id,
+        "What is the first step in the discovery process?"
+    )
+
+    assert result is not None
+    assert "response" in result
+    assert len(result["response"]) > 0
+```
+
+**Step 2: Run test to verify connectivity (if keys available)**
+
+Run: `cd discovery && python -m pytest tests/integration/test_api_integration.py -v -m integration`
+Expected: PASS if keys configured, SKIP if not
+
+**Step 3: Document API key setup**
+
+Add to README or inline comments explaining:
+- How to get O*NET API key
+- How to get Anthropic API key
+- How to configure .env file
+
+**Step 4: Commit**
+
+```bash
+git add discovery/tests/integration/test_api_integration.py
+git commit -m "test(discovery): add integration tests for O*NET and Anthropic APIs"
+```
+
+---
+
 **Next Phase:** [Phase 1: Foundation](phase-01-foundation.md)

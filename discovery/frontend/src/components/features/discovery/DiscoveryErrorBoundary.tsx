@@ -16,7 +16,7 @@ export class DiscoveryErrorBoundary extends React.Component<
   DiscoveryErrorBoundaryProps,
   DiscoveryErrorBoundaryState
 > {
-  private errorContainerRef: React.RefObject<HTMLDivElement | null>
+  private errorContainerRef: React.RefObject<HTMLDivElement>
 
   constructor(props: DiscoveryErrorBoundaryProps) {
     super(props)
