@@ -11,6 +11,7 @@ O*NET Web Services API:
 """
 
 import asyncio
+import logging
 import time
 from typing import Any
 
@@ -21,6 +22,8 @@ from app.modules.discovery.exceptions import (
     OnetNotFoundError,
     OnetRateLimitError,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class OnetApiClient:
@@ -135,7 +138,13 @@ class OnetApiClient:
                 status_code = e.response.status_code
                 if status_code == 429:
                     retry_after = e.response.headers.get("Retry-After")
-                    retry_seconds = int(retry_after) if retry_after else None
+                    retry_seconds: int | None = None
+                    if retry_after:
+                        try:
+                            retry_seconds = int(retry_after)
+                        except ValueError:
+                            logger.warning(f"Invalid Retry-After header: {retry_after}")
+                            retry_seconds = None
                     raise OnetRateLimitError(
                         message="O*NET API rate limit exceeded",
                         retry_after=retry_seconds,
@@ -160,7 +169,12 @@ class OnetApiClient:
 
         Returns:
             List of occupation dictionaries with 'code' and 'title' fields.
+
+        Raises:
+            ValueError: If keyword is empty or only whitespace.
         """
+        if not keyword or not keyword.strip():
+            raise ValueError("keyword cannot be empty")
         response = await self._get("mnm/search", params={"keyword": keyword})
         return response.get("occupation", [])
 
@@ -254,16 +268,25 @@ class OnetApiClient:
 
         Args:
             keyword: Search term to match against occupation titles.
-            max_retries: Maximum number of retry attempts.
-            base_delay: Base delay in seconds for exponential backoff.
+            max_retries: Maximum number of retry attempts (must be >= 1).
+            base_delay: Base delay in seconds for exponential backoff (must be >= 0).
 
         Returns:
             List of occupation dictionaries with 'code' and 'title' fields.
 
         Raises:
+            ValueError: If keyword is empty, max_retries < 1, or base_delay < 0.
             OnetRateLimitError: If rate limit is still exceeded after all retries.
             OnetApiError: For other API errors.
         """
+        # Input validation
+        if not keyword or not keyword.strip():
+            raise ValueError("keyword cannot be empty")
+        if max_retries < 1:
+            raise ValueError("max_retries must be >= 1")
+        if base_delay < 0:
+            raise ValueError("base_delay must be non-negative")
+
         last_error: OnetRateLimitError | None = None
 
         for attempt in range(max_retries):
