@@ -70,7 +70,10 @@ class MappingSubagent(BaseSubagent):
             onet_code: The O*NET occupation code selected.
             confidence: The confidence score for this mapping.
         """
-        self._confirmed_mappings[str(role_mapping_id)] = onet_code
+        self._confirmed_mappings[str(role_mapping_id)] = {
+            "onet_code": onet_code,
+            "confidence": confidence,
+        }
 
     async def process(self, message: str) -> dict[str, Any]:
         """Process an incoming message and return a response.

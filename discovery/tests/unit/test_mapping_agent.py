@@ -53,7 +53,10 @@ class TestOnetMatching:
 
         assert len(result) == 2
         assert result[0].code == "15-1252.00"
-        mock_onet_repo.search_occupations.assert_called_once()
+        mock_onet_repo.search_occupations.assert_called_once_with(
+            query="Software Engineer",
+            limit=5,
+        )
 
     @pytest.mark.asyncio
     async def test_confirm_mapping_stores_selection(
@@ -68,7 +71,10 @@ class TestOnetMatching:
             confidence=0.95,
         )
 
-        assert mapping_agent._confirmed_mappings[str(role_mapping_id)] == "15-1252.00"
+        assert mapping_agent._confirmed_mappings[str(role_mapping_id)] == {
+            "onet_code": "15-1252.00",
+            "confidence": 0.95,
+        }
 
 
 class TestBrainstormingFlow:
@@ -94,3 +100,9 @@ class TestBrainstormingFlow:
 
         msg = response.get("message", "").lower() + response.get("question", "").lower()
         assert "search" in msg or "specify" in msg or "custom" in msg
+
+    @pytest.mark.asyncio
+    async def test_process_default_state(self, mapping_agent):
+        """Should return ready message when no role is being mapped."""
+        response = await mapping_agent.process("Hello")
+        assert "Ready" in response.get("message", "") or "ready" in response.get("message", "").lower()
