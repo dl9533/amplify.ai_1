@@ -35,46 +35,47 @@ export function useDiscoveryRecovery<T>(
   const { initialState, onRecoveryAttempt } = options
 
   const [currentState, setCurrentState] = useState<T>(initialState)
-  const lastKnownGoodStateRef = useRef<T | null>(null)
+  const [lastKnownGoodState, setLastKnownGoodState] = useState<T | null>(initialState)
 
-  // Save the initial state as the first checkpoint
+  // Track current state in a ref for use in callbacks to avoid stale closures
+  const currentStateRef = useRef<T>(initialState)
+
+  // Keep currentStateRef in sync with currentState
   useEffect(() => {
-    if (lastKnownGoodStateRef.current === null) {
-      lastKnownGoodStateRef.current = initialState
-    }
-  }, [initialState])
+    currentStateRef.current = currentState
+  }, [currentState])
 
   const updateState = useCallback((newState: T) => {
-    // Save current state as last known good before updating
-    setCurrentState((prev) => {
-      lastKnownGoodStateRef.current = prev
-      return newState
-    })
+    // Capture current state BEFORE calling setCurrentState
+    // This avoids stale closure issues
+    const previousState = currentStateRef.current
+    setLastKnownGoodState(previousState)
+    setCurrentState(newState)
   }, [])
 
   const saveCheckpoint = useCallback(() => {
-    lastKnownGoodStateRef.current = currentState
-  }, [currentState])
+    setLastKnownGoodState(currentStateRef.current)
+  }, [])
 
   const attemptRecovery = useCallback((): boolean => {
-    if (lastKnownGoodStateRef.current !== null) {
+    if (lastKnownGoodState !== null) {
       onRecoveryAttempt?.()
-      setCurrentState(lastKnownGoodStateRef.current)
+      setCurrentState(lastKnownGoodState)
       return true
     }
     return false
-  }, [onRecoveryAttempt])
+  }, [lastKnownGoodState, onRecoveryAttempt])
 
   const reset = useCallback(() => {
     setCurrentState(initialState)
-    lastKnownGoodStateRef.current = initialState
+    setLastKnownGoodState(initialState)
   }, [initialState])
 
-  const canRecover = lastKnownGoodStateRef.current !== null
+  const canRecover = lastKnownGoodState !== null
 
   return {
     currentState,
-    lastKnownGoodState: lastKnownGoodStateRef.current,
+    lastKnownGoodState,
     updateState,
     attemptRecovery,
     saveCheckpoint,
