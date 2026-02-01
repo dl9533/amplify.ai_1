@@ -1,7 +1,10 @@
 """Chat message formatter for agent responses."""
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional, Union
+
+logger = logging.getLogger(__name__)
 
 
 def _utc_now() -> datetime:
@@ -70,7 +73,8 @@ class ChatMessageFormatter:
         """Format an agent message with metadata.
 
         Args:
-            content: The message content.
+            content: The message content. Empty strings are allowed for UI
+                purposes (e.g., placeholder messages, typing indicators).
             agent_type: The type of agent sending the message.
 
         Returns:
@@ -90,7 +94,8 @@ class ChatMessageFormatter:
         """Format a user message.
 
         Args:
-            content: The message content.
+            content: The message content. Empty strings are allowed for UI
+                purposes (e.g., placeholder messages).
 
         Returns:
             A FormattedMessage with role="user".
@@ -110,8 +115,11 @@ class ChatMessageFormatter:
         """Format a message with quick action choices.
 
         Args:
-            content: The message content.
-            choices: List of choices. Can be simple strings or (label, value) tuples.
+            content: The message content. Empty strings are allowed for UI
+                purposes (e.g., when only quick actions are displayed).
+            choices: List of choices. Can be simple strings or (label, value)
+                tuples. Malformed tuples (not exactly 2 elements) are skipped
+                with a warning logged.
             agent_type: The type of agent sending the message.
 
         Returns:
@@ -120,6 +128,13 @@ class ChatMessageFormatter:
         quick_actions = []
         for choice in choices:
             if isinstance(choice, tuple):
+                if len(choice) != 2:
+                    logger.warning(
+                        "Skipping malformed choice tuple with %d elements: %r",
+                        len(choice),
+                        choice,
+                    )
+                    continue
                 label, value = choice
                 quick_actions.append(QuickAction(label=label, value=value))
             else:
@@ -158,7 +173,14 @@ class ChatMessageFormatter:
             if timestamp is None:
                 timestamp = _utc_now()
             elif isinstance(timestamp, str):
-                timestamp = datetime.fromisoformat(timestamp)
+                try:
+                    timestamp = datetime.fromisoformat(timestamp)
+                except ValueError:
+                    logger.warning(
+                        "Invalid ISO timestamp '%s', using current time",
+                        timestamp,
+                    )
+                    timestamp = _utc_now()
 
             formatted.append(
                 FormattedMessage(
@@ -176,6 +198,17 @@ class ChatMessageFormatter:
         messages: list[dict],
     ) -> list[ConversationTurn]:
         """Group messages by conversation turn (user + agent pairs).
+
+        This method expects strict alternation between user and assistant
+        messages. Incomplete turns (e.g., a user message without a following
+        assistant response) at the end of the conversation are discarded.
+
+        Note:
+            - Consecutive same-role messages will result in the first message
+              being paired with the subsequent different-role message, and the
+              extra same-role message being discarded or orphaned.
+            - If the conversation ends with a user message (no assistant
+              response yet), that message will not appear in the returned turns.
 
         Args:
             messages: List of message dictionaries.
