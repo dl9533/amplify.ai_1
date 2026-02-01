@@ -16,6 +16,12 @@ from typing import Any
 
 import httpx
 
+from app.modules.discovery.exceptions import (
+    OnetApiError,
+    OnetNotFoundError,
+    OnetRateLimitError,
+)
+
 
 class OnetApiClient:
     """Async client for O*NET Web Services API.
@@ -107,8 +113,9 @@ class OnetApiClient:
             JSON response as a dictionary.
 
         Raises:
-            httpx.HTTPStatusError: If the request fails with a non-2xx status.
-            httpx.RequestError: If a network error occurs.
+            OnetRateLimitError: If rate limit is exceeded (429).
+            OnetNotFoundError: If the resource is not found (404).
+            OnetApiError: For other HTTP errors.
         """
         await self._wait_for_rate_limit()
 
@@ -122,7 +129,27 @@ class OnetApiClient:
                 headers=headers,
                 params=params,
             )
-            response.raise_for_status()
+            try:
+                response.raise_for_status()
+            except httpx.HTTPStatusError as e:
+                status_code = e.response.status_code
+                if status_code == 429:
+                    retry_after = e.response.headers.get("Retry-After")
+                    retry_seconds = int(retry_after) if retry_after else None
+                    raise OnetRateLimitError(
+                        message="O*NET API rate limit exceeded",
+                        retry_after=retry_seconds,
+                    ) from e
+                elif status_code == 404:
+                    raise OnetNotFoundError(
+                        message=f"O*NET resource not found: {endpoint}",
+                        resource=endpoint,
+                    ) from e
+                else:
+                    raise OnetApiError(
+                        message=f"O*NET API error: {e}",
+                        status_code=status_code,
+                    ) from e
             return response.json()
 
     async def search_occupations(self, keyword: str) -> list[dict[str, Any]]:
@@ -200,3 +227,61 @@ class OnetApiClient:
         """
         response = await self._get(f"online/occupations/{code}/technology_skills")
         return response.get("category", [])
+
+    async def get_occupation(self, code: str) -> dict[str, Any]:
+        """Get occupation by code.
+
+        Alias for get_occupation_details for convenience.
+
+        Args:
+            code: O*NET occupation code (e.g., "15-1252.00").
+
+        Returns:
+            Dictionary with occupation details including code, title, and description.
+
+        Raises:
+            OnetNotFoundError: If the occupation code is not found.
+        """
+        return await self._get(f"online/occupations/{code}")
+
+    async def search_occupations_with_retry(
+        self,
+        keyword: str,
+        max_retries: int = 3,
+        base_delay: float = 1.0,
+    ) -> list[dict[str, Any]]:
+        """Search occupations with exponential backoff on rate limit errors.
+
+        Args:
+            keyword: Search term to match against occupation titles.
+            max_retries: Maximum number of retry attempts.
+            base_delay: Base delay in seconds for exponential backoff.
+
+        Returns:
+            List of occupation dictionaries with 'code' and 'title' fields.
+
+        Raises:
+            OnetRateLimitError: If rate limit is still exceeded after all retries.
+            OnetApiError: For other API errors.
+        """
+        last_error: OnetRateLimitError | None = None
+
+        for attempt in range(max_retries):
+            try:
+                response = await self._get("mnm/search", params={"keyword": keyword})
+                return response.get("occupation", [])
+            except OnetRateLimitError as e:
+                last_error = e
+                if attempt < max_retries - 1:
+                    # Exponential backoff: base_delay * 2^attempt
+                    delay = base_delay * (2 ** attempt)
+                    # Use retry_after from server if available
+                    if e.retry_after:
+                        delay = max(delay, float(e.retry_after))
+                    await asyncio.sleep(delay)
+
+        # All retries exhausted
+        if last_error:
+            raise last_error
+        # This should not happen, but satisfy type checker
+        raise OnetRateLimitError("Rate limit exceeded after all retries")
