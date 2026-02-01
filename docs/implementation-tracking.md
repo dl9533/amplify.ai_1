@@ -163,7 +163,75 @@ Each task MUST follow this exact sequence. No shortcuts.
 | Tasks Complete | 9 | 8 | 6 | 6 | 7 | 7 | 4 | 7 | 54 |
 | Tasks Remaining | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 
-**Overall Status**: ✅ PHASE 0 COMPLETE (54/54 tasks)
+**Phase 0 Status**: ✅ COMPLETE (54/54 tasks)
+
+---
+
+## New Phases (Tasks 78-155)
+
+### Part 10: O*NET Reference Models (Tasks 78-83)
+
+| Task | Description | Implement | Spec Review | Code Review | Status |
+|------|-------------|:---------:|:-----------:|:-----------:|:------:|
+| 78 | Base Model and Alembic Configuration | ✅ | ✅ | ✅ | COMPLETE |
+| 79 | O*NET Occupation Model | ✅ | ✅ | ✅ | COMPLETE |
+| 80 | O*NET Work Activities Models | ✅ | ✅ | ✅ | COMPLETE |
+| 81 | O*NET Tasks Model | ✅ | ✅ | ✅ | COMPLETE |
+| 82 | O*NET Skills Models | ✅ | ✅ | ✅ | COMPLETE |
+| 83 | Consolidated O*NET Models Export | ✅ | ✅ | ✅ | COMPLETE |
+
+**Part 10 Status**: ✅ COMPLETE (6/6 tasks)
+
+---
+
+### Part 11: Application Models (Tasks 84-89)
+
+| Task | Description | Implement | Spec Review | Code Review | Status |
+|------|-------------|:---------:|:-----------:|:-----------:|:------:|
+| 84 | Discovery Session Model | ✅ | ✅ | ✅ | COMPLETE |
+| 85 | Discovery Upload Model | ✅ | ✅ | ✅ | COMPLETE |
+| 86 | Discovery Role Mapping Model | ✅ | ✅ | ✅ | COMPLETE |
+| 87 | Discovery Activity Selection Model | ✅ | ✅ | ✅ | COMPLETE |
+| 88 | Discovery Analysis Results Model | ✅ | ✅ | ✅ | COMPLETE |
+| 89 | Agentification Candidate Model | ✅ | ✅ | ✅ | COMPLETE |
+
+**Part 11 Status**: ✅ COMPLETE (6/6 tasks)
+
+---
+
+### Part 12: Repository Layer (Tasks 90-95)
+
+| Task | Description | Implement | Spec Review | Code Review | Status |
+|------|-------------|:---------:|:-----------:|:-----------:|:------:|
+| 90 | O*NET Occupation Repository | ⬜ | ⬜ | ⬜ | PENDING |
+| 91 | Session Repository | ⬜ | ⬜ | ⬜ | PENDING |
+| 92 | Upload Repository | ⬜ | ⬜ | ⬜ | PENDING |
+| 93 | Role Mapping Repository | ⬜ | ⬜ | ⬜ | PENDING |
+| 94 | Analysis Repository | ⬜ | ⬜ | ⬜ | PENDING |
+| 95 | Consolidated Repository Exports | ⬜ | ⬜ | ⬜ | PENDING |
+
+**Part 12 Status**: ⬜ PENDING (0/6 tasks)
+
+---
+
+### Part 13-25: Remaining Parts (Tasks 96-155)
+
+| Part | Description | Tasks | Status |
+|------|-------------|-------|--------|
+| 13 | Service Layer Integration | 96-99 | ⬜ PENDING |
+| 14 | Upload Service Implementation | 100-103 | ⬜ PENDING |
+| 15 | Role Mapping Service Implementation | 104-107 | ⬜ PENDING |
+| 16 | Analysis & Scoring Services | 108-111 | ⬜ PENDING |
+| 17 | Subagent Implementations | 112-116 | ⬜ PENDING |
+| 18 | Orchestrator Integration | 117-119 | ⬜ PENDING |
+| 20 | Job Infrastructure | 120-122 | ⬜ PENDING |
+| 21 | Error Handling | 123-126 | ⬜ PENDING |
+| 22 | Router Dependency Injection | 127-134 | ⬜ PENDING |
+| 23 | Frontend Infrastructure | 135-138 | ⬜ PENDING |
+| 24 | Step Components | 139-143 | ⬜ PENDING |
+| 25 | Main Wizard Page | 144-155 | ⬜ PENDING |
+
+**Overall New Phases Status**: 🔄 IN PROGRESS (12/78 tasks)
 
 ---
 
@@ -303,6 +371,16 @@ Each task MUST follow this exact sequence. No shortcuts.
   - Frontend tests: 242 passing, Backend tests: 570 passing
   - All tasks followed subagent-driven-development workflow
   - **Phase 0 (Opportunity Discovery) now COMPLETE**
+
+### Session 6 (Parts 10-11 Implementation)
+- **Date**: 2026-02-01
+- **Tasks Completed**: 78-89 (12 tasks)
+- **Notes**:
+  - Part 10 (O*NET Reference Models): Base, OnetOccupation, GWA/IWA/DWA, Tasks, Skills
+  - Part 11 (Application Models): DiscoverySession, DiscoveryUpload, DiscoveryRoleMapping, DiscoveryActivitySelection, DiscoveryAnalysisResult, AgentificationCandidate
+  - Patterns applied: server_default=func.now(), ondelete="CASCADE", index=True on FKs, __repr__ methods
+  - All 37 model tests passing
+  - Continuing with Part 12 (Repository Layer)
 
 ---
 
