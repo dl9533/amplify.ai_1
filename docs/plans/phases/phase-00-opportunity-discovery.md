@@ -5402,71 +5402,5081 @@ git commit -m "feat(discovery): add BaseSubagent with protocol flags"
 
 ---
 
-### Task 29-38: Remaining Agent Tasks
+### Task 29: Agent Memory Service
 
-Following the same TDD pattern, implement:
+**Files:**
+- Create: `backend/app/modules/discovery/services/memory_service.py`
+- Test: `backend/tests/unit/modules/discovery/test_memory_service.py`
 
-- **Task 29:** Agent Memory Service - working/episodic/semantic memory operations
-- **Task 30:** Upload Subagent - file parsing, column detection
-- **Task 31:** Mapping Subagent - role to O*NET matching
-- **Task 32:** Activity Subagent - DWA selection management
-- **Task 33:** Analysis Subagent - score calculations, insight generation
-- **Task 34:** Roadmap Subagent - prioritization, timeline generation
-- **Task 35:** Discovery Orchestrator - routes to subagents, manages session
-- **Task 36:** Brainstorming Interaction Handler - one question at a time
-- **Task 37:** Chat Message Formatter - formats agent responses
-- **Task 38:** Quick Action Chip Generator - generates choice chips
+**Step 1: Write the failing test**
+
+```python
+# backend/tests/unit/modules/discovery/test_memory_service.py
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
+
+from app.modules.discovery.services.memory_service import AgentMemoryService
+
+
+@pytest.fixture
+def memory_service():
+    return AgentMemoryService()
+
+
+@pytest.fixture
+def mock_repos():
+    return {
+        "working_memory_repo": AsyncMock(),
+        "episodic_memory_repo": AsyncMock(),
+        "semantic_memory_repo": AsyncMock(),
+    }
+
+
+class TestWorkingMemory:
+    """Tests for working memory operations."""
+
+    @pytest.mark.asyncio
+    async def test_get_working_memory_returns_session_context(
+        self, memory_service, mock_repos
+    ):
+        """Should retrieve current session context from working memory."""
+        session_id = uuid4()
+        mock_repos["working_memory_repo"].get_by_session_id.return_value = MagicMock(
+            context={"current_step": "upload", "last_action": "file_selected"}
+        )
+
+        result = await memory_service.get_working_memory(
+            session_id=session_id,
+            working_memory_repo=mock_repos["working_memory_repo"],
+        )
+
+        assert result["current_step"] == "upload"
+        mock_repos["working_memory_repo"].get_by_session_id.assert_called_once_with(session_id)
+
+    @pytest.mark.asyncio
+    async def test_update_working_memory_merges_context(
+        self, memory_service, mock_repos
+    ):
+        """Should merge new context into existing working memory."""
+        session_id = uuid4()
+        mock_repos["working_memory_repo"].get_by_session_id.return_value = MagicMock(
+            context={"current_step": "upload"}
+        )
+
+        await memory_service.update_working_memory(
+            session_id=session_id,
+            updates={"last_action": "column_mapped"},
+            working_memory_repo=mock_repos["working_memory_repo"],
+        )
+
+        mock_repos["working_memory_repo"].update.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_clear_working_memory_on_session_complete(
+        self, memory_service, mock_repos
+    ):
+        """Should clear working memory when session completes."""
+        session_id = uuid4()
+
+        await memory_service.clear_working_memory(
+            session_id=session_id,
+            working_memory_repo=mock_repos["working_memory_repo"],
+        )
+
+        mock_repos["working_memory_repo"].delete_by_session_id.assert_called_once_with(session_id)
+
+
+class TestEpisodicMemory:
+    """Tests for episodic memory operations."""
+
+    @pytest.mark.asyncio
+    async def test_store_episode_saves_interaction(
+        self, memory_service, mock_repos
+    ):
+        """Should store an interaction episode for learning."""
+        agent_id = uuid4()
+        episode = {
+            "action": "suggested_mapping",
+            "input": "Software Engineer",
+            "output": "15-1252.00",
+            "feedback": "accepted",
+        }
+
+        await memory_service.store_episode(
+            agent_id=agent_id,
+            episode=episode,
+            episodic_memory_repo=mock_repos["episodic_memory_repo"],
+        )
+
+        mock_repos["episodic_memory_repo"].create.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_retrieve_similar_episodes(
+        self, memory_service, mock_repos
+    ):
+        """Should retrieve similar past episodes for context."""
+        agent_id = uuid4()
+        mock_repos["episodic_memory_repo"].find_similar.return_value = [
+            MagicMock(action="suggested_mapping", feedback="accepted"),
+            MagicMock(action="suggested_mapping", feedback="rejected"),
+        ]
+
+        result = await memory_service.retrieve_similar_episodes(
+            agent_id=agent_id,
+            query="Software Engineer mapping",
+            limit=5,
+            episodic_memory_repo=mock_repos["episodic_memory_repo"],
+        )
+
+        assert len(result) == 2
+
+
+class TestSemanticMemory:
+    """Tests for semantic memory operations."""
+
+    @pytest.mark.asyncio
+    async def test_store_learned_pattern(
+        self, memory_service, mock_repos
+    ):
+        """Should store a learned pattern in semantic memory."""
+        agent_id = uuid4()
+        pattern = {
+            "pattern_type": "role_mapping_preference",
+            "description": "User prefers exact title matches",
+            "confidence": 0.85,
+        }
+
+        await memory_service.store_pattern(
+            agent_id=agent_id,
+            pattern=pattern,
+            semantic_memory_repo=mock_repos["semantic_memory_repo"],
+        )
+
+        mock_repos["semantic_memory_repo"].create.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_get_patterns_for_context(
+        self, memory_service, mock_repos
+    ):
+        """Should retrieve relevant patterns for current context."""
+        agent_id = uuid4()
+        mock_repos["semantic_memory_repo"].get_by_agent_and_type.return_value = [
+            MagicMock(pattern_type="role_mapping_preference", confidence=0.85),
+        ]
+
+        result = await memory_service.get_patterns(
+            agent_id=agent_id,
+            pattern_type="role_mapping_preference",
+            semantic_memory_repo=mock_repos["semantic_memory_repo"],
+        )
+
+        assert len(result) == 1
+        assert result[0].confidence == 0.85
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd /Users/dl9533/projects/amplify.ai/backend && python -m pytest tests/unit/modules/discovery/test_memory_service.py -v`
+Expected: FAIL with "ImportError: cannot import name 'AgentMemoryService'"
+
+**Step 3: Write minimal implementation to make test pass**
+
+(Implementer determines the code)
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd /Users/dl9533/projects/amplify.ai/backend && python -m pytest tests/unit/modules/discovery/test_memory_service.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add backend/app/modules/discovery/services/memory_service.py backend/tests/unit/modules/discovery/test_memory_service.py
+git commit -m "feat(discovery): add AgentMemoryService for working/episodic/semantic memory"
+```
+
+---
+
+### Task 30: Upload Subagent
+
+**Files:**
+- Create: `backend/app/modules/discovery/agents/upload_agent.py`
+- Test: `backend/tests/unit/modules/discovery/test_upload_agent.py`
+
+**Step 1: Write the failing test**
+
+```python
+# backend/tests/unit/modules/discovery/test_upload_agent.py
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
+
+from app.modules.discovery.agents.upload_agent import UploadSubagent
+from app.modules.discovery.agents.base import BaseSubagent
+
+
+@pytest.fixture
+def upload_agent():
+    return UploadSubagent(
+        session=MagicMock(id=uuid4()),
+        memory_service=AsyncMock(),
+    )
+
+
+class TestUploadSubagentSetup:
+    """Tests for upload agent configuration."""
+
+    def test_upload_agent_extends_base_subagent(self, upload_agent):
+        """UploadSubagent should extend BaseSubagent."""
+        assert isinstance(upload_agent, BaseSubagent)
+
+    def test_upload_agent_type_is_upload(self, upload_agent):
+        """Agent type should be 'upload'."""
+        assert upload_agent.agent_type == "upload"
+
+
+class TestColumnDetection:
+    """Tests for file column detection."""
+
+    @pytest.mark.asyncio
+    async def test_detect_columns_from_csv(self, upload_agent):
+        """Should detect column names from uploaded CSV."""
+        file_content = "Name,Department,Role\nJohn,Engineering,Developer"
+
+        result = await upload_agent.detect_columns(file_content, file_type="csv")
+
+        assert "Name" in result
+        assert "Department" in result
+        assert "Role" in result
+
+    @pytest.mark.asyncio
+    async def test_suggest_column_mappings(self, upload_agent):
+        """Should suggest which columns map to required fields."""
+        columns = ["Employee Name", "Dept", "Job Title", "Location", "Headcount"]
+
+        result = await upload_agent.suggest_column_mappings(columns)
+
+        assert "role_column" in result
+        assert "department_column" in result
+        assert "headcount_column" in result
+
+
+class TestBrainstormingInteraction:
+    """Tests for brainstorming-style interactions."""
+
+    @pytest.mark.asyncio
+    async def test_process_asks_one_question_at_time(self, upload_agent):
+        """Should ask one clarifying question at a time."""
+        upload_agent._file_uploaded = True
+        upload_agent._columns = ["Name", "Title", "Dept"]
+
+        response = await upload_agent.process("I uploaded the file")
+
+        assert response.question is not None
+        assert response.choices is not None
+        assert len(response.choices) <= 5  # Max 5 choices
+
+    @pytest.mark.asyncio
+    async def test_process_confirms_column_selection(self, upload_agent):
+        """Should confirm user's column selection."""
+        upload_agent._file_uploaded = True
+        upload_agent._pending_question = "role_column"
+
+        response = await upload_agent.process("Job Title")
+
+        assert "Job Title" in str(response) or response.confirmed_value == "Job Title"
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd /Users/dl9533/projects/amplify.ai/backend && python -m pytest tests/unit/modules/discovery/test_upload_agent.py -v`
+Expected: FAIL with "ImportError: cannot import name 'UploadSubagent'"
+
+**Step 3: Write minimal implementation to make test pass**
+
+(Implementer determines the code)
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd /Users/dl9533/projects/amplify.ai/backend && python -m pytest tests/unit/modules/discovery/test_upload_agent.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add backend/app/modules/discovery/agents/upload_agent.py backend/tests/unit/modules/discovery/test_upload_agent.py
+git commit -m "feat(discovery): add UploadSubagent for file parsing and column detection"
+```
+
+---
+
+### Task 31: Mapping Subagent
+
+**Files:**
+- Create: `backend/app/modules/discovery/agents/mapping_agent.py`
+- Test: `backend/tests/unit/modules/discovery/test_mapping_agent.py`
+
+**Step 1: Write the failing test**
+
+```python
+# backend/tests/unit/modules/discovery/test_mapping_agent.py
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
+
+from app.modules.discovery.agents.mapping_agent import MappingSubagent
+from app.modules.discovery.agents.base import BaseSubagent
+
+
+@pytest.fixture
+def mapping_agent():
+    return MappingSubagent(
+        session=MagicMock(id=uuid4()),
+        memory_service=AsyncMock(),
+    )
+
+
+@pytest.fixture
+def mock_onet_repo():
+    repo = AsyncMock()
+    repo.search_occupations.return_value = [
+        MagicMock(code="15-1252.00", title="Software Developers", score=0.95),
+        MagicMock(code="15-1254.00", title="Web Developers", score=0.85),
+    ]
+    return repo
+
+
+class TestMappingSubagentSetup:
+    """Tests for mapping agent configuration."""
+
+    def test_mapping_agent_extends_base_subagent(self, mapping_agent):
+        """MappingSubagent should extend BaseSubagent."""
+        assert isinstance(mapping_agent, BaseSubagent)
+
+    def test_mapping_agent_type_is_mapping(self, mapping_agent):
+        """Agent type should be 'mapping'."""
+        assert mapping_agent.agent_type == "mapping"
+
+
+class TestOnetMatching:
+    """Tests for O*NET occupation matching."""
+
+    @pytest.mark.asyncio
+    async def test_suggest_onet_matches_for_role(
+        self, mapping_agent, mock_onet_repo
+    ):
+        """Should suggest O*NET occupations for a source role."""
+        result = await mapping_agent.suggest_matches(
+            source_role="Software Engineer",
+            onet_repo=mock_onet_repo,
+            limit=5,
+        )
+
+        assert len(result) == 2
+        assert result[0].code == "15-1252.00"
+        mock_onet_repo.search_occupations.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_confirm_mapping_stores_selection(
+        self, mapping_agent, mock_onet_repo
+    ):
+        """Should store confirmed mapping."""
+        role_mapping_id = uuid4()
+
+        await mapping_agent.confirm_mapping(
+            role_mapping_id=role_mapping_id,
+            onet_code="15-1252.00",
+            confidence=0.95,
+        )
+
+        assert mapping_agent._confirmed_mappings[str(role_mapping_id)] == "15-1252.00"
+
+
+class TestBrainstormingFlow:
+    """Tests for brainstorming-style role mapping."""
+
+    @pytest.mark.asyncio
+    async def test_process_presents_mapping_choices(self, mapping_agent, mock_onet_repo):
+        """Should present O*NET choices for unmapped role."""
+        mapping_agent._onet_repo = mock_onet_repo
+        mapping_agent._current_role = MagicMock(source_role="Data Analyst")
+
+        response = await mapping_agent.process("Map this role")
+
+        assert response.question is not None
+        assert len(response.choices) >= 1
+
+    @pytest.mark.asyncio
+    async def test_process_handles_none_of_these(self, mapping_agent):
+        """Should handle 'none of these' selection."""
+        mapping_agent._pending_role_id = uuid4()
+
+        response = await mapping_agent.process("None of these match")
+
+        assert "search" in response.question.lower() or "specify" in response.question.lower()
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd /Users/dl9533/projects/amplify.ai/backend && python -m pytest tests/unit/modules/discovery/test_mapping_agent.py -v`
+Expected: FAIL with "ImportError: cannot import name 'MappingSubagent'"
+
+**Step 3: Write minimal implementation to make test pass**
+
+(Implementer determines the code)
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd /Users/dl9533/projects/amplify.ai/backend && python -m pytest tests/unit/modules/discovery/test_mapping_agent.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add backend/app/modules/discovery/agents/mapping_agent.py backend/tests/unit/modules/discovery/test_mapping_agent.py
+git commit -m "feat(discovery): add MappingSubagent for O*NET role matching"
+```
+
+---
+
+### Task 32: Activity Subagent
+
+**Files:**
+- Create: `backend/app/modules/discovery/agents/activity_agent.py`
+- Test: `backend/tests/unit/modules/discovery/test_activity_agent.py`
+
+**Step 1: Write the failing test**
+
+```python
+# backend/tests/unit/modules/discovery/test_activity_agent.py
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
+
+from app.modules.discovery.agents.activity_agent import ActivitySubagent
+from app.modules.discovery.agents.base import BaseSubagent
+
+
+@pytest.fixture
+def activity_agent():
+    return ActivitySubagent(
+        session=MagicMock(id=uuid4()),
+        memory_service=AsyncMock(),
+    )
+
+
+@pytest.fixture
+def mock_dwa_list():
+    return [
+        MagicMock(id="4.A.1.a.1", name="Analyzing data", gwa_exposure=0.85),
+        MagicMock(id="4.A.2.b.2", name="Writing reports", gwa_exposure=0.70),
+        MagicMock(id="4.A.3.c.3", name="Coordinating meetings", gwa_exposure=0.45),
+    ]
+
+
+class TestActivitySubagentSetup:
+    """Tests for activity agent configuration."""
+
+    def test_activity_agent_extends_base_subagent(self, activity_agent):
+        """ActivitySubagent should extend BaseSubagent."""
+        assert isinstance(activity_agent, BaseSubagent)
+
+    def test_activity_agent_type_is_activity(self, activity_agent):
+        """Agent type should be 'activity'."""
+        assert activity_agent.agent_type == "activity"
+
+
+class TestDwaSelection:
+    """Tests for DWA selection management."""
+
+    @pytest.mark.asyncio
+    async def test_get_dwas_for_role_mapping(self, activity_agent, mock_dwa_list):
+        """Should retrieve DWAs for a mapped O*NET occupation."""
+        activity_agent._dwa_repo = AsyncMock()
+        activity_agent._dwa_repo.get_by_occupation.return_value = mock_dwa_list
+
+        result = await activity_agent.get_dwas_for_role(
+            onet_code="15-1252.00",
+        )
+
+        assert len(result) == 3
+
+    @pytest.mark.asyncio
+    async def test_toggle_dwa_selection(self, activity_agent):
+        """Should toggle DWA selection state."""
+        role_mapping_id = uuid4()
+        dwa_id = "4.A.1.a.1"
+
+        await activity_agent.toggle_dwa(
+            role_mapping_id=role_mapping_id,
+            dwa_id=dwa_id,
+            selected=True,
+        )
+
+        assert activity_agent._selections[(str(role_mapping_id), dwa_id)] is True
+
+        await activity_agent.toggle_dwa(
+            role_mapping_id=role_mapping_id,
+            dwa_id=dwa_id,
+            selected=False,
+        )
+
+        assert activity_agent._selections[(str(role_mapping_id), dwa_id)] is False
+
+    @pytest.mark.asyncio
+    async def test_bulk_select_by_exposure_threshold(self, activity_agent, mock_dwa_list):
+        """Should bulk select DWAs above exposure threshold."""
+        role_mapping_id = uuid4()
+        activity_agent._current_dwas = mock_dwa_list
+
+        await activity_agent.select_above_threshold(
+            role_mapping_id=role_mapping_id,
+            threshold=0.6,
+        )
+
+        # Should select 2 DWAs (0.85 and 0.70, not 0.45)
+        selected = [k for k, v in activity_agent._selections.items() if v]
+        assert len(selected) == 2
+
+
+class TestBrainstormingFlow:
+    """Tests for brainstorming-style activity selection."""
+
+    @pytest.mark.asyncio
+    async def test_process_asks_about_activity_relevance(self, activity_agent, mock_dwa_list):
+        """Should ask if activity is relevant to role."""
+        activity_agent._current_dwas = mock_dwa_list
+        activity_agent._current_dwa_index = 0
+
+        response = await activity_agent.process("Start activity selection")
+
+        assert response.question is not None
+        assert "Analyzing data" in response.question or mock_dwa_list[0].name in str(response)
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd /Users/dl9533/projects/amplify.ai/backend && python -m pytest tests/unit/modules/discovery/test_activity_agent.py -v`
+Expected: FAIL with "ImportError: cannot import name 'ActivitySubagent'"
+
+**Step 3: Write minimal implementation to make test pass**
+
+(Implementer determines the code)
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd /Users/dl9533/projects/amplify.ai/backend && python -m pytest tests/unit/modules/discovery/test_activity_agent.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add backend/app/modules/discovery/agents/activity_agent.py backend/tests/unit/modules/discovery/test_activity_agent.py
+git commit -m "feat(discovery): add ActivitySubagent for DWA selection management"
+```
+
+---
+
+### Task 33: Analysis Subagent
+
+**Files:**
+- Create: `backend/app/modules/discovery/agents/analysis_agent.py`
+- Test: `backend/tests/unit/modules/discovery/test_analysis_agent.py`
+
+**Step 1: Write the failing test**
+
+```python
+# backend/tests/unit/modules/discovery/test_analysis_agent.py
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
+
+from app.modules.discovery.agents.analysis_agent import AnalysisSubagent
+from app.modules.discovery.agents.base import BaseSubagent
+
+
+@pytest.fixture
+def analysis_agent():
+    return AnalysisSubagent(
+        session=MagicMock(id=uuid4()),
+        memory_service=AsyncMock(),
+    )
+
+
+@pytest.fixture
+def mock_scoring_service():
+    service = MagicMock()
+    service.score_session = AsyncMock(return_value=MagicMock(
+        role_scores={"role-1": MagicMock(exposure=0.8, impact=0.6, priority=0.75)},
+        dimension_aggregations=[],
+    ))
+    return service
+
+
+class TestAnalysisSubagentSetup:
+    """Tests for analysis agent configuration."""
+
+    def test_analysis_agent_extends_base_subagent(self, analysis_agent):
+        """AnalysisSubagent should extend BaseSubagent."""
+        assert isinstance(analysis_agent, BaseSubagent)
+
+    def test_analysis_agent_type_is_analysis(self, analysis_agent):
+        """Agent type should be 'analysis'."""
+        assert analysis_agent.agent_type == "analysis"
+
+
+class TestScoreCalculation:
+    """Tests for score calculation orchestration."""
+
+    @pytest.mark.asyncio
+    async def test_trigger_scoring_uses_scoring_service(
+        self, analysis_agent, mock_scoring_service
+    ):
+        """Should delegate to ScoringService for calculations."""
+        analysis_agent._scoring_service = mock_scoring_service
+
+        result = await analysis_agent.calculate_scores()
+
+        mock_scoring_service.score_session.assert_called_once()
+        assert result.role_scores["role-1"].exposure == 0.8
+
+
+class TestInsightGeneration:
+    """Tests for insight generation."""
+
+    @pytest.mark.asyncio
+    async def test_generate_top_opportunities_insight(self, analysis_agent):
+        """Should generate insight about top automation opportunities."""
+        analysis_agent._scoring_result = MagicMock(
+            role_scores={
+                "role-1": MagicMock(priority=0.9, exposure=0.85),
+                "role-2": MagicMock(priority=0.6, exposure=0.5),
+            }
+        )
+
+        insights = await analysis_agent.generate_insights()
+
+        assert any("opportunity" in i.lower() or "priority" in i.lower() for i in insights)
+
+    @pytest.mark.asyncio
+    async def test_generate_department_summary_insight(self, analysis_agent):
+        """Should summarize scores by department."""
+        analysis_agent._scoring_result = MagicMock(
+            dimension_aggregations=[
+                MagicMock(dimension="DEPARTMENT", dimension_value="Engineering", ai_exposure_score=0.8),
+                MagicMock(dimension="DEPARTMENT", dimension_value="HR", ai_exposure_score=0.4),
+            ]
+        )
+
+        summary = await analysis_agent.get_dimension_summary("DEPARTMENT")
+
+        assert len(summary) == 2
+
+
+class TestBrainstormingFlow:
+    """Tests for brainstorming-style analysis presentation."""
+
+    @pytest.mark.asyncio
+    async def test_process_presents_analysis_dimensions(self, analysis_agent):
+        """Should ask which dimension to explore."""
+        analysis_agent._scores_calculated = True
+
+        response = await analysis_agent.process("Show me the analysis")
+
+        assert response.question is not None
+        assert response.choices is not None
+        # Should offer dimension choices
+        dimension_names = ["role", "department", "geography", "task"]
+        assert any(d in str(response.choices).lower() for d in dimension_names)
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd /Users/dl9533/projects/amplify.ai/backend && python -m pytest tests/unit/modules/discovery/test_analysis_agent.py -v`
+Expected: FAIL with "ImportError: cannot import name 'AnalysisSubagent'"
+
+**Step 3: Write minimal implementation to make test pass**
+
+(Implementer determines the code)
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd /Users/dl9533/projects/amplify.ai/backend && python -m pytest tests/unit/modules/discovery/test_analysis_agent.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add backend/app/modules/discovery/agents/analysis_agent.py backend/tests/unit/modules/discovery/test_analysis_agent.py
+git commit -m "feat(discovery): add AnalysisSubagent for scoring and insights"
+```
+
+---
+
+### Task 34: Roadmap Subagent
+
+**Files:**
+- Create: `backend/app/modules/discovery/agents/roadmap_agent.py`
+- Test: `backend/tests/unit/modules/discovery/test_roadmap_agent.py`
+
+**Step 1: Write the failing test**
+
+```python
+# backend/tests/unit/modules/discovery/test_roadmap_agent.py
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
+
+from app.modules.discovery.agents.roadmap_agent import RoadmapSubagent
+from app.modules.discovery.agents.base import BaseSubagent
+
+
+@pytest.fixture
+def roadmap_agent():
+    return RoadmapSubagent(
+        session=MagicMock(id=uuid4()),
+        memory_service=AsyncMock(),
+    )
+
+
+class TestRoadmapSubagentSetup:
+    """Tests for roadmap agent configuration."""
+
+    def test_roadmap_agent_extends_base_subagent(self, roadmap_agent):
+        """RoadmapSubagent should extend BaseSubagent."""
+        assert isinstance(roadmap_agent, BaseSubagent)
+
+    def test_roadmap_agent_type_is_roadmap(self, roadmap_agent):
+        """Agent type should be 'roadmap'."""
+        assert roadmap_agent.agent_type == "roadmap"
+
+
+class TestPrioritization:
+    """Tests for candidate prioritization."""
+
+    @pytest.mark.asyncio
+    async def test_prioritize_candidates_by_score(self, roadmap_agent):
+        """Should prioritize candidates by priority score."""
+        candidates = [
+            MagicMock(id="c1", role_name="Engineer", priority_score=0.6),
+            MagicMock(id="c2", role_name="Analyst", priority_score=0.9),
+            MagicMock(id="c3", role_name="Manager", priority_score=0.7),
+        ]
+
+        result = await roadmap_agent.prioritize(candidates)
+
+        assert result[0].id == "c2"  # Highest priority first
+        assert result[1].id == "c3"
+        assert result[2].id == "c1"
+
+    @pytest.mark.asyncio
+    async def test_assign_priority_tiers(self, roadmap_agent):
+        """Should assign high/medium/low tiers based on scores."""
+        candidates = [
+            MagicMock(id="c1", priority_score=0.85),  # High
+            MagicMock(id="c2", priority_score=0.55),  # Medium
+            MagicMock(id="c3", priority_score=0.25),  # Low
+        ]
+
+        result = await roadmap_agent.assign_tiers(candidates)
+
+        assert result["c1"] == "high"
+        assert result["c2"] == "medium"
+        assert result["c3"] == "low"
+
+
+class TestTimelineGeneration:
+    """Tests for implementation timeline."""
+
+    @pytest.mark.asyncio
+    async def test_generate_quarterly_timeline(self, roadmap_agent):
+        """Should organize candidates into quarterly timeline."""
+        candidates = [
+            MagicMock(id="c1", priority_score=0.9, complexity_score=0.2),
+            MagicMock(id="c2", priority_score=0.7, complexity_score=0.5),
+            MagicMock(id="c3", priority_score=0.5, complexity_score=0.8),
+        ]
+
+        timeline = await roadmap_agent.generate_timeline(candidates, quarters=4)
+
+        assert "Q1" in timeline
+        assert "Q2" in timeline
+        assert len(timeline["Q1"]) >= 1  # High priority, low complexity first
+
+
+class TestBrainstormingFlow:
+    """Tests for brainstorming-style roadmap planning."""
+
+    @pytest.mark.asyncio
+    async def test_process_asks_about_priorities(self, roadmap_agent):
+        """Should ask about prioritization preferences."""
+        roadmap_agent._candidates = [MagicMock(), MagicMock()]
+
+        response = await roadmap_agent.process("Create a roadmap")
+
+        assert response.question is not None
+
+    @pytest.mark.asyncio
+    async def test_process_offers_timeline_options(self, roadmap_agent):
+        """Should offer timeline duration options."""
+        roadmap_agent._prioritized = True
+
+        response = await roadmap_agent.process("Generate timeline")
+
+        assert response.choices is not None
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd /Users/dl9533/projects/amplify.ai/backend && python -m pytest tests/unit/modules/discovery/test_roadmap_agent.py -v`
+Expected: FAIL with "ImportError: cannot import name 'RoadmapSubagent'"
+
+**Step 3: Write minimal implementation to make test pass**
+
+(Implementer determines the code)
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd /Users/dl9533/projects/amplify.ai/backend && python -m pytest tests/unit/modules/discovery/test_roadmap_agent.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add backend/app/modules/discovery/agents/roadmap_agent.py backend/tests/unit/modules/discovery/test_roadmap_agent.py
+git commit -m "feat(discovery): add RoadmapSubagent for prioritization and timeline"
+```
+
+---
+
+### Task 35: Discovery Orchestrator
+
+**Files:**
+- Create: `backend/app/modules/discovery/agents/orchestrator.py`
+- Test: `backend/tests/unit/modules/discovery/test_orchestrator.py`
+
+**Step 1: Write the failing test**
+
+```python
+# backend/tests/unit/modules/discovery/test_orchestrator.py
+import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import uuid4
+
+from app.modules.discovery.agents.orchestrator import DiscoveryOrchestrator
+from app.modules.discovery.enums import DiscoveryStep
+
+
+@pytest.fixture
+def orchestrator():
+    return DiscoveryOrchestrator(
+        session=MagicMock(id=uuid4(), current_step=DiscoveryStep.UPLOAD),
+        memory_service=AsyncMock(),
+    )
+
+
+@pytest.fixture
+def mock_subagents():
+    return {
+        "upload": AsyncMock(),
+        "mapping": AsyncMock(),
+        "activity": AsyncMock(),
+        "analysis": AsyncMock(),
+        "roadmap": AsyncMock(),
+    }
+
+
+class TestOrchestratorRouting:
+    """Tests for message routing to subagents."""
+
+    @pytest.mark.asyncio
+    async def test_routes_to_upload_agent_on_upload_step(
+        self, orchestrator, mock_subagents
+    ):
+        """Should route to UploadSubagent during upload step."""
+        orchestrator._subagents = mock_subagents
+        orchestrator._session.current_step = DiscoveryStep.UPLOAD
+
+        await orchestrator.process("I have a file")
+
+        mock_subagents["upload"].process.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_routes_to_mapping_agent_on_mapping_step(
+        self, orchestrator, mock_subagents
+    ):
+        """Should route to MappingSubagent during mapping step."""
+        orchestrator._subagents = mock_subagents
+        orchestrator._session.current_step = DiscoveryStep.MAP_ROLES
+
+        await orchestrator.process("Map this role")
+
+        mock_subagents["mapping"].process.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_routes_to_activity_agent_on_activity_step(
+        self, orchestrator, mock_subagents
+    ):
+        """Should route to ActivitySubagent during activity step."""
+        orchestrator._subagents = mock_subagents
+        orchestrator._session.current_step = DiscoveryStep.SELECT_ACTIVITIES
+
+        await orchestrator.process("Select activities")
+
+        mock_subagents["activity"].process.assert_called_once()
+
+
+class TestStepTransitions:
+    """Tests for wizard step transitions."""
+
+    @pytest.mark.asyncio
+    async def test_advance_step_on_completion(self, orchestrator, mock_subagents):
+        """Should advance to next step when current completes."""
+        orchestrator._subagents = mock_subagents
+        orchestrator._session.current_step = DiscoveryStep.UPLOAD
+        mock_subagents["upload"].process.return_value = MagicMock(step_complete=True)
+
+        await orchestrator.process("Done uploading")
+
+        assert orchestrator._session.current_step == DiscoveryStep.MAP_ROLES
+
+    @pytest.mark.asyncio
+    async def test_stay_on_step_if_not_complete(self, orchestrator, mock_subagents):
+        """Should stay on current step if not complete."""
+        orchestrator._subagents = mock_subagents
+        orchestrator._session.current_step = DiscoveryStep.MAP_ROLES
+        mock_subagents["mapping"].process.return_value = MagicMock(step_complete=False)
+
+        await orchestrator.process("Still mapping")
+
+        assert orchestrator._session.current_step == DiscoveryStep.MAP_ROLES
+
+
+class TestConversationManagement:
+    """Tests for conversation thread management."""
+
+    @pytest.mark.asyncio
+    async def test_maintains_single_conversation_thread(self, orchestrator):
+        """Should maintain one conversation thread per session."""
+        assert orchestrator._conversation_id is not None
+
+        conversation_id = orchestrator._conversation_id
+        await orchestrator.process("Message 1")
+        await orchestrator.process("Message 2")
+
+        assert orchestrator._conversation_id == conversation_id
+
+    @pytest.mark.asyncio
+    async def test_stores_messages_in_history(self, orchestrator, mock_subagents):
+        """Should store user and agent messages."""
+        orchestrator._subagents = mock_subagents
+        mock_subagents["upload"].process.return_value = MagicMock(
+            message="What file?", step_complete=False
+        )
+
+        await orchestrator.process("Hello")
+
+        assert len(orchestrator._message_history) >= 2  # User + Agent
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd /Users/dl9533/projects/amplify.ai/backend && python -m pytest tests/unit/modules/discovery/test_orchestrator.py -v`
+Expected: FAIL with "ImportError: cannot import name 'DiscoveryOrchestrator'"
+
+**Step 3: Write minimal implementation to make test pass**
+
+(Implementer determines the code)
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd /Users/dl9533/projects/amplify.ai/backend && python -m pytest tests/unit/modules/discovery/test_orchestrator.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add backend/app/modules/discovery/agents/orchestrator.py backend/tests/unit/modules/discovery/test_orchestrator.py
+git commit -m "feat(discovery): add DiscoveryOrchestrator for subagent routing"
+```
+
+---
+
+### Task 36: Brainstorming Interaction Handler
+
+**Files:**
+- Create: `backend/app/modules/discovery/agents/interaction_handler.py`
+- Test: `backend/tests/unit/modules/discovery/test_interaction_handler.py`
+
+**Step 1: Write the failing test**
+
+```python
+# backend/tests/unit/modules/discovery/test_interaction_handler.py
+import pytest
+from unittest.mock import MagicMock
+
+from app.modules.discovery.agents.interaction_handler import BrainstormingHandler
+
+
+@pytest.fixture
+def handler():
+    return BrainstormingHandler()
+
+
+class TestQuestionFormatting:
+    """Tests for question formatting."""
+
+    def test_format_single_question(self, handler):
+        """Should format a single question with choices."""
+        result = handler.format_question(
+            question="Which column contains the role?",
+            choices=["Column A", "Column B", "Column C"],
+        )
+
+        assert result.question == "Which column contains the role?"
+        assert len(result.choices) == 3
+        assert result.allow_freeform is False
+
+    def test_format_question_with_freeform_option(self, handler):
+        """Should allow freeform input when specified."""
+        result = handler.format_question(
+            question="What is the role name?",
+            choices=["Engineer", "Analyst"],
+            allow_freeform=True,
+        )
+
+        assert result.allow_freeform is True
+
+    def test_limit_choices_to_five(self, handler):
+        """Should limit choices to max 5 options."""
+        result = handler.format_question(
+            question="Pick one",
+            choices=["A", "B", "C", "D", "E", "F", "G"],
+        )
+
+        assert len(result.choices) <= 5
+
+
+class TestOneQuestionAtATime:
+    """Tests for one-question-at-a-time pattern."""
+
+    def test_queue_multiple_questions(self, handler):
+        """Should queue multiple questions."""
+        handler.queue_question("Question 1?", ["A", "B"])
+        handler.queue_question("Question 2?", ["C", "D"])
+
+        assert handler.pending_count == 2
+
+    def test_get_next_returns_first_queued(self, handler):
+        """Should return questions in FIFO order."""
+        handler.queue_question("First?", ["A"])
+        handler.queue_question("Second?", ["B"])
+
+        result = handler.get_next_question()
+
+        assert result.question == "First?"
+
+    def test_mark_answered_removes_from_queue(self, handler):
+        """Should remove answered question from queue."""
+        handler.queue_question("Question?", ["A", "B"])
+
+        handler.get_next_question()
+        handler.mark_answered("A")
+
+        assert handler.pending_count == 0
+
+
+class TestResponseParsing:
+    """Tests for parsing user responses."""
+
+    def test_match_choice_by_text(self, handler):
+        """Should match user response to choice."""
+        handler._current_choices = ["Column A", "Column B"]
+
+        result = handler.parse_response("Column A")
+
+        assert result.matched_choice == "Column A"
+        assert result.is_freeform is False
+
+    def test_detect_freeform_response(self, handler):
+        """Should detect freeform response when no match."""
+        handler._current_choices = ["Option 1", "Option 2"]
+        handler._allow_freeform = True
+
+        result = handler.parse_response("Something else entirely")
+
+        assert result.is_freeform is True
+        assert result.freeform_value == "Something else entirely"
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd /Users/dl9533/projects/amplify.ai/backend && python -m pytest tests/unit/modules/discovery/test_interaction_handler.py -v`
+Expected: FAIL with "ImportError: cannot import name 'BrainstormingHandler'"
+
+**Step 3: Write minimal implementation to make test pass**
+
+(Implementer determines the code)
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd /Users/dl9533/projects/amplify.ai/backend && python -m pytest tests/unit/modules/discovery/test_interaction_handler.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add backend/app/modules/discovery/agents/interaction_handler.py backend/tests/unit/modules/discovery/test_interaction_handler.py
+git commit -m "feat(discovery): add BrainstormingHandler for one-question-at-a-time"
+```
+
+---
+
+### Task 37: Chat Message Formatter
+
+**Files:**
+- Create: `backend/app/modules/discovery/agents/message_formatter.py`
+- Test: `backend/tests/unit/modules/discovery/test_message_formatter.py`
+
+**Step 1: Write the failing test**
+
+```python
+# backend/tests/unit/modules/discovery/test_message_formatter.py
+import pytest
+from uuid import uuid4
+
+from app.modules.discovery.agents.message_formatter import ChatMessageFormatter
+
+
+@pytest.fixture
+def formatter():
+    return ChatMessageFormatter()
+
+
+class TestMessageFormatting:
+    """Tests for chat message formatting."""
+
+    def test_format_agent_message(self, formatter):
+        """Should format agent message with metadata."""
+        result = formatter.format_agent_message(
+            content="Which column contains roles?",
+            agent_type="upload",
+        )
+
+        assert result.role == "assistant"
+        assert result.content == "Which column contains roles?"
+        assert result.agent_type == "upload"
+
+    def test_format_user_message(self, formatter):
+        """Should format user message."""
+        result = formatter.format_user_message(
+            content="Column B",
+        )
+
+        assert result.role == "user"
+        assert result.content == "Column B"
+
+    def test_include_timestamp(self, formatter):
+        """Should include timestamp in messages."""
+        result = formatter.format_agent_message(
+            content="Hello",
+            agent_type="orchestrator",
+        )
+
+        assert result.timestamp is not None
+
+
+class TestQuickActionFormatting:
+    """Tests for quick action chip formatting."""
+
+    def test_format_choices_as_quick_actions(self, formatter):
+        """Should format choices as quick action chips."""
+        result = formatter.format_with_quick_actions(
+            content="Select a column:",
+            choices=["Column A", "Column B"],
+        )
+
+        assert len(result.quick_actions) == 2
+        assert result.quick_actions[0].label == "Column A"
+
+    def test_quick_action_includes_value(self, formatter):
+        """Quick actions should include value for API."""
+        result = formatter.format_with_quick_actions(
+            content="Choose:",
+            choices=[("Display Text", "api_value")],
+        )
+
+        assert result.quick_actions[0].label == "Display Text"
+        assert result.quick_actions[0].value == "api_value"
+
+
+class TestConversationHistory:
+    """Tests for conversation history formatting."""
+
+    def test_format_history_for_display(self, formatter):
+        """Should format message history for UI display."""
+        messages = [
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": "Hi there!", "agent_type": "orchestrator"},
+        ]
+
+        result = formatter.format_history(messages)
+
+        assert len(result) == 2
+        assert result[0].role == "user"
+        assert result[1].role == "assistant"
+
+    def test_group_by_conversation_turn(self, formatter):
+        """Should group messages by conversation turn."""
+        messages = [
+            {"role": "user", "content": "Q1"},
+            {"role": "assistant", "content": "A1"},
+            {"role": "user", "content": "Q2"},
+            {"role": "assistant", "content": "A2"},
+        ]
+
+        result = formatter.group_by_turn(messages)
+
+        assert len(result) == 2  # Two turns
+        assert result[0].user_message.content == "Q1"
+        assert result[0].agent_message.content == "A1"
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd /Users/dl9533/projects/amplify.ai/backend && python -m pytest tests/unit/modules/discovery/test_message_formatter.py -v`
+Expected: FAIL with "ImportError: cannot import name 'ChatMessageFormatter'"
+
+**Step 3: Write minimal implementation to make test pass**
+
+(Implementer determines the code)
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd /Users/dl9533/projects/amplify.ai/backend && python -m pytest tests/unit/modules/discovery/test_message_formatter.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add backend/app/modules/discovery/agents/message_formatter.py backend/tests/unit/modules/discovery/test_message_formatter.py
+git commit -m "feat(discovery): add ChatMessageFormatter for agent responses"
+```
+
+---
+
+### Task 38: Quick Action Chip Generator
+
+**Files:**
+- Create: `backend/app/modules/discovery/agents/chip_generator.py`
+- Test: `backend/tests/unit/modules/discovery/test_chip_generator.py`
+
+**Step 1: Write the failing test**
+
+```python
+# backend/tests/unit/modules/discovery/test_chip_generator.py
+import pytest
+
+from app.modules.discovery.agents.chip_generator import QuickActionChipGenerator
+
+
+@pytest.fixture
+def generator():
+    return QuickActionChipGenerator()
+
+
+class TestChipGeneration:
+    """Tests for quick action chip generation."""
+
+    def test_generate_choice_chips(self, generator):
+        """Should generate chips from choices."""
+        result = generator.generate(
+            choices=["Option A", "Option B", "Option C"],
+        )
+
+        assert len(result) == 3
+        assert all(chip.type == "choice" for chip in result)
+
+    def test_generate_with_icons(self, generator):
+        """Should include icons when specified."""
+        result = generator.generate(
+            choices=[
+                {"label": "Yes", "icon": "check"},
+                {"label": "No", "icon": "x"},
+            ],
+        )
+
+        assert result[0].icon == "check"
+        assert result[1].icon == "x"
+
+    def test_limit_to_max_chips(self, generator):
+        """Should limit to maximum number of chips."""
+        result = generator.generate(
+            choices=["A", "B", "C", "D", "E", "F", "G", "H"],
+            max_chips=5,
+        )
+
+        assert len(result) == 5
+
+
+class TestContextualChips:
+    """Tests for context-aware chip generation."""
+
+    def test_generate_column_selection_chips(self, generator):
+        """Should generate chips for column selection."""
+        result = generator.generate_column_chips(
+            columns=["Name", "Department", "Title"],
+            context="role_column",
+        )
+
+        assert len(result) == 3
+        assert any("Title" in chip.label for chip in result)
+
+    def test_generate_confirmation_chips(self, generator):
+        """Should generate yes/no confirmation chips."""
+        result = generator.generate_confirmation_chips()
+
+        assert len(result) == 2
+        assert any(chip.label == "Yes" for chip in result)
+        assert any(chip.label == "No" for chip in result)
+
+    def test_generate_onet_suggestion_chips(self, generator):
+        """Should generate chips for O*NET suggestions."""
+        suggestions = [
+            {"code": "15-1252.00", "title": "Software Developers", "score": 0.95},
+            {"code": "15-1254.00", "title": "Web Developers", "score": 0.85},
+        ]
+
+        result = generator.generate_onet_chips(suggestions)
+
+        assert len(result) == 2
+        assert "Software Developers" in result[0].label
+
+
+class TestChipStyling:
+    """Tests for chip styling."""
+
+    def test_primary_chip_style(self, generator):
+        """Should apply primary style to recommended option."""
+        result = generator.generate(
+            choices=["Recommended", "Alternative"],
+            primary_index=0,
+        )
+
+        assert result[0].style == "primary"
+        assert result[1].style == "secondary"
+
+    def test_disabled_chip_state(self, generator):
+        """Should support disabled chips."""
+        result = generator.generate(
+            choices=[
+                {"label": "Available", "disabled": False},
+                {"label": "Unavailable", "disabled": True},
+            ],
+        )
+
+        assert result[0].disabled is False
+        assert result[1].disabled is True
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd /Users/dl9533/projects/amplify.ai/backend && python -m pytest tests/unit/modules/discovery/test_chip_generator.py -v`
+Expected: FAIL with "ImportError: cannot import name 'QuickActionChipGenerator'"
+
+**Step 3: Write minimal implementation to make test pass**
+
+(Implementer determines the code)
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd /Users/dl9533/projects/amplify.ai/backend && python -m pytest tests/unit/modules/discovery/test_chip_generator.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add backend/app/modules/discovery/agents/chip_generator.py backend/tests/unit/modules/discovery/test_chip_generator.py
+git commit -m "feat(discovery): add QuickActionChipGenerator for choice chips"
+```
 
 ---
 
 ## Part 6: API Endpoints (Tasks 39-48)
 
-Following the same TDD pattern, implement:
+### Task 39: Discovery Session Router - CRUD Endpoints
 
-- **Task 39:** Discovery Session Router - CRUD endpoints
-- **Task 40:** Upload Endpoint - POST /discovery/sessions/{id}/upload
-- **Task 41:** Role Mapping Endpoints - GET/PUT role mappings
-- **Task 42:** Activity Selection Endpoints - GET/PUT activity selections
-- **Task 43:** Analysis Endpoints - GET analysis by dimension
-- **Task 44:** Roadmap Endpoints - GET/PUT roadmap items
-- **Task 45:** Chat/Message Endpoint - POST message, GET history
-- **Task 46:** Export Endpoints - GET export as CSV/PDF
-- **Task 47:** Handoff to Build Endpoint - POST send to intake
-- **Task 48:** Wire Up to Main App - register router
+**Files:**
+- Create: `discovery/api/src/discovery/routers/__init__.py`
+- Create: `discovery/api/src/discovery/routers/sessions.py`
+- Create: `discovery/api/src/discovery/schemas/session.py`
+- Test: `discovery/api/tests/unit/routers/test_sessions.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/api/tests/unit/routers/__init__.py
+# empty file
+
+# discovery/api/tests/unit/routers/test_sessions.py
+import pytest
+from httpx import AsyncClient
+from uuid import uuid4
+
+from discovery.main import app
+
+
+@pytest.fixture
+def client():
+    return AsyncClient(app=app, base_url="http://test")
+
+
+@pytest.mark.asyncio
+async def test_create_session(client, mock_session_service):
+    """POST /discovery/sessions should create a new session."""
+    response = await client.post(
+        "/discovery/sessions",
+        json={"organization_id": str(uuid4())}
+    )
+    assert response.status_code == 201
+    data = response.json()
+    assert "id" in data
+    assert data["status"] == "draft"
+    assert data["current_step"] == 1
+
+
+@pytest.mark.asyncio
+async def test_get_session(client, mock_session_service):
+    """GET /discovery/sessions/{id} should return session details."""
+    session_id = str(uuid4())
+    mock_session_service.get_by_id.return_value = {
+        "id": session_id,
+        "status": "in_progress",
+        "current_step": 2
+    }
+
+    response = await client.get(f"/discovery/sessions/{session_id}")
+
+    assert response.status_code == 200
+    assert response.json()["id"] == session_id
+
+
+@pytest.mark.asyncio
+async def test_get_session_not_found(client, mock_session_service):
+    """GET /discovery/sessions/{id} should return 404 if not found."""
+    mock_session_service.get_by_id.return_value = None
+
+    response = await client.get(f"/discovery/sessions/{uuid4()}")
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_list_sessions(client, mock_session_service):
+    """GET /discovery/sessions should return paginated list."""
+    mock_session_service.list_for_user.return_value = {
+        "items": [{"id": str(uuid4()), "status": "draft"}],
+        "total": 1,
+        "page": 1,
+        "per_page": 20
+    }
+
+    response = await client.get("/discovery/sessions")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert "items" in data
+    assert "total" in data
+
+
+@pytest.mark.asyncio
+async def test_update_session_step(client, mock_session_service):
+    """PATCH /discovery/sessions/{id}/step should update step."""
+    session_id = str(uuid4())
+
+    response = await client.patch(
+        f"/discovery/sessions/{session_id}/step",
+        json={"step": 3}
+    )
+
+    assert response.status_code == 200
+    mock_session_service.update_step.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_delete_session(client, mock_session_service):
+    """DELETE /discovery/sessions/{id} should delete session."""
+    session_id = str(uuid4())
+
+    response = await client.delete(f"/discovery/sessions/{session_id}")
+
+    assert response.status_code == 204
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery/api && python -m pytest tests/unit/routers/test_sessions.py -v`
+Expected: FAIL with "ImportError" or "AttributeError"
+
+**Step 3: Write minimal implementation to make test pass**
+
+(Implementer determines the code)
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery/api && python -m pytest tests/unit/routers/test_sessions.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/api/src/discovery/routers/ discovery/api/src/discovery/schemas/
+git commit -m "feat(discovery): add discovery session router with CRUD endpoints"
+```
+
+---
+
+### Task 40: Upload Endpoint
+
+**Files:**
+- Create: `discovery/api/src/discovery/routers/uploads.py`
+- Create: `discovery/api/src/discovery/schemas/upload.py`
+- Test: `discovery/api/tests/unit/routers/test_uploads.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/api/tests/unit/routers/test_uploads.py
+import pytest
+from httpx import AsyncClient
+from uuid import uuid4
+from io import BytesIO
+
+from discovery.main import app
+
+
+@pytest.fixture
+def client():
+    return AsyncClient(app=app, base_url="http://test")
+
+
+@pytest.fixture
+def sample_csv():
+    content = b"Name,Role,Department\nJohn,Engineer,IT\nJane,Analyst,Finance"
+    return BytesIO(content)
+
+
+@pytest.mark.asyncio
+async def test_upload_file(client, mock_upload_service, sample_csv):
+    """POST /discovery/sessions/{id}/upload should upload and parse file."""
+    session_id = str(uuid4())
+
+    response = await client.post(
+        f"/discovery/sessions/{session_id}/upload",
+        files={"file": ("hr_data.csv", sample_csv, "text/csv")}
+    )
+
+    assert response.status_code == 201
+    data = response.json()
+    assert "id" in data
+    assert data["file_name"] == "hr_data.csv"
+    assert "row_count" in data
+    assert "detected_schema" in data
+
+
+@pytest.mark.asyncio
+async def test_upload_xlsx(client, mock_upload_service):
+    """POST should accept XLSX files."""
+    session_id = str(uuid4())
+    # Minimal xlsx bytes (would normally be a real file)
+    xlsx_content = BytesIO(b"fake xlsx content for test")
+
+    response = await client.post(
+        f"/discovery/sessions/{session_id}/upload",
+        files={"file": ("data.xlsx", xlsx_content, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
+    )
+
+    # Mock service handles the parsing
+    assert response.status_code in (201, 400)  # 400 if real parsing fails
+
+
+@pytest.mark.asyncio
+async def test_upload_invalid_file_type(client, mock_upload_service):
+    """POST should reject unsupported file types."""
+    session_id = str(uuid4())
+    pdf_content = BytesIO(b"%PDF-1.4 fake pdf content")
+
+    response = await client.post(
+        f"/discovery/sessions/{session_id}/upload",
+        files={"file": ("report.pdf", pdf_content, "application/pdf")}
+    )
+
+    assert response.status_code == 400
+    assert "unsupported" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_upload_too_large(client, mock_upload_service):
+    """POST should reject files exceeding size limit."""
+    session_id = str(uuid4())
+    # Simulate large file (10MB+)
+    large_content = BytesIO(b"x" * (11 * 1024 * 1024))
+
+    response = await client.post(
+        f"/discovery/sessions/{session_id}/upload",
+        files={"file": ("huge.csv", large_content, "text/csv")}
+    )
+
+    assert response.status_code == 413
+
+
+@pytest.mark.asyncio
+async def test_get_uploads_for_session(client, mock_upload_service):
+    """GET /discovery/sessions/{id}/uploads should list uploads."""
+    session_id = str(uuid4())
+    mock_upload_service.get_by_session_id.return_value = [
+        {"id": str(uuid4()), "file_name": "data.csv", "row_count": 100}
+    ]
+
+    response = await client.get(f"/discovery/sessions/{session_id}/uploads")
+
+    assert response.status_code == 200
+    assert len(response.json()) == 1
+
+
+@pytest.mark.asyncio
+async def test_update_column_mappings(client, mock_upload_service):
+    """PUT /discovery/uploads/{id}/mappings should update column mappings."""
+    upload_id = str(uuid4())
+
+    response = await client.put(
+        f"/discovery/uploads/{upload_id}/mappings",
+        json={
+            "role": "Column B",
+            "department": "Column C",
+            "geography": "Column D"
+        }
+    )
+
+    assert response.status_code == 200
+    mock_upload_service.update_column_mappings.assert_called_once()
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery/api && python -m pytest tests/unit/routers/test_uploads.py -v`
+Expected: FAIL with "ImportError"
+
+**Step 3: Write minimal implementation to make test pass**
+
+(Implementer determines the code)
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery/api && python -m pytest tests/unit/routers/test_uploads.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/api/src/discovery/routers/uploads.py discovery/api/src/discovery/schemas/upload.py
+git commit -m "feat(discovery): add file upload endpoint with validation"
+```
+
+---
+
+### Task 41: Role Mapping Endpoints
+
+**Files:**
+- Create: `discovery/api/src/discovery/routers/role_mappings.py`
+- Create: `discovery/api/src/discovery/schemas/role_mapping.py`
+- Test: `discovery/api/tests/unit/routers/test_role_mappings.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/api/tests/unit/routers/test_role_mappings.py
+import pytest
+from httpx import AsyncClient
+from uuid import uuid4
+
+from discovery.main import app
+
+
+@pytest.fixture
+def client():
+    return AsyncClient(app=app, base_url="http://test")
+
+
+@pytest.mark.asyncio
+async def test_get_role_mappings(client, mock_role_mapping_service):
+    """GET /discovery/sessions/{id}/role-mappings should return mappings."""
+    session_id = str(uuid4())
+    mock_role_mapping_service.get_by_session_id.return_value = [
+        {
+            "id": str(uuid4()),
+            "source_role": "Software Engineer",
+            "onet_code": "15-1252.00",
+            "onet_title": "Software Developers",
+            "confidence_score": 0.95,
+            "is_confirmed": False
+        }
+    ]
+
+    response = await client.get(f"/discovery/sessions/{session_id}/role-mappings")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 1
+    assert data[0]["source_role"] == "Software Engineer"
+
+
+@pytest.mark.asyncio
+async def test_update_role_mapping(client, mock_role_mapping_service):
+    """PUT /discovery/role-mappings/{id} should update mapping."""
+    mapping_id = str(uuid4())
+
+    response = await client.put(
+        f"/discovery/role-mappings/{mapping_id}",
+        json={
+            "onet_code": "15-1251.00",
+            "onet_title": "Computer Programmers",
+            "is_confirmed": True
+        }
+    )
+
+    assert response.status_code == 200
+    mock_role_mapping_service.update.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_bulk_confirm_mappings(client, mock_role_mapping_service):
+    """POST /discovery/sessions/{id}/role-mappings/confirm should bulk confirm."""
+    session_id = str(uuid4())
+
+    response = await client.post(
+        f"/discovery/sessions/{session_id}/role-mappings/confirm",
+        json={"threshold": 0.8}
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert "confirmed_count" in data
+
+
+@pytest.mark.asyncio
+async def test_search_onet_occupations(client, mock_onet_service):
+    """GET /discovery/onet/search should search O*NET occupations."""
+    mock_onet_service.search.return_value = [
+        {"code": "15-1252.00", "title": "Software Developers", "score": 0.95}
+    ]
+
+    response = await client.get(
+        "/discovery/onet/search",
+        params={"q": "software engineer"}
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) > 0
+    assert "code" in data[0]
+    assert "title" in data[0]
+
+
+@pytest.mark.asyncio
+async def test_get_onet_occupation_details(client, mock_onet_service):
+    """GET /discovery/onet/{code} should return occupation details."""
+    mock_onet_service.get_occupation.return_value = {
+        "code": "15-1252.00",
+        "title": "Software Developers",
+        "description": "Develop software...",
+        "gwas": [{"id": "4.A.2.a.4", "title": "Analyzing Data"}]
+    }
+
+    response = await client.get("/discovery/onet/15-1252.00")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["code"] == "15-1252.00"
+    assert "gwas" in data
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery/api && python -m pytest tests/unit/routers/test_role_mappings.py -v`
+Expected: FAIL with "ImportError"
+
+**Step 3: Write minimal implementation to make test pass**
+
+(Implementer determines the code)
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery/api && python -m pytest tests/unit/routers/test_role_mappings.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/api/src/discovery/routers/role_mappings.py discovery/api/src/discovery/schemas/role_mapping.py
+git commit -m "feat(discovery): add role mapping endpoints with O*NET search"
+```
+
+---
+
+### Task 42: Activity Selection Endpoints
+
+**Files:**
+- Create: `discovery/api/src/discovery/routers/activities.py`
+- Create: `discovery/api/src/discovery/schemas/activity.py`
+- Test: `discovery/api/tests/unit/routers/test_activities.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/api/tests/unit/routers/test_activities.py
+import pytest
+from httpx import AsyncClient
+from uuid import uuid4
+
+from discovery.main import app
+
+
+@pytest.fixture
+def client():
+    return AsyncClient(app=app, base_url="http://test")
+
+
+@pytest.mark.asyncio
+async def test_get_activities_for_session(client, mock_activity_service):
+    """GET /discovery/sessions/{id}/activities should return activities grouped by GWA."""
+    session_id = str(uuid4())
+    mock_activity_service.get_grouped_by_gwa.return_value = {
+        "4.A.2.a.4": {
+            "gwa_id": "4.A.2.a.4",
+            "gwa_title": "Analyzing Data or Information",
+            "ai_exposure_score": 0.72,
+            "dwas": [
+                {
+                    "id": str(uuid4()),
+                    "dwa_id": "4.A.2.a.4.1",
+                    "dwa_title": "Analyze business data",
+                    "is_selected": False
+                }
+            ]
+        }
+    }
+
+    response = await client.get(f"/discovery/sessions/{session_id}/activities")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert "4.A.2.a.4" in data
+    assert "dwas" in data["4.A.2.a.4"]
+
+
+@pytest.mark.asyncio
+async def test_update_dwa_selection(client, mock_activity_service):
+    """PUT /discovery/activities/{id} should update DWA selection."""
+    activity_id = str(uuid4())
+
+    response = await client.put(
+        f"/discovery/activities/{activity_id}",
+        json={"is_selected": True}
+    )
+
+    assert response.status_code == 200
+    mock_activity_service.update_selection.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_bulk_select_dwas(client, mock_activity_service):
+    """POST /discovery/sessions/{id}/activities/select should bulk select."""
+    session_id = str(uuid4())
+
+    response = await client.post(
+        f"/discovery/sessions/{session_id}/activities/select",
+        json={
+            "dwa_ids": [str(uuid4()), str(uuid4())],
+            "is_selected": True
+        }
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert "updated_count" in data
+
+
+@pytest.mark.asyncio
+async def test_bulk_deselect_dwas(client, mock_activity_service):
+    """POST /discovery/sessions/{id}/activities/select can deselect."""
+    session_id = str(uuid4())
+
+    response = await client.post(
+        f"/discovery/sessions/{session_id}/activities/select",
+        json={
+            "dwa_ids": [str(uuid4())],
+            "is_selected": False
+        }
+    )
+
+    assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_get_selected_count(client, mock_activity_service):
+    """GET /discovery/sessions/{id}/activities/count should return selection stats."""
+    session_id = str(uuid4())
+    mock_activity_service.get_selection_stats.return_value = {
+        "total_dwas": 150,
+        "selected_dwas": 42,
+        "gwas_with_selections": 8
+    }
+
+    response = await client.get(f"/discovery/sessions/{session_id}/activities/count")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["selected_dwas"] == 42
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery/api && python -m pytest tests/unit/routers/test_activities.py -v`
+Expected: FAIL with "ImportError"
+
+**Step 3: Write minimal implementation to make test pass**
+
+(Implementer determines the code)
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery/api && python -m pytest tests/unit/routers/test_activities.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/api/src/discovery/routers/activities.py discovery/api/src/discovery/schemas/activity.py
+git commit -m "feat(discovery): add activity selection endpoints with bulk operations"
+```
+
+---
+
+### Task 43: Analysis Endpoints
+
+**Files:**
+- Create: `discovery/api/src/discovery/routers/analysis.py`
+- Create: `discovery/api/src/discovery/schemas/analysis.py`
+- Test: `discovery/api/tests/unit/routers/test_analysis.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/api/tests/unit/routers/test_analysis.py
+import pytest
+from httpx import AsyncClient
+from uuid import uuid4
+
+from discovery.main import app
+
+
+@pytest.fixture
+def client():
+    return AsyncClient(app=app, base_url="http://test")
+
+
+@pytest.mark.asyncio
+async def test_trigger_analysis(client, mock_scoring_service):
+    """POST /discovery/sessions/{id}/analyze should trigger scoring."""
+    session_id = str(uuid4())
+
+    response = await client.post(f"/discovery/sessions/{session_id}/analyze")
+
+    assert response.status_code == 202
+    data = response.json()
+    assert "status" in data
+    mock_scoring_service.score_session.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_get_analysis_by_dimension(client, mock_analysis_service):
+    """GET /discovery/sessions/{id}/analysis/{dimension} should return scores."""
+    session_id = str(uuid4())
+    mock_analysis_service.get_by_dimension.return_value = {
+        "dimension": "ROLE",
+        "results": [
+            {
+                "id": str(uuid4()),
+                "name": "Software Engineer",
+                "ai_exposure_score": 0.72,
+                "impact_score": 0.85,
+                "complexity_score": 0.65,
+                "priority_score": 0.78,
+                "priority_tier": "HIGH"
+            }
+        ]
+    }
+
+    response = await client.get(f"/discovery/sessions/{session_id}/analysis/ROLE")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["dimension"] == "ROLE"
+    assert len(data["results"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_get_analysis_all_dimensions(client, mock_analysis_service):
+    """GET /discovery/sessions/{id}/analysis should return all dimensions."""
+    session_id = str(uuid4())
+    mock_analysis_service.get_all_dimensions.return_value = {
+        "ROLE": {"count": 15, "avg_exposure": 0.68},
+        "DEPARTMENT": {"count": 5, "avg_exposure": 0.71},
+        "LOB": {"count": 3, "avg_exposure": 0.65}
+    }
+
+    response = await client.get(f"/discovery/sessions/{session_id}/analysis")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert "ROLE" in data
+    assert "DEPARTMENT" in data
+
+
+@pytest.mark.asyncio
+async def test_get_analysis_not_ready(client, mock_analysis_service):
+    """GET should return 404 if analysis not yet run."""
+    session_id = str(uuid4())
+    mock_analysis_service.get_by_dimension.return_value = None
+
+    response = await client.get(f"/discovery/sessions/{session_id}/analysis/ROLE")
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_priority_tier_filter(client, mock_analysis_service):
+    """GET should support filtering by priority tier."""
+    session_id = str(uuid4())
+    mock_analysis_service.get_by_dimension.return_value = {
+        "dimension": "ROLE",
+        "results": [
+            {"name": "High Priority Role", "priority_tier": "HIGH"}
+        ]
+    }
+
+    response = await client.get(
+        f"/discovery/sessions/{session_id}/analysis/ROLE",
+        params={"priority_tier": "HIGH"}
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert all(r["priority_tier"] == "HIGH" for r in data["results"])
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery/api && python -m pytest tests/unit/routers/test_analysis.py -v`
+Expected: FAIL with "ImportError"
+
+**Step 3: Write minimal implementation to make test pass**
+
+(Implementer determines the code)
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery/api && python -m pytest tests/unit/routers/test_analysis.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/api/src/discovery/routers/analysis.py discovery/api/src/discovery/schemas/analysis.py
+git commit -m "feat(discovery): add analysis endpoints with dimension filtering"
+```
+
+---
+
+### Task 44: Roadmap Endpoints
+
+**Files:**
+- Create: `discovery/api/src/discovery/routers/roadmap.py`
+- Create: `discovery/api/src/discovery/schemas/roadmap.py`
+- Test: `discovery/api/tests/unit/routers/test_roadmap.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/api/tests/unit/routers/test_roadmap.py
+import pytest
+from httpx import AsyncClient
+from uuid import uuid4
+
+from discovery.main import app
+
+
+@pytest.fixture
+def client():
+    return AsyncClient(app=app, base_url="http://test")
+
+
+@pytest.mark.asyncio
+async def test_get_roadmap_items(client, mock_roadmap_service):
+    """GET /discovery/sessions/{id}/roadmap should return prioritized candidates."""
+    session_id = str(uuid4())
+    mock_roadmap_service.get_roadmap.return_value = [
+        {
+            "id": str(uuid4()),
+            "role_name": "Data Analyst",
+            "priority_score": 0.92,
+            "priority_tier": "HIGH",
+            "phase": "NOW",
+            "estimated_effort": "medium"
+        }
+    ]
+
+    response = await client.get(f"/discovery/sessions/{session_id}/roadmap")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 1
+    assert data[0]["phase"] == "NOW"
+
+
+@pytest.mark.asyncio
+async def test_update_roadmap_item_phase(client, mock_roadmap_service):
+    """PUT /discovery/roadmap/{id} should update phase."""
+    item_id = str(uuid4())
+
+    response = await client.put(
+        f"/discovery/roadmap/{item_id}",
+        json={"phase": "NEXT"}
+    )
+
+    assert response.status_code == 200
+    mock_roadmap_service.update_phase.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_reorder_roadmap_items(client, mock_roadmap_service):
+    """POST /discovery/sessions/{id}/roadmap/reorder should reorder items."""
+    session_id = str(uuid4())
+    item_ids = [str(uuid4()), str(uuid4()), str(uuid4())]
+
+    response = await client.post(
+        f"/discovery/sessions/{session_id}/roadmap/reorder",
+        json={"item_ids": item_ids}
+    )
+
+    assert response.status_code == 200
+    mock_roadmap_service.reorder.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_get_roadmap_by_phase(client, mock_roadmap_service):
+    """GET should support filtering by phase."""
+    session_id = str(uuid4())
+    mock_roadmap_service.get_roadmap.return_value = [
+        {"id": str(uuid4()), "phase": "NOW"}
+    ]
+
+    response = await client.get(
+        f"/discovery/sessions/{session_id}/roadmap",
+        params={"phase": "NOW"}
+    )
+
+    assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_bulk_update_phases(client, mock_roadmap_service):
+    """POST /discovery/sessions/{id}/roadmap/bulk-update should bulk update."""
+    session_id = str(uuid4())
+
+    response = await client.post(
+        f"/discovery/sessions/{session_id}/roadmap/bulk-update",
+        json={
+            "updates": [
+                {"id": str(uuid4()), "phase": "NOW"},
+                {"id": str(uuid4()), "phase": "NEXT"}
+            ]
+        }
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert "updated_count" in data
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery/api && python -m pytest tests/unit/routers/test_roadmap.py -v`
+Expected: FAIL with "ImportError"
+
+**Step 3: Write minimal implementation to make test pass**
+
+(Implementer determines the code)
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery/api && python -m pytest tests/unit/routers/test_roadmap.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/api/src/discovery/routers/roadmap.py discovery/api/src/discovery/schemas/roadmap.py
+git commit -m "feat(discovery): add roadmap endpoints with phase management"
+```
+
+---
+
+### Task 45: Chat/Message Endpoint
+
+**Files:**
+- Create: `discovery/api/src/discovery/routers/chat.py`
+- Create: `discovery/api/src/discovery/schemas/chat.py`
+- Test: `discovery/api/tests/unit/routers/test_chat.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/api/tests/unit/routers/test_chat.py
+import pytest
+from httpx import AsyncClient
+from uuid import uuid4
+
+from discovery.main import app
+
+
+@pytest.fixture
+def client():
+    return AsyncClient(app=app, base_url="http://test")
+
+
+@pytest.mark.asyncio
+async def test_send_message(client, mock_orchestrator):
+    """POST /discovery/sessions/{id}/chat should send message to orchestrator."""
+    session_id = str(uuid4())
+    mock_orchestrator.process_message.return_value = {
+        "response": "I've analyzed your data. Here are the top 5 roles...",
+        "quick_actions": [
+            {"label": "Show details", "action": "show_details"},
+            {"label": "Export results", "action": "export"}
+        ]
+    }
+
+    response = await client.post(
+        f"/discovery/sessions/{session_id}/chat",
+        json={"message": "What are the highest priority roles?"}
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert "response" in data
+    assert "quick_actions" in data
+
+
+@pytest.mark.asyncio
+async def test_get_chat_history(client, mock_chat_service):
+    """GET /discovery/sessions/{id}/chat should return message history."""
+    session_id = str(uuid4())
+    mock_chat_service.get_history.return_value = [
+        {"role": "user", "content": "Hello", "timestamp": "2026-01-31T10:00:00Z"},
+        {"role": "assistant", "content": "Hi! Let's start...", "timestamp": "2026-01-31T10:00:01Z"}
+    ]
+
+    response = await client.get(f"/discovery/sessions/{session_id}/chat")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 2
+
+
+@pytest.mark.asyncio
+async def test_stream_response(client, mock_orchestrator):
+    """GET /discovery/sessions/{id}/chat/stream should stream response."""
+    session_id = str(uuid4())
+
+    async with client.stream(
+        "GET",
+        f"/discovery/sessions/{session_id}/chat/stream"
+    ) as response:
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "text/event-stream"
+
+
+@pytest.mark.asyncio
+async def test_execute_quick_action(client, mock_orchestrator):
+    """POST /discovery/sessions/{id}/chat/action should execute action."""
+    session_id = str(uuid4())
+    mock_orchestrator.execute_action.return_value = {
+        "response": "Here are the details...",
+        "data": {"roles": []}
+    }
+
+    response = await client.post(
+        f"/discovery/sessions/{session_id}/chat/action",
+        json={"action": "show_details", "params": {"role_id": str(uuid4())}}
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert "response" in data
+
+
+@pytest.mark.asyncio
+async def test_chat_with_context(client, mock_orchestrator):
+    """POST should include session context in orchestrator call."""
+    session_id = str(uuid4())
+
+    response = await client.post(
+        f"/discovery/sessions/{session_id}/chat",
+        json={"message": "Continue where we left off"}
+    )
+
+    assert response.status_code == 200
+    # Verify orchestrator received session context
+    call_args = mock_orchestrator.process_message.call_args
+    assert "session_id" in call_args.kwargs or session_id in str(call_args)
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery/api && python -m pytest tests/unit/routers/test_chat.py -v`
+Expected: FAIL with "ImportError"
+
+**Step 3: Write minimal implementation to make test pass**
+
+(Implementer determines the code)
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery/api && python -m pytest tests/unit/routers/test_chat.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/api/src/discovery/routers/chat.py discovery/api/src/discovery/schemas/chat.py
+git commit -m "feat(discovery): add chat endpoints with SSE streaming"
+```
+
+---
+
+### Task 46: Export Endpoints
+
+**Files:**
+- Create: `discovery/api/src/discovery/routers/exports.py`
+- Create: `discovery/api/src/discovery/services/export_service.py`
+- Test: `discovery/api/tests/unit/routers/test_exports.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/api/tests/unit/routers/test_exports.py
+import pytest
+from httpx import AsyncClient
+from uuid import uuid4
+
+from discovery.main import app
+
+
+@pytest.fixture
+def client():
+    return AsyncClient(app=app, base_url="http://test")
+
+
+@pytest.mark.asyncio
+async def test_export_csv(client, mock_export_service):
+    """GET /discovery/sessions/{id}/export/csv should return CSV."""
+    session_id = str(uuid4())
+    mock_export_service.generate_csv.return_value = b"Role,Score\nEngineer,0.85"
+
+    response = await client.get(f"/discovery/sessions/{session_id}/export/csv")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "text/csv"
+    assert response.headers["content-disposition"].startswith("attachment")
+    assert b"Role,Score" in response.content
+
+
+@pytest.mark.asyncio
+async def test_export_excel(client, mock_export_service):
+    """GET /discovery/sessions/{id}/export/xlsx should return Excel file."""
+    session_id = str(uuid4())
+    mock_export_service.generate_xlsx.return_value = b"fake xlsx bytes"
+
+    response = await client.get(f"/discovery/sessions/{session_id}/export/xlsx")
+
+    assert response.status_code == 200
+    assert "spreadsheet" in response.headers["content-type"]
+
+
+@pytest.mark.asyncio
+async def test_export_pdf(client, mock_export_service):
+    """GET /discovery/sessions/{id}/export/pdf should return PDF report."""
+    session_id = str(uuid4())
+    mock_export_service.generate_pdf.return_value = b"%PDF-1.4 fake pdf"
+
+    response = await client.get(f"/discovery/sessions/{session_id}/export/pdf")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+
+
+@pytest.mark.asyncio
+async def test_export_with_dimension_filter(client, mock_export_service):
+    """GET export should support dimension filtering."""
+    session_id = str(uuid4())
+
+    response = await client.get(
+        f"/discovery/sessions/{session_id}/export/csv",
+        params={"dimension": "ROLE"}
+    )
+
+    assert response.status_code == 200
+    mock_export_service.generate_csv.assert_called_with(
+        session_id=session_id,
+        dimension="ROLE"
+    )
+
+
+@pytest.mark.asyncio
+async def test_export_handoff_bundle(client, mock_export_service):
+    """GET /discovery/sessions/{id}/export/handoff should return full bundle."""
+    session_id = str(uuid4())
+    mock_export_service.generate_handoff_bundle.return_value = {
+        "session_summary": {},
+        "role_mappings": [],
+        "analysis_results": [],
+        "roadmap": []
+    }
+
+    response = await client.get(f"/discovery/sessions/{session_id}/export/handoff")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert "session_summary" in data
+    assert "roadmap" in data
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery/api && python -m pytest tests/unit/routers/test_exports.py -v`
+Expected: FAIL with "ImportError"
+
+**Step 3: Write minimal implementation to make test pass**
+
+(Implementer determines the code)
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery/api && python -m pytest tests/unit/routers/test_exports.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/api/src/discovery/routers/exports.py discovery/api/src/discovery/services/export_service.py
+git commit -m "feat(discovery): add export endpoints for CSV/Excel/PDF"
+```
+
+---
+
+### Task 47: Handoff to Build Endpoint
+
+**Files:**
+- Create: `discovery/api/src/discovery/routers/handoff.py`
+- Create: `discovery/api/src/discovery/services/handoff_service.py`
+- Test: `discovery/api/tests/unit/routers/test_handoff.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/api/tests/unit/routers/test_handoff.py
+import pytest
+from httpx import AsyncClient
+from uuid import uuid4
+
+from discovery.main import app
+
+
+@pytest.fixture
+def client():
+    return AsyncClient(app=app, base_url="http://test")
+
+
+@pytest.mark.asyncio
+async def test_submit_to_intake(client, mock_handoff_service):
+    """POST /discovery/sessions/{id}/handoff should submit to intake."""
+    session_id = str(uuid4())
+    mock_handoff_service.submit_to_intake.return_value = {
+        "intake_request_id": str(uuid4()),
+        "status": "submitted",
+        "candidates_count": 5
+    }
+
+    response = await client.post(
+        f"/discovery/sessions/{session_id}/handoff",
+        json={
+            "candidate_ids": [str(uuid4()), str(uuid4())],
+            "notes": "Prioritize these for Q1"
+        }
+    )
+
+    assert response.status_code == 201
+    data = response.json()
+    assert "intake_request_id" in data
+    assert data["status"] == "submitted"
+
+
+@pytest.mark.asyncio
+async def test_submit_all_high_priority(client, mock_handoff_service):
+    """POST should support submitting all high priority candidates."""
+    session_id = str(uuid4())
+    mock_handoff_service.submit_to_intake.return_value = {
+        "intake_request_id": str(uuid4()),
+        "candidates_count": 10
+    }
+
+    response = await client.post(
+        f"/discovery/sessions/{session_id}/handoff",
+        json={"priority_tier": "HIGH"}
+    )
+
+    assert response.status_code == 201
+    data = response.json()
+    assert data["candidates_count"] == 10
+
+
+@pytest.mark.asyncio
+async def test_validate_before_handoff(client, mock_handoff_service):
+    """POST /discovery/sessions/{id}/handoff/validate should check readiness."""
+    session_id = str(uuid4())
+    mock_handoff_service.validate_readiness.return_value = {
+        "is_ready": True,
+        "warnings": [],
+        "errors": []
+    }
+
+    response = await client.post(f"/discovery/sessions/{session_id}/handoff/validate")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["is_ready"] is True
+
+
+@pytest.mark.asyncio
+async def test_handoff_not_ready(client, mock_handoff_service):
+    """POST handoff should fail if validation fails."""
+    session_id = str(uuid4())
+    mock_handoff_service.validate_readiness.return_value = {
+        "is_ready": False,
+        "errors": ["No candidates selected"]
+    }
+
+    response = await client.post(
+        f"/discovery/sessions/{session_id}/handoff",
+        json={}
+    )
+
+    assert response.status_code == 400
+    assert "errors" in response.json()
+
+
+@pytest.mark.asyncio
+async def test_get_handoff_status(client, mock_handoff_service):
+    """GET /discovery/sessions/{id}/handoff should return handoff status."""
+    session_id = str(uuid4())
+    mock_handoff_service.get_status.return_value = {
+        "session_id": session_id,
+        "handed_off": True,
+        "intake_request_id": str(uuid4()),
+        "handed_off_at": "2026-01-31T12:00:00Z"
+    }
+
+    response = await client.get(f"/discovery/sessions/{session_id}/handoff")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["handed_off"] is True
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery/api && python -m pytest tests/unit/routers/test_handoff.py -v`
+Expected: FAIL with "ImportError"
+
+**Step 3: Write minimal implementation to make test pass**
+
+(Implementer determines the code)
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery/api && python -m pytest tests/unit/routers/test_handoff.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/api/src/discovery/routers/handoff.py discovery/api/src/discovery/services/handoff_service.py
+git commit -m "feat(discovery): add handoff endpoint for intake submission"
+```
+
+---
+
+### Task 48: Wire Up to Main App
+
+**Files:**
+- Modify: `discovery/api/src/discovery/main.py`
+- Modify: `discovery/api/src/discovery/routers/__init__.py`
+- Test: `discovery/api/tests/unit/test_main_routes.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/api/tests/unit/test_main_routes.py
+import pytest
+from httpx import AsyncClient
+
+from discovery.main import app
+
+
+@pytest.fixture
+def client():
+    return AsyncClient(app=app, base_url="http://test")
+
+
+@pytest.mark.asyncio
+async def test_all_routers_registered(client):
+    """All discovery routers should be registered."""
+    # Get OpenAPI schema
+    response = await client.get("/openapi.json")
+    assert response.status_code == 200
+
+    paths = response.json()["paths"]
+
+    # Session routes
+    assert "/discovery/sessions" in paths
+    assert "/discovery/sessions/{session_id}" in paths
+
+    # Upload routes
+    assert "/discovery/sessions/{session_id}/upload" in paths
+
+    # Role mapping routes
+    assert "/discovery/sessions/{session_id}/role-mappings" in paths
+    assert "/discovery/onet/search" in paths
+
+    # Activity routes
+    assert "/discovery/sessions/{session_id}/activities" in paths
+
+    # Analysis routes
+    assert "/discovery/sessions/{session_id}/analysis" in paths
+
+    # Roadmap routes
+    assert "/discovery/sessions/{session_id}/roadmap" in paths
+
+    # Chat routes
+    assert "/discovery/sessions/{session_id}/chat" in paths
+
+    # Export routes
+    assert "/discovery/sessions/{session_id}/export/csv" in paths
+
+    # Handoff routes
+    assert "/discovery/sessions/{session_id}/handoff" in paths
+
+
+@pytest.mark.asyncio
+async def test_health_check_still_works(client):
+    """Health check should still be accessible."""
+    response = await client.get("/health")
+    assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_cors_headers(client):
+    """CORS should be configured for frontend."""
+    response = await client.options(
+        "/discovery/sessions",
+        headers={"Origin": "http://localhost:3000"}
+    )
+    assert "access-control-allow-origin" in response.headers
+
+
+@pytest.mark.asyncio
+async def test_api_prefix(client):
+    """All discovery routes should have /discovery prefix."""
+    response = await client.get("/openapi.json")
+    paths = response.json()["paths"]
+
+    discovery_paths = [p for p in paths if p.startswith("/discovery")]
+    non_discovery_paths = [p for p in paths if not p.startswith("/discovery") and not p.startswith("/health") and not p.startswith("/openapi")]
+
+    assert len(discovery_paths) > 0
+    # Only health and openapi should be outside /discovery
+    assert len(non_discovery_paths) == 0
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery/api && python -m pytest tests/unit/test_main_routes.py -v`
+Expected: FAIL with missing routes
+
+**Step 3: Write minimal implementation to make test pass**
+
+(Implementer determines the code)
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery/api && python -m pytest tests/unit/test_main_routes.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/api/src/discovery/main.py discovery/api/src/discovery/routers/__init__.py
+git commit -m "feat(discovery): wire up all routers to main app"
+```
 
 ---
 
 ## Part 7: Frontend Components (Tasks 49-65)
 
-Following the same TDD pattern (vitest), implement:
+### Task 49: Discovery Layout Component
 
-- **Task 49:** Discovery Layout Component
-- **Task 50:** Step Indicator Component
-- **Task 51:** Chat Panel Component
-- **Task 52:** Quick Action Chips Component
-- **Task 53:** Upload Step Page
-- **Task 54:** File Drop Zone Component
-- **Task 55:** Column Mapping Preview
-- **Task 56:** Map Roles Step Page
-- **Task 57:** Role Mapping Card Component
-- **Task 58:** O*NET Search Autocomplete
-- **Task 59:** Activities Step Page
-- **Task 60:** DWA Accordion Component
-- **Task 61:** Analysis Step Page
-- **Task 62:** Analysis Tabs Component
-- **Task 63:** Roadmap Step Page
-- **Task 64:** Kanban Timeline Component
-- **Task 65:** Discovery Session List Page
+**Files:**
+- Create: `frontend/src/components/features/discovery/DiscoveryLayout.tsx`
+- Create: `frontend/src/components/features/discovery/index.ts`
+- Test: `frontend/tests/unit/discovery/DiscoveryLayout.test.tsx`
+
+**Step 1: Write the failing test**
+
+```tsx
+// frontend/tests/unit/discovery/DiscoveryLayout.test.tsx
+import { render, screen } from '@testing-library/react'
+import { describe, it, expect } from 'vitest'
+import { DiscoveryLayout } from '@/components/features/discovery/DiscoveryLayout'
+
+describe('DiscoveryLayout', () => {
+  it('renders the layout with header and main content area', () => {
+    render(
+      <DiscoveryLayout>
+        <div data-testid="child-content">Content</div>
+      </DiscoveryLayout>
+    )
+
+    expect(screen.getByRole('main')).toBeInTheDocument()
+    expect(screen.getByTestId('child-content')).toBeInTheDocument()
+  })
+
+  it('renders the step indicator in sidebar', () => {
+    render(<DiscoveryLayout currentStep={2} totalSteps={5}><div /></DiscoveryLayout>)
+
+    expect(screen.getByRole('navigation', { name: /steps/i })).toBeInTheDocument()
+  })
+
+  it('renders the chat panel in sidebar', () => {
+    render(<DiscoveryLayout><div /></DiscoveryLayout>)
+
+    expect(screen.getByRole('complementary', { name: /chat/i })).toBeInTheDocument()
+  })
+
+  it('applies correct grid layout classes', () => {
+    const { container } = render(<DiscoveryLayout><div /></DiscoveryLayout>)
+
+    const layout = container.firstChild
+    expect(layout).toHaveClass('grid')
+  })
+
+  it('shows session title when provided', () => {
+    render(<DiscoveryLayout sessionTitle="Q1 Discovery"><div /></DiscoveryLayout>)
+
+    expect(screen.getByText('Q1 Discovery')).toBeInTheDocument()
+  })
+})
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd frontend && npm test -- tests/unit/discovery/DiscoveryLayout.test.tsx`
+Expected: FAIL with "Cannot find module"
+
+**Step 3: Write minimal implementation to make test pass**
+
+(Implementer determines the code)
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd frontend && npm test -- tests/unit/discovery/DiscoveryLayout.test.tsx`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add frontend/src/components/features/discovery/
+git commit -m "feat(discovery): add DiscoveryLayout component with sidebar"
+```
+
+---
+
+### Task 50: Step Indicator Component
+
+**Files:**
+- Create: `frontend/src/components/features/discovery/StepIndicator.tsx`
+- Test: `frontend/tests/unit/discovery/StepIndicator.test.tsx`
+
+**Step 1: Write the failing test**
+
+```tsx
+// frontend/tests/unit/discovery/StepIndicator.test.tsx
+import { render, screen } from '@testing-library/react'
+import { describe, it, expect } from 'vitest'
+import { StepIndicator } from '@/components/features/discovery/StepIndicator'
+
+const steps = [
+  { id: 1, title: 'Upload', status: 'completed' },
+  { id: 2, title: 'Map Roles', status: 'current' },
+  { id: 3, title: 'Activities', status: 'upcoming' },
+  { id: 4, title: 'Analysis', status: 'upcoming' },
+  { id: 5, title: 'Roadmap', status: 'upcoming' },
+]
+
+describe('StepIndicator', () => {
+  it('renders all steps', () => {
+    render(<StepIndicator steps={steps} currentStep={2} />)
+
+    expect(screen.getByText('Upload')).toBeInTheDocument()
+    expect(screen.getByText('Map Roles')).toBeInTheDocument()
+    expect(screen.getByText('Roadmap')).toBeInTheDocument()
+  })
+
+  it('marks completed steps with checkmark', () => {
+    render(<StepIndicator steps={steps} currentStep={2} />)
+
+    const uploadStep = screen.getByText('Upload').closest('li')
+    expect(uploadStep).toHaveAttribute('data-status', 'completed')
+  })
+
+  it('highlights current step', () => {
+    render(<StepIndicator steps={steps} currentStep={2} />)
+
+    const currentStep = screen.getByText('Map Roles').closest('li')
+    expect(currentStep).toHaveAttribute('data-status', 'current')
+  })
+
+  it('dims upcoming steps', () => {
+    render(<StepIndicator steps={steps} currentStep={2} />)
+
+    const upcomingStep = screen.getByText('Activities').closest('li')
+    expect(upcomingStep).toHaveAttribute('data-status', 'upcoming')
+  })
+
+  it('supports vertical orientation', () => {
+    const { container } = render(
+      <StepIndicator steps={steps} currentStep={2} orientation="vertical" />
+    )
+
+    expect(container.firstChild).toHaveClass('flex-col')
+  })
+})
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd frontend && npm test -- tests/unit/discovery/StepIndicator.test.tsx`
+Expected: FAIL with "Cannot find module"
+
+**Step 3: Write minimal implementation to make test pass**
+
+(Implementer determines the code)
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd frontend && npm test -- tests/unit/discovery/StepIndicator.test.tsx`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add frontend/src/components/features/discovery/StepIndicator.tsx
+git commit -m "feat(discovery): add StepIndicator component with 5-step workflow"
+```
+
+---
+
+### Task 51: Chat Panel Component
+
+**Files:**
+- Create: `frontend/src/components/features/discovery/ChatPanel.tsx`
+- Create: `frontend/src/hooks/useDiscoveryChat.ts`
+- Test: `frontend/tests/unit/discovery/ChatPanel.test.tsx`
+
+**Step 1: Write the failing test**
+
+```tsx
+// frontend/tests/unit/discovery/ChatPanel.test.tsx
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { describe, it, expect, vi } from 'vitest'
+import { ChatPanel } from '@/components/features/discovery/ChatPanel'
+
+describe('ChatPanel', () => {
+  it('renders message input', () => {
+    render(<ChatPanel sessionId="test-session" />)
+
+    expect(screen.getByRole('textbox', { name: /message/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /send/i })).toBeInTheDocument()
+  })
+
+  it('displays message history', () => {
+    const messages = [
+      { id: '1', role: 'user', content: 'Hello' },
+      { id: '2', role: 'assistant', content: 'Hi! How can I help?' },
+    ]
+
+    render(<ChatPanel sessionId="test-session" initialMessages={messages} />)
+
+    expect(screen.getByText('Hello')).toBeInTheDocument()
+    expect(screen.getByText('Hi! How can I help?')).toBeInTheDocument()
+  })
+
+  it('sends message on submit', async () => {
+    const onSend = vi.fn()
+    render(<ChatPanel sessionId="test-session" onSendMessage={onSend} />)
+
+    const input = screen.getByRole('textbox', { name: /message/i })
+    fireEvent.change(input, { target: { value: 'Test message' } })
+    fireEvent.click(screen.getByRole('button', { name: /send/i }))
+
+    await waitFor(() => {
+      expect(onSend).toHaveBeenCalledWith('Test message')
+    })
+  })
+
+  it('shows loading indicator while waiting for response', () => {
+    render(<ChatPanel sessionId="test-session" isLoading={true} />)
+
+    expect(screen.getByRole('status')).toBeInTheDocument()
+  })
+
+  it('renders quick action chips when provided', () => {
+    const quickActions = [
+      { label: 'Show details', action: 'show_details' },
+      { label: 'Export', action: 'export' },
+    ]
+
+    render(<ChatPanel sessionId="test-session" quickActions={quickActions} />)
+
+    expect(screen.getByText('Show details')).toBeInTheDocument()
+    expect(screen.getByText('Export')).toBeInTheDocument()
+  })
+
+  it('auto-scrolls to latest message', async () => {
+    const { rerender } = render(<ChatPanel sessionId="test-session" initialMessages={[]} />)
+
+    const messages = [
+      { id: '1', role: 'assistant', content: 'New message!' },
+    ]
+    rerender(<ChatPanel sessionId="test-session" initialMessages={messages} />)
+
+    // Verify scroll container exists
+    expect(screen.getByRole('log')).toBeInTheDocument()
+  })
+})
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd frontend && npm test -- tests/unit/discovery/ChatPanel.test.tsx`
+Expected: FAIL with "Cannot find module"
+
+**Step 3: Write minimal implementation to make test pass**
+
+(Implementer determines the code)
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd frontend && npm test -- tests/unit/discovery/ChatPanel.test.tsx`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add frontend/src/components/features/discovery/ChatPanel.tsx frontend/src/hooks/useDiscoveryChat.ts
+git commit -m "feat(discovery): add ChatPanel with message history and quick actions"
+```
+
+---
+
+### Task 52: Quick Action Chips Component
+
+**Files:**
+- Create: `frontend/src/components/features/discovery/QuickActionChips.tsx`
+- Test: `frontend/tests/unit/discovery/QuickActionChips.test.tsx`
+
+**Step 1: Write the failing test**
+
+```tsx
+// frontend/tests/unit/discovery/QuickActionChips.test.tsx
+import { render, screen, fireEvent } from '@testing-library/react'
+import { describe, it, expect, vi } from 'vitest'
+import { QuickActionChips } from '@/components/features/discovery/QuickActionChips'
+
+const chips = [
+  { label: 'Confirm all', action: 'confirm_all', variant: 'primary' },
+  { label: 'Skip step', action: 'skip', variant: 'secondary' },
+  { label: 'Show help', action: 'help', variant: 'ghost' },
+]
+
+describe('QuickActionChips', () => {
+  it('renders all chips', () => {
+    render(<QuickActionChips chips={chips} onAction={vi.fn()} />)
+
+    expect(screen.getByText('Confirm all')).toBeInTheDocument()
+    expect(screen.getByText('Skip step')).toBeInTheDocument()
+    expect(screen.getByText('Show help')).toBeInTheDocument()
+  })
+
+  it('calls onAction with correct action when clicked', () => {
+    const onAction = vi.fn()
+    render(<QuickActionChips chips={chips} onAction={onAction} />)
+
+    fireEvent.click(screen.getByText('Confirm all'))
+
+    expect(onAction).toHaveBeenCalledWith('confirm_all')
+  })
+
+  it('applies variant styling', () => {
+    render(<QuickActionChips chips={chips} onAction={vi.fn()} />)
+
+    const primaryChip = screen.getByText('Confirm all')
+    expect(primaryChip).toHaveClass('bg-primary')
+  })
+
+  it('disables chips when loading', () => {
+    render(<QuickActionChips chips={chips} onAction={vi.fn()} isLoading={true} />)
+
+    const chip = screen.getByText('Confirm all')
+    expect(chip).toBeDisabled()
+  })
+
+  it('handles empty chips array', () => {
+    const { container } = render(<QuickActionChips chips={[]} onAction={vi.fn()} />)
+
+    expect(container.firstChild).toBeEmptyDOMElement()
+  })
+})
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd frontend && npm test -- tests/unit/discovery/QuickActionChips.test.tsx`
+Expected: FAIL with "Cannot find module"
+
+**Step 3: Write minimal implementation to make test pass**
+
+(Implementer determines the code)
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd frontend && npm test -- tests/unit/discovery/QuickActionChips.test.tsx`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add frontend/src/components/features/discovery/QuickActionChips.tsx
+git commit -m "feat(discovery): add QuickActionChips for contextual actions"
+```
+
+---
+
+### Task 53: Upload Step Page
+
+**Files:**
+- Create: `frontend/src/pages/discovery/UploadStep.tsx`
+- Create: `frontend/src/hooks/useFileUpload.ts`
+- Test: `frontend/tests/unit/discovery/UploadStep.test.tsx`
+
+**Step 1: Write the failing test**
+
+```tsx
+// frontend/tests/unit/discovery/UploadStep.test.tsx
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { describe, it, expect, vi } from 'vitest'
+import { UploadStep } from '@/pages/discovery/UploadStep'
+import { MemoryRouter, Routes, Route } from 'react-router-dom'
+
+const renderWithRouter = (ui: React.ReactElement) => {
+  return render(
+    <MemoryRouter initialEntries={['/discovery/session-1/upload']}>
+      <Routes>
+        <Route path="/discovery/:sessionId/upload" element={ui} />
+      </Routes>
+    </MemoryRouter>
+  )
+}
+
+describe('UploadStep', () => {
+  it('renders upload instructions', () => {
+    renderWithRouter(<UploadStep />)
+
+    expect(screen.getByText(/upload your organization data/i)).toBeInTheDocument()
+    expect(screen.getByText(/csv or xlsx/i)).toBeInTheDocument()
+  })
+
+  it('shows file drop zone', () => {
+    renderWithRouter(<UploadStep />)
+
+    expect(screen.getByRole('button', { name: /browse files/i })).toBeInTheDocument()
+  })
+
+  it('displays uploaded file info after upload', async () => {
+    renderWithRouter(<UploadStep />)
+
+    const file = new File(['name,role\nJohn,Engineer'], 'data.csv', { type: 'text/csv' })
+    const dropzone = screen.getByTestId('file-dropzone')
+
+    // Simulate file drop
+    fireEvent.drop(dropzone, {
+      dataTransfer: { files: [file] },
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('data.csv')).toBeInTheDocument()
+    })
+  })
+
+  it('shows column mapping preview after upload', async () => {
+    renderWithRouter(<UploadStep />)
+
+    // After file is uploaded, should show mapping preview
+    expect(screen.queryByText(/detected columns/i)).toBeInTheDocument()
+  })
+
+  it('enables next step button when upload complete', async () => {
+    renderWithRouter(<UploadStep />)
+
+    // Initially disabled
+    expect(screen.getByRole('button', { name: /continue/i })).toBeDisabled()
+  })
+})
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd frontend && npm test -- tests/unit/discovery/UploadStep.test.tsx`
+Expected: FAIL with "Cannot find module"
+
+**Step 3: Write minimal implementation to make test pass**
+
+(Implementer determines the code)
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd frontend && npm test -- tests/unit/discovery/UploadStep.test.tsx`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add frontend/src/pages/discovery/UploadStep.tsx frontend/src/hooks/useFileUpload.ts
+git commit -m "feat(discovery): add UploadStep page with file handling"
+```
+
+---
+
+### Task 54: File Drop Zone Component
+
+**Files:**
+- Create: `frontend/src/components/features/discovery/FileDropZone.tsx`
+- Test: `frontend/tests/unit/discovery/FileDropZone.test.tsx`
+
+**Step 1: Write the failing test**
+
+```tsx
+// frontend/tests/unit/discovery/FileDropZone.test.tsx
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { describe, it, expect, vi } from 'vitest'
+import { FileDropZone } from '@/components/features/discovery/FileDropZone'
+
+describe('FileDropZone', () => {
+  it('renders drop zone with instructions', () => {
+    render(<FileDropZone onFileDrop={vi.fn()} />)
+
+    expect(screen.getByText(/drag and drop/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /browse/i })).toBeInTheDocument()
+  })
+
+  it('accepts CSV files', async () => {
+    const onFileDrop = vi.fn()
+    render(<FileDropZone onFileDrop={onFileDrop} accept={['.csv', '.xlsx']} />)
+
+    const file = new File(['content'], 'data.csv', { type: 'text/csv' })
+    const dropzone = screen.getByTestId('file-dropzone')
+
+    fireEvent.drop(dropzone, { dataTransfer: { files: [file] } })
+
+    await waitFor(() => {
+      expect(onFileDrop).toHaveBeenCalledWith(file)
+    })
+  })
+
+  it('rejects unsupported file types', async () => {
+    const onFileDrop = vi.fn()
+    const onError = vi.fn()
+    render(<FileDropZone onFileDrop={onFileDrop} onError={onError} accept={['.csv']} />)
+
+    const file = new File(['content'], 'report.pdf', { type: 'application/pdf' })
+    const dropzone = screen.getByTestId('file-dropzone')
+
+    fireEvent.drop(dropzone, { dataTransfer: { files: [file] } })
+
+    await waitFor(() => {
+      expect(onFileDrop).not.toHaveBeenCalled()
+      expect(onError).toHaveBeenCalled()
+    })
+  })
+
+  it('shows drag over state', () => {
+    render(<FileDropZone onFileDrop={vi.fn()} />)
+
+    const dropzone = screen.getByTestId('file-dropzone')
+    fireEvent.dragEnter(dropzone)
+
+    expect(dropzone).toHaveClass('border-primary')
+  })
+
+  it('shows file size limit', () => {
+    render(<FileDropZone onFileDrop={vi.fn()} maxSizeMB={10} />)
+
+    expect(screen.getByText(/10 MB/i)).toBeInTheDocument()
+  })
+
+  it('shows uploading state', () => {
+    render(<FileDropZone onFileDrop={vi.fn()} isUploading={true} progress={50} />)
+
+    expect(screen.getByRole('progressbar')).toBeInTheDocument()
+    expect(screen.getByText('50%')).toBeInTheDocument()
+  })
+})
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd frontend && npm test -- tests/unit/discovery/FileDropZone.test.tsx`
+Expected: FAIL with "Cannot find module"
+
+**Step 3: Write minimal implementation to make test pass**
+
+(Implementer determines the code)
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd frontend && npm test -- tests/unit/discovery/FileDropZone.test.tsx`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add frontend/src/components/features/discovery/FileDropZone.tsx
+git commit -m "feat(discovery): add FileDropZone with drag-and-drop support"
+```
+
+---
+
+### Task 55: Column Mapping Preview
+
+**Files:**
+- Create: `frontend/src/components/features/discovery/ColumnMappingPreview.tsx`
+- Test: `frontend/tests/unit/discovery/ColumnMappingPreview.test.tsx`
+
+**Step 1: Write the failing test**
+
+```tsx
+// frontend/tests/unit/discovery/ColumnMappingPreview.test.tsx
+import { render, screen, fireEvent } from '@testing-library/react'
+import { describe, it, expect, vi } from 'vitest'
+import { ColumnMappingPreview } from '@/components/features/discovery/ColumnMappingPreview'
+
+const schema = {
+  columns: ['Name', 'Job Title', 'Department', 'Location'],
+  sampleRows: [
+    ['John Smith', 'Software Engineer', 'Engineering', 'NYC'],
+    ['Jane Doe', 'Data Analyst', 'Analytics', 'SF'],
+  ],
+}
+
+const mappings = {
+  role: 'Job Title',
+  department: 'Department',
+  geography: 'Location',
+}
+
+describe('ColumnMappingPreview', () => {
+  it('renders detected columns', () => {
+    render(<ColumnMappingPreview schema={schema} mappings={mappings} onMappingChange={vi.fn()} />)
+
+    expect(screen.getByText('Name')).toBeInTheDocument()
+    expect(screen.getByText('Job Title')).toBeInTheDocument()
+    expect(screen.getByText('Department')).toBeInTheDocument()
+  })
+
+  it('shows sample data rows', () => {
+    render(<ColumnMappingPreview schema={schema} mappings={mappings} onMappingChange={vi.fn()} />)
+
+    expect(screen.getByText('John Smith')).toBeInTheDocument()
+    expect(screen.getByText('Software Engineer')).toBeInTheDocument()
+  })
+
+  it('highlights mapped columns', () => {
+    render(<ColumnMappingPreview schema={schema} mappings={mappings} onMappingChange={vi.fn()} />)
+
+    const roleColumn = screen.getByText('Job Title').closest('th')
+    expect(roleColumn).toHaveClass('bg-primary-50')
+  })
+
+  it('allows changing column mapping', () => {
+    const onMappingChange = vi.fn()
+    render(<ColumnMappingPreview schema={schema} mappings={mappings} onMappingChange={onMappingChange} />)
+
+    const select = screen.getByLabelText(/role column/i)
+    fireEvent.change(select, { target: { value: 'Name' } })
+
+    expect(onMappingChange).toHaveBeenCalledWith({ ...mappings, role: 'Name' })
+  })
+
+  it('shows required column indicators', () => {
+    render(<ColumnMappingPreview schema={schema} mappings={{}} onMappingChange={vi.fn()} />)
+
+    expect(screen.getByText(/role.*required/i)).toBeInTheDocument()
+  })
+})
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd frontend && npm test -- tests/unit/discovery/ColumnMappingPreview.test.tsx`
+Expected: FAIL with "Cannot find module"
+
+**Step 3: Write minimal implementation to make test pass**
+
+(Implementer determines the code)
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd frontend && npm test -- tests/unit/discovery/ColumnMappingPreview.test.tsx`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add frontend/src/components/features/discovery/ColumnMappingPreview.tsx
+git commit -m "feat(discovery): add ColumnMappingPreview with sample data"
+```
+
+---
+
+### Task 56: Map Roles Step Page
+
+**Files:**
+- Create: `frontend/src/pages/discovery/MapRolesStep.tsx`
+- Create: `frontend/src/hooks/useRoleMappings.ts`
+- Test: `frontend/tests/unit/discovery/MapRolesStep.test.tsx`
+
+**Step 1: Write the failing test**
+
+```tsx
+// frontend/tests/unit/discovery/MapRolesStep.test.tsx
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { describe, it, expect, vi } from 'vitest'
+import { MapRolesStep } from '@/pages/discovery/MapRolesStep'
+import { MemoryRouter, Routes, Route } from 'react-router-dom'
+
+const renderWithRouter = (ui: React.ReactElement) => {
+  return render(
+    <MemoryRouter initialEntries={['/discovery/session-1/map-roles']}>
+      <Routes>
+        <Route path="/discovery/:sessionId/map-roles" element={ui} />
+      </Routes>
+    </MemoryRouter>
+  )
+}
+
+describe('MapRolesStep', () => {
+  it('renders role mapping list', () => {
+    renderWithRouter(<MapRolesStep />)
+
+    expect(screen.getByText(/map your roles/i)).toBeInTheDocument()
+  })
+
+  it('shows auto-detected mappings', async () => {
+    renderWithRouter(<MapRolesStep />)
+
+    await waitFor(() => {
+      expect(screen.getByText(/software engineer/i)).toBeInTheDocument()
+    })
+  })
+
+  it('allows confirming a mapping', async () => {
+    renderWithRouter(<MapRolesStep />)
+
+    const confirmButton = await screen.findByRole('button', { name: /confirm/i })
+    fireEvent.click(confirmButton)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('confirmed-badge')).toBeInTheDocument()
+    })
+  })
+
+  it('allows bulk confirm above threshold', async () => {
+    renderWithRouter(<MapRolesStep />)
+
+    const bulkConfirmButton = screen.getByRole('button', { name: /confirm all above/i })
+    expect(bulkConfirmButton).toBeInTheDocument()
+  })
+
+  it('shows confidence score for each mapping', async () => {
+    renderWithRouter(<MapRolesStep />)
+
+    await waitFor(() => {
+      expect(screen.getByText(/95%/)).toBeInTheDocument()
+    })
+  })
+
+  it('enables search to remap roles', async () => {
+    renderWithRouter(<MapRolesStep />)
+
+    const searchInput = screen.getByRole('combobox', { name: /search o\*net/i })
+    expect(searchInput).toBeInTheDocument()
+  })
+})
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd frontend && npm test -- tests/unit/discovery/MapRolesStep.test.tsx`
+Expected: FAIL with "Cannot find module"
+
+**Step 3: Write minimal implementation to make test pass**
+
+(Implementer determines the code)
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd frontend && npm test -- tests/unit/discovery/MapRolesStep.test.tsx`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add frontend/src/pages/discovery/MapRolesStep.tsx frontend/src/hooks/useRoleMappings.ts
+git commit -m "feat(discovery): add MapRolesStep page with role confirmation"
+```
+
+---
+
+### Task 57: Role Mapping Card Component
+
+**Files:**
+- Create: `frontend/src/components/features/discovery/RoleMappingCard.tsx`
+- Test: `frontend/tests/unit/discovery/RoleMappingCard.test.tsx`
+
+**Step 1: Write the failing test**
+
+```tsx
+// frontend/tests/unit/discovery/RoleMappingCard.test.tsx
+import { render, screen, fireEvent } from '@testing-library/react'
+import { describe, it, expect, vi } from 'vitest'
+import { RoleMappingCard } from '@/components/features/discovery/RoleMappingCard'
+
+const mapping = {
+  id: '1',
+  sourceRole: 'Software Engineer',
+  onetCode: '15-1252.00',
+  onetTitle: 'Software Developers',
+  confidenceScore: 0.95,
+  isConfirmed: false,
+  headcount: 45,
+}
+
+describe('RoleMappingCard', () => {
+  it('renders source role and O*NET mapping', () => {
+    render(<RoleMappingCard mapping={mapping} onConfirm={vi.fn()} onRemap={vi.fn()} />)
+
+    expect(screen.getByText('Software Engineer')).toBeInTheDocument()
+    expect(screen.getByText('Software Developers')).toBeInTheDocument()
+    expect(screen.getByText('15-1252.00')).toBeInTheDocument()
+  })
+
+  it('shows confidence score as percentage', () => {
+    render(<RoleMappingCard mapping={mapping} onConfirm={vi.fn()} onRemap={vi.fn()} />)
+
+    expect(screen.getByText('95%')).toBeInTheDocument()
+  })
+
+  it('shows headcount', () => {
+    render(<RoleMappingCard mapping={mapping} onConfirm={vi.fn()} onRemap={vi.fn()} />)
+
+    expect(screen.getByText('45 employees')).toBeInTheDocument()
+  })
+
+  it('calls onConfirm when confirm clicked', () => {
+    const onConfirm = vi.fn()
+    render(<RoleMappingCard mapping={mapping} onConfirm={onConfirm} onRemap={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /confirm/i }))
+
+    expect(onConfirm).toHaveBeenCalledWith(mapping.id)
+  })
+
+  it('calls onRemap when remap clicked', () => {
+    const onRemap = vi.fn()
+    render(<RoleMappingCard mapping={mapping} onConfirm={vi.fn()} onRemap={onRemap} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /remap/i }))
+
+    expect(onRemap).toHaveBeenCalledWith(mapping.id)
+  })
+
+  it('shows confirmed state', () => {
+    const confirmedMapping = { ...mapping, isConfirmed: true }
+    render(<RoleMappingCard mapping={confirmedMapping} onConfirm={vi.fn()} onRemap={vi.fn()} />)
+
+    expect(screen.getByTestId('confirmed-badge')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /confirm/i })).not.toBeInTheDocument()
+  })
+
+  it('shows low confidence warning', () => {
+    const lowConfidenceMapping = { ...mapping, confidenceScore: 0.45 }
+    render(<RoleMappingCard mapping={lowConfidenceMapping} onConfirm={vi.fn()} onRemap={vi.fn()} />)
+
+    expect(screen.getByText(/low confidence/i)).toBeInTheDocument()
+  })
+})
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd frontend && npm test -- tests/unit/discovery/RoleMappingCard.test.tsx`
+Expected: FAIL with "Cannot find module"
+
+**Step 3: Write minimal implementation to make test pass**
+
+(Implementer determines the code)
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd frontend && npm test -- tests/unit/discovery/RoleMappingCard.test.tsx`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add frontend/src/components/features/discovery/RoleMappingCard.tsx
+git commit -m "feat(discovery): add RoleMappingCard with confirm/remap actions"
+```
+
+---
+
+### Task 58: O*NET Search Autocomplete
+
+**Files:**
+- Create: `frontend/src/components/features/discovery/OnetSearchAutocomplete.tsx`
+- Create: `frontend/src/hooks/useOnetSearch.ts`
+- Test: `frontend/tests/unit/discovery/OnetSearchAutocomplete.test.tsx`
+
+**Step 1: Write the failing test**
+
+```tsx
+// frontend/tests/unit/discovery/OnetSearchAutocomplete.test.tsx
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { describe, it, expect, vi } from 'vitest'
+import { OnetSearchAutocomplete } from '@/components/features/discovery/OnetSearchAutocomplete'
+
+describe('OnetSearchAutocomplete', () => {
+  it('renders search input', () => {
+    render(<OnetSearchAutocomplete onSelect={vi.fn()} />)
+
+    expect(screen.getByRole('combobox')).toBeInTheDocument()
+  })
+
+  it('shows loading state while searching', async () => {
+    render(<OnetSearchAutocomplete onSelect={vi.fn()} />)
+
+    const input = screen.getByRole('combobox')
+    fireEvent.change(input, { target: { value: 'software' } })
+
+    expect(screen.getByRole('status')).toBeInTheDocument()
+  })
+
+  it('displays search results', async () => {
+    render(<OnetSearchAutocomplete onSelect={vi.fn()} />)
+
+    const input = screen.getByRole('combobox')
+    fireEvent.change(input, { target: { value: 'software' } })
+
+    await waitFor(() => {
+      expect(screen.getByText('Software Developers')).toBeInTheDocument()
+      expect(screen.getByText('15-1252.00')).toBeInTheDocument()
+    })
+  })
+
+  it('calls onSelect when result clicked', async () => {
+    const onSelect = vi.fn()
+    render(<OnetSearchAutocomplete onSelect={onSelect} />)
+
+    const input = screen.getByRole('combobox')
+    fireEvent.change(input, { target: { value: 'software' } })
+
+    await waitFor(() => {
+      fireEvent.click(screen.getByText('Software Developers'))
+    })
+
+    expect(onSelect).toHaveBeenCalledWith({
+      code: '15-1252.00',
+      title: 'Software Developers',
+    })
+  })
+
+  it('debounces search requests', async () => {
+    const { rerender } = render(<OnetSearchAutocomplete onSelect={vi.fn()} />)
+
+    const input = screen.getByRole('combobox')
+    fireEvent.change(input, { target: { value: 's' } })
+    fireEvent.change(input, { target: { value: 'so' } })
+    fireEvent.change(input, { target: { value: 'sof' } })
+
+    // Should debounce to single request
+    await waitFor(() => {
+      expect(screen.queryByRole('listbox')).toBeInTheDocument()
+    }, { timeout: 500 })
+  })
+
+  it('shows no results message', async () => {
+    render(<OnetSearchAutocomplete onSelect={vi.fn()} />)
+
+    const input = screen.getByRole('combobox')
+    fireEvent.change(input, { target: { value: 'xyznotfound123' } })
+
+    await waitFor(() => {
+      expect(screen.getByText(/no results/i)).toBeInTheDocument()
+    })
+  })
+})
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd frontend && npm test -- tests/unit/discovery/OnetSearchAutocomplete.test.tsx`
+Expected: FAIL with "Cannot find module"
+
+**Step 3: Write minimal implementation to make test pass**
+
+(Implementer determines the code)
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd frontend && npm test -- tests/unit/discovery/OnetSearchAutocomplete.test.tsx`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add frontend/src/components/features/discovery/OnetSearchAutocomplete.tsx frontend/src/hooks/useOnetSearch.ts
+git commit -m "feat(discovery): add OnetSearchAutocomplete with debounced search"
+```
+
+---
+
+### Task 59: Activities Step Page
+
+**Files:**
+- Create: `frontend/src/pages/discovery/ActivitiesStep.tsx`
+- Create: `frontend/src/hooks/useActivitySelections.ts`
+- Test: `frontend/tests/unit/discovery/ActivitiesStep.test.tsx`
+
+**Step 1: Write the failing test**
+
+```tsx
+// frontend/tests/unit/discovery/ActivitiesStep.test.tsx
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { describe, it, expect, vi } from 'vitest'
+import { ActivitiesStep } from '@/pages/discovery/ActivitiesStep'
+import { MemoryRouter, Routes, Route } from 'react-router-dom'
+
+const renderWithRouter = (ui: React.ReactElement) => {
+  return render(
+    <MemoryRouter initialEntries={['/discovery/session-1/activities']}>
+      <Routes>
+        <Route path="/discovery/:sessionId/activities" element={ui} />
+      </Routes>
+    </MemoryRouter>
+  )
+}
+
+describe('ActivitiesStep', () => {
+  it('renders GWA groups', async () => {
+    renderWithRouter(<ActivitiesStep />)
+
+    await waitFor(() => {
+      expect(screen.getByText(/analyzing data/i)).toBeInTheDocument()
+    })
+  })
+
+  it('shows AI exposure score for each GWA', async () => {
+    renderWithRouter(<ActivitiesStep />)
+
+    await waitFor(() => {
+      expect(screen.getByText(/72%/)).toBeInTheDocument()
+    })
+  })
+
+  it('expands GWA to show DWAs', async () => {
+    renderWithRouter(<ActivitiesStep />)
+
+    const accordion = await screen.findByRole('button', { name: /analyzing data/i })
+    fireEvent.click(accordion)
+
+    await waitFor(() => {
+      expect(screen.getByText(/analyze business data/i)).toBeInTheDocument()
+    })
+  })
+
+  it('allows selecting individual DWAs', async () => {
+    renderWithRouter(<ActivitiesStep />)
+
+    const accordion = await screen.findByRole('button', { name: /analyzing data/i })
+    fireEvent.click(accordion)
+
+    const checkbox = await screen.findByRole('checkbox', { name: /analyze business data/i })
+    fireEvent.click(checkbox)
+
+    expect(checkbox).toBeChecked()
+  })
+
+  it('shows selection count', async () => {
+    renderWithRouter(<ActivitiesStep />)
+
+    await waitFor(() => {
+      expect(screen.getByText(/0 activities selected/i)).toBeInTheDocument()
+    })
+  })
+
+  it('enables bulk select for high exposure activities', () => {
+    renderWithRouter(<ActivitiesStep />)
+
+    expect(screen.getByRole('button', { name: /select high exposure/i })).toBeInTheDocument()
+  })
+})
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd frontend && npm test -- tests/unit/discovery/ActivitiesStep.test.tsx`
+Expected: FAIL with "Cannot find module"
+
+**Step 3: Write minimal implementation to make test pass**
+
+(Implementer determines the code)
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd frontend && npm test -- tests/unit/discovery/ActivitiesStep.test.tsx`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add frontend/src/pages/discovery/ActivitiesStep.tsx frontend/src/hooks/useActivitySelections.ts
+git commit -m "feat(discovery): add ActivitiesStep page with GWA/DWA selection"
+```
+
+---
+
+### Task 60: DWA Accordion Component
+
+**Files:**
+- Create: `frontend/src/components/features/discovery/DwaAccordion.tsx`
+- Test: `frontend/tests/unit/discovery/DwaAccordion.test.tsx`
+
+**Step 1: Write the failing test**
+
+```tsx
+// frontend/tests/unit/discovery/DwaAccordion.test.tsx
+import { render, screen, fireEvent } from '@testing-library/react'
+import { describe, it, expect, vi } from 'vitest'
+import { DwaAccordion } from '@/components/features/discovery/DwaAccordion'
+
+const gwaGroup = {
+  gwaId: '4.A.2.a.4',
+  gwaTitle: 'Analyzing Data or Information',
+  aiExposureScore: 0.72,
+  dwas: [
+    { id: '1', dwaId: '4.A.2.a.4.01', title: 'Analyze business data', isSelected: false },
+    { id: '2', dwaId: '4.A.2.a.4.02', title: 'Interpret statistical results', isSelected: true },
+  ],
+}
+
+describe('DwaAccordion', () => {
+  it('renders GWA header with title', () => {
+    render(<DwaAccordion group={gwaGroup} onDwaToggle={vi.fn()} />)
+
+    expect(screen.getByText('Analyzing Data or Information')).toBeInTheDocument()
+  })
+
+  it('shows AI exposure score badge', () => {
+    render(<DwaAccordion group={gwaGroup} onDwaToggle={vi.fn()} />)
+
+    expect(screen.getByText('72%')).toBeInTheDocument()
+  })
+
+  it('expands to show DWAs on click', () => {
+    render(<DwaAccordion group={gwaGroup} onDwaToggle={vi.fn()} />)
+
+    const header = screen.getByRole('button')
+    fireEvent.click(header)
+
+    expect(screen.getByText('Analyze business data')).toBeVisible()
+    expect(screen.getByText('Interpret statistical results')).toBeVisible()
+  })
+
+  it('shows selection state for each DWA', () => {
+    render(<DwaAccordion group={gwaGroup} onDwaToggle={vi.fn()} defaultOpen={true} />)
+
+    const selectedCheckbox = screen.getByRole('checkbox', { name: /interpret statistical/i })
+    expect(selectedCheckbox).toBeChecked()
+  })
+
+  it('calls onDwaToggle when checkbox clicked', () => {
+    const onDwaToggle = vi.fn()
+    render(<DwaAccordion group={gwaGroup} onDwaToggle={onDwaToggle} defaultOpen={true} />)
+
+    const checkbox = screen.getByRole('checkbox', { name: /analyze business/i })
+    fireEvent.click(checkbox)
+
+    expect(onDwaToggle).toHaveBeenCalledWith('1', true)
+  })
+
+  it('shows selection count in header', () => {
+    render(<DwaAccordion group={gwaGroup} onDwaToggle={vi.fn()} />)
+
+    expect(screen.getByText('1/2 selected')).toBeInTheDocument()
+  })
+
+  it('allows select all within group', () => {
+    const onDwaToggle = vi.fn()
+    render(<DwaAccordion group={gwaGroup} onDwaToggle={onDwaToggle} defaultOpen={true} />)
+
+    const selectAllButton = screen.getByRole('button', { name: /select all/i })
+    fireEvent.click(selectAllButton)
+
+    expect(onDwaToggle).toHaveBeenCalledTimes(1)  // Unselected DWA
+  })
+})
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd frontend && npm test -- tests/unit/discovery/DwaAccordion.test.tsx`
+Expected: FAIL with "Cannot find module"
+
+**Step 3: Write minimal implementation to make test pass**
+
+(Implementer determines the code)
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd frontend && npm test -- tests/unit/discovery/DwaAccordion.test.tsx`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add frontend/src/components/features/discovery/DwaAccordion.tsx
+git commit -m "feat(discovery): add DwaAccordion with exposure scores and selection"
+```
+
+---
+
+### Task 61: Analysis Step Page
+
+**Files:**
+- Create: `frontend/src/pages/discovery/AnalysisStep.tsx`
+- Create: `frontend/src/hooks/useAnalysisResults.ts`
+- Test: `frontend/tests/unit/discovery/AnalysisStep.test.tsx`
+
+**Step 1: Write the failing test**
+
+```tsx
+// frontend/tests/unit/discovery/AnalysisStep.test.tsx
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { describe, it, expect, vi } from 'vitest'
+import { AnalysisStep } from '@/pages/discovery/AnalysisStep'
+import { MemoryRouter, Routes, Route } from 'react-router-dom'
+
+const renderWithRouter = (ui: React.ReactElement) => {
+  return render(
+    <MemoryRouter initialEntries={['/discovery/session-1/analysis']}>
+      <Routes>
+        <Route path="/discovery/:sessionId/analysis" element={ui} />
+      </Routes>
+    </MemoryRouter>
+  )
+}
+
+describe('AnalysisStep', () => {
+  it('renders dimension tabs', async () => {
+    renderWithRouter(<AnalysisStep />)
+
+    expect(screen.getByRole('tab', { name: /role/i })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /department/i })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /geography/i })).toBeInTheDocument()
+  })
+
+  it('shows analysis results for selected dimension', async () => {
+    renderWithRouter(<AnalysisStep />)
+
+    await waitFor(() => {
+      expect(screen.getByText(/software engineer/i)).toBeInTheDocument()
+    })
+  })
+
+  it('displays scores for each result', async () => {
+    renderWithRouter(<AnalysisStep />)
+
+    await waitFor(() => {
+      expect(screen.getByText(/exposure:/i)).toBeInTheDocument()
+      expect(screen.getByText(/impact:/i)).toBeInTheDocument()
+      expect(screen.getByText(/priority:/i)).toBeInTheDocument()
+    })
+  })
+
+  it('shows priority tier badges', async () => {
+    renderWithRouter(<AnalysisStep />)
+
+    await waitFor(() => {
+      expect(screen.getByText('HIGH')).toBeInTheDocument()
+    })
+  })
+
+  it('switches dimension on tab click', async () => {
+    renderWithRouter(<AnalysisStep />)
+
+    fireEvent.click(screen.getByRole('tab', { name: /department/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/engineering/i)).toBeInTheDocument()
+    })
+  })
+
+  it('allows filtering by priority tier', () => {
+    renderWithRouter(<AnalysisStep />)
+
+    const filterSelect = screen.getByRole('combobox', { name: /filter/i })
+    fireEvent.change(filterSelect, { target: { value: 'HIGH' } })
+
+    // Results should be filtered
+    expect(screen.queryByText('LOW')).not.toBeInTheDocument()
+  })
+
+  it('shows loading state during analysis', () => {
+    renderWithRouter(<AnalysisStep />)
+
+    expect(screen.getByRole('status')).toBeInTheDocument()
+  })
+})
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd frontend && npm test -- tests/unit/discovery/AnalysisStep.test.tsx`
+Expected: FAIL with "Cannot find module"
+
+**Step 3: Write minimal implementation to make test pass**
+
+(Implementer determines the code)
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd frontend && npm test -- tests/unit/discovery/AnalysisStep.test.tsx`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add frontend/src/pages/discovery/AnalysisStep.tsx frontend/src/hooks/useAnalysisResults.ts
+git commit -m "feat(discovery): add AnalysisStep page with dimension tabs"
+```
+
+---
+
+### Task 62: Analysis Tabs Component
+
+**Files:**
+- Create: `frontend/src/components/features/discovery/AnalysisTabs.tsx`
+- Create: `frontend/src/components/features/discovery/AnalysisResultCard.tsx`
+- Test: `frontend/tests/unit/discovery/AnalysisTabs.test.tsx`
+
+**Step 1: Write the failing test**
+
+```tsx
+// frontend/tests/unit/discovery/AnalysisTabs.test.tsx
+import { render, screen, fireEvent } from '@testing-library/react'
+import { describe, it, expect, vi } from 'vitest'
+import { AnalysisTabs } from '@/components/features/discovery/AnalysisTabs'
+
+const results = {
+  ROLE: [
+    { id: '1', name: 'Engineer', exposureScore: 0.72, impactScore: 0.85, priorityTier: 'HIGH' },
+  ],
+  DEPARTMENT: [
+    { id: '2', name: 'Engineering', exposureScore: 0.68, impactScore: 0.75, priorityTier: 'MEDIUM' },
+  ],
+}
+
+describe('AnalysisTabs', () => {
+  it('renders tabs for each dimension', () => {
+    render(<AnalysisTabs results={results} onDimensionChange={vi.fn()} />)
+
+    expect(screen.getByRole('tab', { name: /role/i })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /department/i })).toBeInTheDocument()
+  })
+
+  it('shows result count in tab', () => {
+    render(<AnalysisTabs results={results} onDimensionChange={vi.fn()} />)
+
+    expect(screen.getByText(/role \(1\)/i)).toBeInTheDocument()
+  })
+
+  it('renders results for active tab', () => {
+    render(<AnalysisTabs results={results} activeDimension="ROLE" onDimensionChange={vi.fn()} />)
+
+    expect(screen.getByText('Engineer')).toBeInTheDocument()
+  })
+
+  it('calls onDimensionChange when tab clicked', () => {
+    const onDimensionChange = vi.fn()
+    render(<AnalysisTabs results={results} onDimensionChange={onDimensionChange} />)
+
+    fireEvent.click(screen.getByRole('tab', { name: /department/i }))
+
+    expect(onDimensionChange).toHaveBeenCalledWith('DEPARTMENT')
+  })
+
+  it('shows empty state when no results', () => {
+    render(<AnalysisTabs results={{ ROLE: [] }} activeDimension="ROLE" onDimensionChange={vi.fn()} />)
+
+    expect(screen.getByText(/no results/i)).toBeInTheDocument()
+  })
+
+  it('sorts results by priority by default', () => {
+    const multipleResults = {
+      ROLE: [
+        { id: '1', name: 'Low', priorityTier: 'LOW', priorityScore: 0.3 },
+        { id: '2', name: 'High', priorityTier: 'HIGH', priorityScore: 0.9 },
+      ],
+    }
+    render(<AnalysisTabs results={multipleResults} activeDimension="ROLE" onDimensionChange={vi.fn()} />)
+
+    const items = screen.getAllByTestId('analysis-result-card')
+    expect(items[0]).toHaveTextContent('High')
+  })
+})
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd frontend && npm test -- tests/unit/discovery/AnalysisTabs.test.tsx`
+Expected: FAIL with "Cannot find module"
+
+**Step 3: Write minimal implementation to make test pass**
+
+(Implementer determines the code)
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd frontend && npm test -- tests/unit/discovery/AnalysisTabs.test.tsx`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add frontend/src/components/features/discovery/AnalysisTabs.tsx frontend/src/components/features/discovery/AnalysisResultCard.tsx
+git commit -m "feat(discovery): add AnalysisTabs with dimension switching"
+```
+
+---
+
+### Task 63: Roadmap Step Page
+
+**Files:**
+- Create: `frontend/src/pages/discovery/RoadmapStep.tsx`
+- Create: `frontend/src/hooks/useRoadmap.ts`
+- Test: `frontend/tests/unit/discovery/RoadmapStep.test.tsx`
+
+**Step 1: Write the failing test**
+
+```tsx
+// frontend/tests/unit/discovery/RoadmapStep.test.tsx
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { describe, it, expect, vi } from 'vitest'
+import { RoadmapStep } from '@/pages/discovery/RoadmapStep'
+import { MemoryRouter, Routes, Route } from 'react-router-dom'
+
+const renderWithRouter = (ui: React.ReactElement) => {
+  return render(
+    <MemoryRouter initialEntries={['/discovery/session-1/roadmap']}>
+      <Routes>
+        <Route path="/discovery/:sessionId/roadmap" element={ui} />
+      </Routes>
+    </MemoryRouter>
+  )
+}
+
+describe('RoadmapStep', () => {
+  it('renders kanban columns for phases', async () => {
+    renderWithRouter(<RoadmapStep />)
+
+    expect(screen.getByText('NOW')).toBeInTheDocument()
+    expect(screen.getByText('NEXT')).toBeInTheDocument()
+    expect(screen.getByText('LATER')).toBeInTheDocument()
+  })
+
+  it('shows candidates in appropriate columns', async () => {
+    renderWithRouter(<RoadmapStep />)
+
+    await waitFor(() => {
+      expect(screen.getByText(/software engineer/i)).toBeInTheDocument()
+    })
+  })
+
+  it('allows dragging candidates between phases', async () => {
+    renderWithRouter(<RoadmapStep />)
+
+    // Drag and drop functionality
+    const card = await screen.findByText(/software engineer/i)
+    expect(card.closest('[draggable]')).toHaveAttribute('draggable', 'true')
+  })
+
+  it('shows candidate scores on cards', async () => {
+    renderWithRouter(<RoadmapStep />)
+
+    await waitFor(() => {
+      expect(screen.getByText(/priority: 0.92/i)).toBeInTheDocument()
+    })
+  })
+
+  it('enables export options', () => {
+    renderWithRouter(<RoadmapStep />)
+
+    expect(screen.getByRole('button', { name: /export/i })).toBeInTheDocument()
+  })
+
+  it('shows handoff button', () => {
+    renderWithRouter(<RoadmapStep />)
+
+    expect(screen.getByRole('button', { name: /send to intake/i })).toBeInTheDocument()
+  })
+
+  it('validates before handoff', async () => {
+    renderWithRouter(<RoadmapStep />)
+
+    fireEvent.click(screen.getByRole('button', { name: /send to intake/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/confirm handoff/i)).toBeInTheDocument()
+    })
+  })
+})
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd frontend && npm test -- tests/unit/discovery/RoadmapStep.test.tsx`
+Expected: FAIL with "Cannot find module"
+
+**Step 3: Write minimal implementation to make test pass**
+
+(Implementer determines the code)
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd frontend && npm test -- tests/unit/discovery/RoadmapStep.test.tsx`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add frontend/src/pages/discovery/RoadmapStep.tsx frontend/src/hooks/useRoadmap.ts
+git commit -m "feat(discovery): add RoadmapStep page with kanban and handoff"
+```
+
+---
+
+### Task 64: Kanban Timeline Component
+
+**Files:**
+- Create: `frontend/src/components/features/discovery/KanbanTimeline.tsx`
+- Create: `frontend/src/components/features/discovery/KanbanCard.tsx`
+- Test: `frontend/tests/unit/discovery/KanbanTimeline.test.tsx`
+
+**Step 1: Write the failing test**
+
+```tsx
+// frontend/tests/unit/discovery/KanbanTimeline.test.tsx
+import { render, screen, fireEvent } from '@testing-library/react'
+import { describe, it, expect, vi } from 'vitest'
+import { KanbanTimeline } from '@/components/features/discovery/KanbanTimeline'
+
+const items = [
+  { id: '1', name: 'Data Analyst', phase: 'NOW', priorityScore: 0.92 },
+  { id: '2', name: 'Engineer', phase: 'NEXT', priorityScore: 0.78 },
+  { id: '3', name: 'Manager', phase: 'LATER', priorityScore: 0.55 },
+]
+
+describe('KanbanTimeline', () => {
+  it('renders three phase columns', () => {
+    render(<KanbanTimeline items={items} onPhaseChange={vi.fn()} />)
+
+    expect(screen.getByTestId('column-NOW')).toBeInTheDocument()
+    expect(screen.getByTestId('column-NEXT')).toBeInTheDocument()
+    expect(screen.getByTestId('column-LATER')).toBeInTheDocument()
+  })
+
+  it('places items in correct columns', () => {
+    render(<KanbanTimeline items={items} onPhaseChange={vi.fn()} />)
+
+    const nowColumn = screen.getByTestId('column-NOW')
+    expect(nowColumn).toHaveTextContent('Data Analyst')
+  })
+
+  it('shows column counts', () => {
+    render(<KanbanTimeline items={items} onPhaseChange={vi.fn()} />)
+
+    expect(screen.getByText('NOW (1)')).toBeInTheDocument()
+  })
+
+  it('makes cards draggable', () => {
+    render(<KanbanTimeline items={items} onPhaseChange={vi.fn()} />)
+
+    const card = screen.getByText('Data Analyst').closest('[draggable]')
+    expect(card).toHaveAttribute('draggable', 'true')
+  })
+
+  it('calls onPhaseChange when dropped', () => {
+    const onPhaseChange = vi.fn()
+    render(<KanbanTimeline items={items} onPhaseChange={onPhaseChange} />)
+
+    // Simulate drag and drop
+    const card = screen.getByText('Data Analyst')
+    const nextColumn = screen.getByTestId('column-NEXT')
+
+    fireEvent.dragStart(card)
+    fireEvent.drop(nextColumn)
+
+    expect(onPhaseChange).toHaveBeenCalledWith('1', 'NEXT')
+  })
+
+  it('shows drop zone highlight on drag over', () => {
+    render(<KanbanTimeline items={items} onPhaseChange={vi.fn()} />)
+
+    const nextColumn = screen.getByTestId('column-NEXT')
+    fireEvent.dragEnter(nextColumn)
+
+    expect(nextColumn).toHaveClass('ring-2')
+  })
+
+  it('renders empty column placeholder', () => {
+    const singleItem = [{ id: '1', name: 'Test', phase: 'NOW', priorityScore: 0.9 }]
+    render(<KanbanTimeline items={singleItem} onPhaseChange={vi.fn()} />)
+
+    const laterColumn = screen.getByTestId('column-LATER')
+    expect(laterColumn).toHaveTextContent(/drag items here/i)
+  })
+})
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd frontend && npm test -- tests/unit/discovery/KanbanTimeline.test.tsx`
+Expected: FAIL with "Cannot find module"
+
+**Step 3: Write minimal implementation to make test pass**
+
+(Implementer determines the code)
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd frontend && npm test -- tests/unit/discovery/KanbanTimeline.test.tsx`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add frontend/src/components/features/discovery/KanbanTimeline.tsx frontend/src/components/features/discovery/KanbanCard.tsx
+git commit -m "feat(discovery): add KanbanTimeline with drag-and-drop phases"
+```
+
+---
+
+### Task 65: Discovery Session List Page
+
+**Files:**
+- Create: `frontend/src/pages/discovery/DiscoverySessionList.tsx`
+- Create: `frontend/src/hooks/useDiscoverySessions.ts`
+- Test: `frontend/tests/unit/discovery/DiscoverySessionList.test.tsx`
+
+**Step 1: Write the failing test**
+
+```tsx
+// frontend/tests/unit/discovery/DiscoverySessionList.test.tsx
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { describe, it, expect, vi } from 'vitest'
+import { DiscoverySessionList } from '@/pages/discovery/DiscoverySessionList'
+import { MemoryRouter } from 'react-router-dom'
+
+describe('DiscoverySessionList', () => {
+  it('renders list of sessions', async () => {
+    render(
+      <MemoryRouter>
+        <DiscoverySessionList />
+      </MemoryRouter>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText(/q1 discovery/i)).toBeInTheDocument()
+    })
+  })
+
+  it('shows session status', async () => {
+    render(
+      <MemoryRouter>
+        <DiscoverySessionList />
+      </MemoryRouter>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('In Progress')).toBeInTheDocument()
+    })
+  })
+
+  it('shows current step for each session', async () => {
+    render(
+      <MemoryRouter>
+        <DiscoverySessionList />
+      </MemoryRouter>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText(/step 2 of 5/i)).toBeInTheDocument()
+    })
+  })
+
+  it('allows creating new session', async () => {
+    render(
+      <MemoryRouter>
+        <DiscoverySessionList />
+      </MemoryRouter>
+    )
+
+    const createButton = screen.getByRole('button', { name: /new discovery/i })
+    expect(createButton).toBeInTheDocument()
+  })
+
+  it('allows deleting a session', async () => {
+    render(
+      <MemoryRouter>
+        <DiscoverySessionList />
+      </MemoryRouter>
+    )
+
+    const deleteButton = await screen.findByRole('button', { name: /delete/i })
+    fireEvent.click(deleteButton)
+
+    await waitFor(() => {
+      expect(screen.getByText(/confirm delete/i)).toBeInTheDocument()
+    })
+  })
+
+  it('links to continue session', async () => {
+    render(
+      <MemoryRouter>
+        <DiscoverySessionList />
+      </MemoryRouter>
+    )
+
+    const continueLink = await screen.findByRole('link', { name: /continue/i })
+    expect(continueLink).toHaveAttribute('href', expect.stringContaining('/discovery/'))
+  })
+
+  it('shows empty state when no sessions', async () => {
+    render(
+      <MemoryRouter>
+        <DiscoverySessionList />
+      </MemoryRouter>
+    )
+
+    // Mock empty response scenario
+    await waitFor(() => {
+      expect(screen.queryByText(/no sessions/i) || screen.queryByText(/q1 discovery/i)).toBeInTheDocument()
+    })
+  })
+
+  it('supports pagination', async () => {
+    render(
+      <MemoryRouter>
+        <DiscoverySessionList />
+      </MemoryRouter>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByRole('navigation', { name: /pagination/i })).toBeInTheDocument()
+    })
+  })
+})
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd frontend && npm test -- tests/unit/discovery/DiscoverySessionList.test.tsx`
+Expected: FAIL with "Cannot find module"
+
+**Step 3: Write minimal implementation to make test pass**
+
+(Implementer determines the code)
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd frontend && npm test -- tests/unit/discovery/DiscoverySessionList.test.tsx`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add frontend/src/pages/discovery/DiscoverySessionList.tsx frontend/src/hooks/useDiscoverySessions.ts
+git commit -m "feat(discovery): add DiscoverySessionList page with session management"
+```
 
 ---
 
 ## Part 8: Integration & Polish (Tasks 66-70)
 
-- **Task 66:** End-to-End Session Flow Test
-- **Task 67:** Chat + UI Coordination
-- **Task 68:** Error Boundary & Recovery
-- **Task 69:** Module Exports
-- **Task 70:** Final Integration Test
+### Task 66: End-to-End Session Flow Test
+
+**Files:**
+- Create: `frontend/tests/e2e/discovery/session-flow.spec.ts`
+- Test: (Playwright E2E test)
+
+**Step 1: Write the failing test**
+
+```typescript
+// frontend/tests/e2e/discovery/session-flow.spec.ts
+import { test, expect } from '@playwright/test'
+
+test.describe('Discovery Session Flow', () => {
+  test('completes full 5-step discovery workflow', async ({ page }) => {
+    // Step 1: Create new session and upload file
+    await page.goto('/discovery')
+    await page.click('button:has-text("New Discovery")')
+
+    // Upload file
+    const fileInput = page.locator('input[type="file"]')
+    await fileInput.setInputFiles('tests/fixtures/sample-hr-data.csv')
+    await expect(page.locator('text=data.csv')).toBeVisible()
+    await page.click('button:has-text("Continue")')
+
+    // Step 2: Map roles
+    await expect(page.locator('text=Map your roles')).toBeVisible()
+    await page.click('button:has-text("Confirm all above 80%")')
+    await page.click('button:has-text("Continue")')
+
+    // Step 3: Select activities
+    await expect(page.locator('text=Select activities')).toBeVisible()
+    await page.click('button:has-text("Select high exposure")')
+    await page.click('button:has-text("Continue")')
+
+    // Step 4: Review analysis
+    await expect(page.locator('text=Analysis')).toBeVisible()
+    await expect(page.locator('[data-testid="analysis-result-card"]').first()).toBeVisible()
+    await page.click('button:has-text("Continue")')
+
+    // Step 5: Build roadmap and handoff
+    await expect(page.locator('text=Roadmap')).toBeVisible()
+    await expect(page.locator('[data-testid="column-NOW"]')).toBeVisible()
+    await page.click('button:has-text("Send to Intake")')
+    await page.click('button:has-text("Confirm")')
+
+    // Verify handoff complete
+    await expect(page.locator('text=Successfully submitted')).toBeVisible()
+  })
+
+  test('saves progress between steps', async ({ page }) => {
+    await page.goto('/discovery/test-session/map-roles')
+    await page.click('button:has-text("Confirm"):first')
+
+    // Navigate away and back
+    await page.goto('/discovery')
+    await page.click('a:has-text("Continue")')
+
+    // Verify progress preserved
+    await expect(page.locator('[data-testid="confirmed-badge"]')).toBeVisible()
+  })
+
+  test('chat panel provides contextual help', async ({ page }) => {
+    await page.goto('/discovery/test-session/activities')
+
+    // Send message
+    await page.fill('[aria-label="Message"]', 'What activities should I select?')
+    await page.click('button:has-text("Send")')
+
+    // Verify response
+    await expect(page.locator('text=high AI exposure')).toBeVisible({ timeout: 10000 })
+  })
+})
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd frontend && npx playwright test tests/e2e/discovery/session-flow.spec.ts`
+Expected: FAIL with navigation or element errors
+
+**Step 3: Write minimal implementation to make test pass**
+
+(Implementer determines the code - wire up routes and fix any integration issues)
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd frontend && npx playwright test tests/e2e/discovery/session-flow.spec.ts`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add frontend/tests/e2e/discovery/
+git commit -m "test(discovery): add E2E test for complete session flow"
+```
+
+---
+
+### Task 67: Chat + UI Coordination
+
+**Files:**
+- Create: `discovery/api/src/discovery/services/context_service.py`
+- Modify: `frontend/src/hooks/useDiscoveryChat.ts`
+- Test: `discovery/api/tests/unit/services/test_context_service.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/api/tests/unit/services/test_context_service.py
+import pytest
+from uuid import uuid4
+
+from discovery.services.context_service import ContextService
+
+
+@pytest.fixture
+def context_service():
+    return ContextService()
+
+
+def test_build_context_includes_current_step(context_service):
+    """Context should include current step information."""
+    session_id = uuid4()
+    context = context_service.build_context(
+        session_id=session_id,
+        current_step=2,
+        user_message="What should I do next?"
+    )
+
+    assert context["current_step"] == 2
+    assert context["step_name"] == "Map Roles"
+
+
+def test_build_context_includes_step_data(context_service):
+    """Context should include relevant data for current step."""
+    session_id = uuid4()
+    context = context_service.build_context(
+        session_id=session_id,
+        current_step=3,
+        user_message="Which activities are most important?"
+    )
+
+    assert "activities" in context
+    assert "gwa_groups" in context["activities"]
+
+
+def test_context_includes_selection_counts(context_service):
+    """Context should include selection counts."""
+    session_id = uuid4()
+    context = context_service.build_context(
+        session_id=session_id,
+        current_step=3,
+        user_message="How many have I selected?"
+    )
+
+    assert "selection_count" in context
+
+
+def test_context_includes_analysis_summary(context_service):
+    """Context should include analysis summary when on step 4+."""
+    session_id = uuid4()
+    context = context_service.build_context(
+        session_id=session_id,
+        current_step=4,
+        user_message="Show me the top priorities"
+    )
+
+    assert "analysis_summary" in context
+    assert "top_priorities" in context["analysis_summary"]
+
+
+def test_suggests_quick_actions_based_on_context(context_service):
+    """Should suggest relevant quick actions."""
+    session_id = uuid4()
+    context = context_service.build_context(
+        session_id=session_id,
+        current_step=2,
+        user_message="I'm not sure about this mapping"
+    )
+
+    assert "suggested_actions" in context
+    assert any("remap" in a["action"] for a in context["suggested_actions"])
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery/api && python -m pytest tests/unit/services/test_context_service.py -v`
+Expected: FAIL with "ImportError"
+
+**Step 3: Write minimal implementation to make test pass**
+
+(Implementer determines the code)
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery/api && python -m pytest tests/unit/services/test_context_service.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/api/src/discovery/services/context_service.py frontend/src/hooks/useDiscoveryChat.ts
+git commit -m "feat(discovery): add ContextService for chat-UI coordination"
+```
+
+---
+
+### Task 68: Error Boundary & Recovery
+
+**Files:**
+- Create: `frontend/src/components/features/discovery/DiscoveryErrorBoundary.tsx`
+- Create: `frontend/src/hooks/useDiscoveryRecovery.ts`
+- Test: `frontend/tests/unit/discovery/DiscoveryErrorBoundary.test.tsx`
+
+**Step 1: Write the failing test**
+
+```tsx
+// frontend/tests/unit/discovery/DiscoveryErrorBoundary.test.tsx
+import { render, screen, fireEvent } from '@testing-library/react'
+import { describe, it, expect, vi } from 'vitest'
+import { DiscoveryErrorBoundary } from '@/components/features/discovery/DiscoveryErrorBoundary'
+
+const ThrowError = () => {
+  throw new Error('Test error')
+}
+
+describe('DiscoveryErrorBoundary', () => {
+  it('renders children when no error', () => {
+    render(
+      <DiscoveryErrorBoundary>
+        <div>Content</div>
+      </DiscoveryErrorBoundary>
+    )
+
+    expect(screen.getByText('Content')).toBeInTheDocument()
+  })
+
+  it('catches errors and displays fallback UI', () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    render(
+      <DiscoveryErrorBoundary>
+        <ThrowError />
+      </DiscoveryErrorBoundary>
+    )
+
+    expect(screen.getByText(/something went wrong/i)).toBeInTheDocument()
+    consoleSpy.mockRestore()
+  })
+
+  it('shows retry button', () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    render(
+      <DiscoveryErrorBoundary>
+        <ThrowError />
+      </DiscoveryErrorBoundary>
+    )
+
+    expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument()
+    consoleSpy.mockRestore()
+  })
+
+  it('shows option to go back to session list', () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    render(
+      <DiscoveryErrorBoundary>
+        <ThrowError />
+      </DiscoveryErrorBoundary>
+    )
+
+    expect(screen.getByRole('link', { name: /back to sessions/i })).toBeInTheDocument()
+    consoleSpy.mockRestore()
+  })
+
+  it('logs error to console with session context', () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    render(
+      <DiscoveryErrorBoundary sessionId="test-session">
+        <ThrowError />
+      </DiscoveryErrorBoundary>
+    )
+
+    expect(consoleSpy).toHaveBeenCalled()
+    consoleSpy.mockRestore()
+  })
+
+  it('preserves session state after retry', () => {
+    // Recovery should attempt to restore last known good state
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    let shouldThrow = true
+
+    const MaybeThrow = () => {
+      if (shouldThrow) {
+        shouldThrow = false
+        throw new Error('First render error')
+      }
+      return <div>Recovered</div>
+    }
+
+    const { rerender } = render(
+      <DiscoveryErrorBoundary>
+        <MaybeThrow />
+      </DiscoveryErrorBoundary>
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /retry/i }))
+
+    expect(screen.getByText('Recovered')).toBeInTheDocument()
+    consoleSpy.mockRestore()
+  })
+})
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd frontend && npm test -- tests/unit/discovery/DiscoveryErrorBoundary.test.tsx`
+Expected: FAIL with "Cannot find module"
+
+**Step 3: Write minimal implementation to make test pass**
+
+(Implementer determines the code)
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd frontend && npm test -- tests/unit/discovery/DiscoveryErrorBoundary.test.tsx`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add frontend/src/components/features/discovery/DiscoveryErrorBoundary.tsx frontend/src/hooks/useDiscoveryRecovery.ts
+git commit -m "feat(discovery): add DiscoveryErrorBoundary with recovery"
+```
+
+---
+
+### Task 69: Module Exports
+
+**Files:**
+- Modify: `discovery/api/src/discovery/__init__.py`
+- Modify: `frontend/src/components/features/discovery/index.ts`
+- Modify: `frontend/src/pages/discovery/index.ts`
+- Test: `discovery/api/tests/unit/test_module_exports.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/api/tests/unit/test_module_exports.py
+import pytest
+
+
+def test_discovery_module_exports_all_services():
+    """Discovery module should export all services."""
+    from discovery import (
+        DiscoverySessionService,
+        FileUploadService,
+        ScoringService,
+        OnetApiClient,
+        OnetSyncJob,
+    )
+
+    assert DiscoverySessionService is not None
+    assert FileUploadService is not None
+    assert ScoringService is not None
+    assert OnetApiClient is not None
+    assert OnetSyncJob is not None
+
+
+def test_discovery_module_exports_all_repositories():
+    """Discovery module should export all repositories."""
+    from discovery import (
+        DiscoverySessionRepository,
+        DiscoveryUploadRepository,
+        DiscoveryRoleMappingRepository,
+        DiscoveryActivitySelectionRepository,
+        DiscoveryAnalysisResultRepository,
+        AgentificationCandidateRepository,
+    )
+
+    assert DiscoverySessionRepository is not None
+    assert DiscoveryUploadRepository is not None
+
+
+def test_discovery_module_exports_all_models():
+    """Discovery module should export all models."""
+    from discovery import (
+        DiscoverySession,
+        DiscoveryUpload,
+        DiscoveryRoleMapping,
+        DiscoveryActivitySelection,
+        DiscoveryAnalysisResult,
+        AgentificationCandidate,
+    )
+
+    assert DiscoverySession is not None
+
+
+def test_discovery_module_exports_orchestrator():
+    """Discovery module should export orchestrator."""
+    from discovery import DiscoveryOrchestrator
+
+    assert DiscoveryOrchestrator is not None
+
+
+def test_discovery_module_exports_subagents():
+    """Discovery module should export all subagents."""
+    from discovery import (
+        UploadSubagent,
+        MappingSubagent,
+        ActivitySubagent,
+        AnalysisSubagent,
+        RoadmapSubagent,
+    )
+
+    assert UploadSubagent is not None
+
+
+def test_discovery_module_exports_routers():
+    """Discovery module should export router for mounting."""
+    from discovery import discovery_router
+
+    assert discovery_router is not None
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery/api && python -m pytest tests/unit/test_module_exports.py -v`
+Expected: FAIL with "ImportError"
+
+**Step 3: Write minimal implementation to make test pass**
+
+(Implementer determines the code - update __init__.py exports)
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery/api && python -m pytest tests/unit/test_module_exports.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/api/src/discovery/__init__.py frontend/src/components/features/discovery/index.ts frontend/src/pages/discovery/index.ts
+git commit -m "feat(discovery): add clean module exports"
+```
+
+---
+
+### Task 70: Final Integration Test
+
+**Files:**
+- Create: `discovery/api/tests/integration/test_full_discovery_flow.py`
+- Test: (Integration test with real DB)
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/api/tests/integration/test_full_discovery_flow.py
+import pytest
+from httpx import AsyncClient
+from uuid import uuid4
+
+from discovery.main import app
+from discovery.config import settings
+
+
+@pytest.fixture
+async def client():
+    async with AsyncClient(app=app, base_url="http://test") as client:
+        yield client
+
+
+@pytest.fixture
+async def test_session(client):
+    """Create a test session for integration tests."""
+    response = await client.post(
+        "/discovery/sessions",
+        json={"organization_id": str(uuid4())}
+    )
+    return response.json()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_complete_discovery_flow(client, test_session):
+    """Test complete 5-step discovery flow."""
+    session_id = test_session["id"]
+
+    # Step 1: Upload file
+    with open("tests/fixtures/sample-hr-data.csv", "rb") as f:
+        response = await client.post(
+            f"/discovery/sessions/{session_id}/upload",
+            files={"file": ("data.csv", f, "text/csv")}
+        )
+    assert response.status_code == 201
+    upload_data = response.json()
+    assert upload_data["row_count"] > 0
+
+    # Step 2: Get and confirm role mappings
+    response = await client.get(f"/discovery/sessions/{session_id}/role-mappings")
+    assert response.status_code == 200
+    mappings = response.json()
+    assert len(mappings) > 0
+
+    # Confirm high-confidence mappings
+    response = await client.post(
+        f"/discovery/sessions/{session_id}/role-mappings/confirm",
+        json={"threshold": 0.8}
+    )
+    assert response.status_code == 200
+
+    # Step 3: Select activities
+    response = await client.get(f"/discovery/sessions/{session_id}/activities")
+    assert response.status_code == 200
+
+    # Select first DWA from each GWA
+    activities = response.json()
+    dwa_ids = []
+    for gwa_key, gwa_data in activities.items():
+        if gwa_data["dwas"]:
+            dwa_ids.append(gwa_data["dwas"][0]["id"])
+
+    response = await client.post(
+        f"/discovery/sessions/{session_id}/activities/select",
+        json={"dwa_ids": dwa_ids, "is_selected": True}
+    )
+    assert response.status_code == 200
+
+    # Step 4: Trigger and get analysis
+    response = await client.post(f"/discovery/sessions/{session_id}/analyze")
+    assert response.status_code == 202
+
+    response = await client.get(f"/discovery/sessions/{session_id}/analysis/ROLE")
+    assert response.status_code == 200
+    analysis = response.json()
+    assert len(analysis["results"]) > 0
+
+    # Step 5: Get roadmap and handoff
+    response = await client.get(f"/discovery/sessions/{session_id}/roadmap")
+    assert response.status_code == 200
+
+    # Validate readiness
+    response = await client.post(f"/discovery/sessions/{session_id}/handoff/validate")
+    assert response.status_code == 200
+    assert response.json()["is_ready"] is True
+
+    # Submit to intake
+    response = await client.post(
+        f"/discovery/sessions/{session_id}/handoff",
+        json={"priority_tier": "HIGH"}
+    )
+    assert response.status_code == 201
+    assert "intake_request_id" in response.json()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_chat_integration(client, test_session):
+    """Test chat integration with session context."""
+    session_id = test_session["id"]
+
+    response = await client.post(
+        f"/discovery/sessions/{session_id}/chat",
+        json={"message": "What should I do first?"}
+    )
+
+    assert response.status_code == 200
+    chat_response = response.json()
+    assert "response" in chat_response
+    assert len(chat_response["response"]) > 0
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_export_integration(client, test_session):
+    """Test export functionality."""
+    session_id = test_session["id"]
+
+    # Export as CSV
+    response = await client.get(f"/discovery/sessions/{session_id}/export/csv")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "text/csv"
+
+    # Export handoff bundle
+    response = await client.get(f"/discovery/sessions/{session_id}/export/handoff")
+    assert response.status_code == 200
+    bundle = response.json()
+    assert "session_summary" in bundle
+    assert "roadmap" in bundle
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery/api && python -m pytest tests/integration/test_full_discovery_flow.py -v -m integration`
+Expected: FAIL with integration errors
+
+**Step 3: Write minimal implementation to make test pass**
+
+(Implementer determines the code - fix any integration issues)
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery/api && python -m pytest tests/integration/test_full_discovery_flow.py -v -m integration`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/api/tests/integration/test_full_discovery_flow.py
+git commit -m "test(discovery): add final integration test for complete flow"
+```
 
 ---
 
