@@ -118,3 +118,136 @@ class ScoringService:
                 )
 
         return impacts
+
+    def calculate_priority_score(
+        self,
+        exposure: float,
+        impact: float,
+        complexity: float,
+        weights: dict[str, float] | None = None,
+    ) -> float:
+        """Calculate the priority score for a role based on weighted factors.
+
+        Priority is calculated using a weighted formula that considers exposure,
+        impact, and inverse complexity. Higher priority means the role should
+        be addressed sooner for AI automation opportunities.
+
+        Formula: (exposure * w_e) + (impact * w_i) + ((1 - complexity) * w_c)
+
+        The inverse of complexity is used because lower complexity makes a role
+        easier to automate, thus higher priority.
+
+        Args:
+            exposure: AI exposure score for the role (0.0-1.0). Higher means
+                more tasks can be automated by AI.
+            impact: Impact score for the role (0.0-1.0). Higher means more
+                business value from automation.
+            complexity: Complexity score for the role (0.0-1.0). Higher means
+                the role is harder to automate.
+            weights: Optional custom weights dictionary with keys 'exposure',
+                'impact', and 'complexity'. Values should sum to 1.0.
+                Defaults to exposure=0.4, impact=0.4, complexity=0.2.
+
+        Returns:
+            Priority score normalized to 0.0-1.0 range.
+
+        Example:
+            >>> service = ScoringService()
+            >>> service.calculate_priority_score(0.8, 0.6, 0.3)
+            0.70
+        """
+        # Default weights: exposure=40%, impact=40%, inverse_complexity=20%
+        default_weights = {"exposure": 0.4, "impact": 0.4, "complexity": 0.2}
+        w = weights if weights is not None else default_weights
+
+        # Calculate weighted priority
+        # Note: complexity contribution is inverted (1 - complexity)
+        priority = (
+            (exposure * w["exposure"])
+            + (impact * w["impact"])
+            + ((1 - complexity) * w["complexity"])
+        )
+
+        # Ensure result is bounded to 0-1 range
+        return max(0.0, min(1.0, priority))
+
+    def calculate_complexity_score(self, exposure: float) -> float:
+        """Calculate complexity score as the inverse of exposure.
+
+        This provides a simple approximation where tasks with high AI exposure
+        (easily automated) have low complexity, and tasks with low AI exposure
+        (hard to automate) have high complexity.
+
+        Args:
+            exposure: AI exposure score (0.0-1.0).
+
+        Returns:
+            Complexity score (0.0-1.0), calculated as 1 - exposure.
+
+        Example:
+            >>> service = ScoringService()
+            >>> service.calculate_complexity_score(0.75)
+            0.25
+        """
+        return 1.0 - exposure
+
+    def calculate_all_scores_for_role(
+        self,
+        role_mapping: Any,
+        selected_dwas: list[Any],
+        max_headcount: int = DEFAULT_MAX_HEADCOUNT,
+    ) -> dict[str, float]:
+        """Calculate all scores (exposure, impact, complexity, priority) for a role.
+
+        This method aggregates exposure from selected DWAs (Detailed Work Activities),
+        derives complexity from exposure, calculates impact from role headcount
+        and exposure, and finally computes the overall priority score.
+
+        Args:
+            role_mapping: A role mapping object with id and row_count attributes.
+            selected_dwas: List of DWA objects with ai_exposure_override attribute.
+                The average of these values becomes the role's exposure score.
+            max_headcount: Maximum headcount for impact normalization.
+                Defaults to 1000.
+
+        Returns:
+            Dictionary with keys 'exposure', 'impact', 'complexity', 'priority',
+            each containing a float score in the 0.0-1.0 range.
+
+        Example:
+            >>> service = ScoringService()
+            >>> role = MagicMock(id="role-1", row_count=200)
+            >>> dwas = [MagicMock(ai_exposure_override=0.8)]
+            >>> service.calculate_all_scores_for_role(role, dwas, 1000)
+            {'exposure': 0.8, 'impact': 0.16, 'complexity': 0.2, 'priority': ...}
+        """
+        # Calculate exposure as average of DWA exposures
+        if selected_dwas:
+            total_exposure = sum(dwa.ai_exposure_override for dwa in selected_dwas)
+            exposure = total_exposure / len(selected_dwas)
+        else:
+            exposure = 0.0
+
+        # Derive complexity from exposure (inverse relationship)
+        complexity = self.calculate_complexity_score(exposure)
+
+        # Calculate impact using existing method
+        impact = self.calculate_impact_score(
+            role_mapping=role_mapping,
+            exposure_score=exposure,
+            max_headcount=max_headcount,
+        )
+
+        # Calculate priority from all three scores
+        priority = self.calculate_priority_score(
+            exposure=exposure,
+            impact=impact,
+            complexity=complexity,
+        )
+
+        return {
+            "exposure": exposure,
+            "impact": impact,
+            "complexity": complexity,
+            "priority": priority,
+        }
