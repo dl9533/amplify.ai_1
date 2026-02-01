@@ -2,6 +2,7 @@
 from app.agents.activity_agent import ActivitySubagent
 from app.agents.analysis_agent import AnalysisSubagent
 from app.agents.base import BaseSubagent
+from app.agents.chip_generator import Chip, QuickActionChipGenerator
 from app.agents.interaction_handler import (
     BrainstormingHandler,
     FormattedQuestion,
@@ -24,6 +25,7 @@ __all__ = [
     "BaseSubagent",
     "BrainstormingHandler",
     "ChatMessageFormatter",
+    "Chip",
     "ConversationTurn",
     "DiscoveryOrchestrator",
     "FormattedMessage",
@@ -31,6 +33,7 @@ __all__ = [
     "MappingSubagent",
     "ParsedResponse",
     "QuickAction",
+    "QuickActionChipGenerator",
     "RoadmapSubagent",
     "UploadSubagent",
 ]
