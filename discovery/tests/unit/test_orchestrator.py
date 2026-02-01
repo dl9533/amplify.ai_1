@@ -68,6 +68,30 @@ class TestOrchestratorRouting:
 
         mock_subagents["activity"].process.assert_called_once()
 
+    @pytest.mark.asyncio
+    async def test_routes_to_analysis_agent_on_analysis_step(
+        self, orchestrator, mock_subagents
+    ):
+        """Should route to AnalysisSubagent during analysis step."""
+        orchestrator._subagents = mock_subagents
+        orchestrator._session.current_step = DiscoveryStep.ANALYZE
+
+        await orchestrator.process("Analyze results")
+
+        mock_subagents["analysis"].process.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_routes_to_roadmap_agent_on_roadmap_step(
+        self, orchestrator, mock_subagents
+    ):
+        """Should route to RoadmapSubagent during roadmap step."""
+        orchestrator._subagents = mock_subagents
+        orchestrator._session.current_step = DiscoveryStep.ROADMAP
+
+        await orchestrator.process("Create roadmap")
+
+        mock_subagents["roadmap"].process.assert_called_once()
+
 
 class TestStepTransitions:
     """Tests for wizard step transitions."""
@@ -93,6 +117,17 @@ class TestStepTransitions:
         await orchestrator.process("Still mapping")
 
         assert orchestrator._session.current_step == DiscoveryStep.MAP_ROLES
+
+    @pytest.mark.asyncio
+    async def test_does_not_advance_past_final_step(self, orchestrator, mock_subagents):
+        """Should not advance past ROADMAP step."""
+        orchestrator._subagents = mock_subagents
+        orchestrator._session.current_step = DiscoveryStep.ROADMAP
+        mock_subagents["roadmap"].process.return_value = {"step_complete": True}
+
+        await orchestrator.process("Done with roadmap")
+
+        assert orchestrator._session.current_step == DiscoveryStep.ROADMAP
 
 
 class TestConversationManagement:
