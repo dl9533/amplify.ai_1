@@ -52,6 +52,12 @@ class TestScoreCalculation:
         mock_scoring_service.score_session.assert_called_once()
         assert result.role_scores["role-1"].exposure == 0.8
 
+    @pytest.mark.asyncio
+    async def test_calculate_scores_raises_without_service(self, analysis_agent):
+        """Should raise ValueError when no scoring service is configured."""
+        with pytest.raises(ValueError, match="No scoring service configured"):
+            await analysis_agent.calculate_scores()
+
 
 class TestInsightGeneration:
     """Tests for insight generation."""
@@ -71,6 +77,12 @@ class TestInsightGeneration:
         assert any("opportunity" in i.lower() or "priority" in i.lower() for i in insights)
 
     @pytest.mark.asyncio
+    async def test_generate_insights_returns_empty_when_no_result(self, analysis_agent):
+        """Should return empty list when no scoring result exists."""
+        insights = await analysis_agent.generate_insights()
+        assert insights == []
+
+    @pytest.mark.asyncio
     async def test_generate_department_summary_insight(self, analysis_agent):
         """Should summarize scores by department."""
         analysis_agent._scoring_result = MagicMock(
@@ -83,6 +95,17 @@ class TestInsightGeneration:
         summary = await analysis_agent.get_dimension_summary("DEPARTMENT")
 
         assert len(summary) == 2
+
+    @pytest.mark.asyncio
+    async def test_get_dimension_summary_returns_empty_for_unknown_dimension(self, analysis_agent):
+        """Should return empty list for non-existent dimension."""
+        analysis_agent._scoring_result = MagicMock(
+            dimension_aggregations=[
+                MagicMock(dimension="DEPARTMENT", dimension_value="Engineering"),
+            ]
+        )
+        summary = await analysis_agent.get_dimension_summary("UNKNOWN")
+        assert summary == []
 
 
 class TestBrainstormingFlow:
@@ -100,3 +123,10 @@ class TestBrainstormingFlow:
         # Should offer dimension choices
         dimension_names = ["role", "department", "geography", "task"]
         assert any(d in str(response.get("choices", [])).lower() for d in dimension_names)
+
+    @pytest.mark.asyncio
+    async def test_process_prompts_to_calculate_when_not_calculated(self, analysis_agent):
+        """Should prompt to calculate scores when not yet calculated."""
+        response = await analysis_agent.process("Hello")
+
+        assert "Calculate scores" in str(response.get("choices", []))
