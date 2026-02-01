@@ -25,6 +25,13 @@ from app.schemas.chat import (
     QuickActionResponse,
 )
 from app.schemas.export import HandoffBundle
+from app.schemas.handoff import (
+    HandoffError,
+    HandoffRequest,
+    HandoffResponse,
+    HandoffStatus,
+    ValidationResult,
+)
 from app.schemas.roadmap import (
     BulkPhaseUpdate,
     BulkUpdateRequest,
@@ -78,6 +85,10 @@ __all__ = [
     "EstimatedEffort",
     "GWAGroupResponse",
     "HandoffBundle",
+    "HandoffError",
+    "HandoffRequest",
+    "HandoffResponse",
+    "HandoffStatus",
     "OnetOccupation",
     "OnetSearchResult",
     "PhaseUpdate",
@@ -99,4 +110,5 @@ __all__ = [
     "StepUpdate",
     "TriggerAnalysisResponse",
     "UploadResponse",
+    "ValidationResult",
 ]
