@@ -7,6 +7,7 @@ from app.services.analysis_service import (
     get_scoring_service,
 )
 from app.services.chat_service import ChatService, get_chat_service
+from app.services.context_service import ContextService, get_context_service
 from app.services.export_service import ExportService, get_export_service
 from app.services.handoff_service import HandoffService, get_handoff_service
 from app.services.memory_service import AgentMemoryService
@@ -25,11 +26,13 @@ __all__ = [
     "AgentMemoryService",
     "AnalysisService",
     "ChatService",
+    "ContextService",
     "ExportService",
     "HandoffService",
     "get_activity_service",
     "get_analysis_service",
     "get_chat_service",
+    "get_context_service",
     "get_export_service",
     "get_handoff_service",
     "get_roadmap_service",
