@@ -53,12 +53,15 @@ class OnetSyncJob:
             Dictionary with sync results containing:
             - success: Whether the sync completed successfully.
             - processed_count: Number of occupations processed.
+            - skipped_count: Number of occupations skipped due to missing data.
             - error: Error message if sync failed (only present on failure).
         """
+        processed_count = 0
+        skipped_count = 0
+
         try:
             occupations = await self.onet_client.search_occupations(keyword)
 
-            processed_count = 0
             for occupation in occupations:
                 code = occupation.get("code")
                 title = occupation.get("title")
@@ -71,23 +74,37 @@ class OnetSyncJob:
                         description=description,
                     )
                     processed_count += 1
+                else:
+                    skipped_count += 1
+                    logger.warning(
+                        "Skipping occupation with missing data: code=%s, title=%s",
+                        code,
+                        title,
+                    )
 
             logger.info(
-                "O*NET occupation sync completed: %d occupations processed",
+                "O*NET occupation sync completed: %d occupations processed, %d skipped",
                 processed_count,
+                skipped_count,
             )
 
             return {
                 "success": True,
                 "processed_count": processed_count,
+                "skipped_count": skipped_count,
             }
 
         except Exception as e:
             error_message = str(e)
-            logger.error("O*NET occupation sync failed: %s", error_message)
+            logger.error(
+                "O*NET occupation sync failed after processing %d occupations: %s",
+                processed_count,
+                error_message,
+            )
 
             return {
                 "success": False,
-                "processed_count": 0,
+                "processed_count": processed_count,
+                "skipped_count": skipped_count,
                 "error": error_message,
             }
