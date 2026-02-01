@@ -11,6 +11,7 @@ from app.services.context_service import ContextService, get_context_service
 from app.services.export_service import ExportService, get_export_service
 from app.services.handoff_service import HandoffService, get_handoff_service
 from app.services.memory_service import AgentMemoryService
+from app.services.onet_client import OnetApiClient
 from app.services.roadmap_service import RoadmapService, get_roadmap_service
 from app.services.role_mapping_service import (
     OnetService,
@@ -29,22 +30,23 @@ __all__ = [
     "ContextService",
     "ExportService",
     "HandoffService",
+    "OnetApiClient",
+    "OnetService",
+    "RoadmapService",
+    "RoleMappingService",
+    "ScoringService",
+    "SessionService",
+    "UploadService",
     "get_activity_service",
     "get_analysis_service",
     "get_chat_service",
     "get_context_service",
     "get_export_service",
     "get_handoff_service",
-    "get_roadmap_service",
-    "get_scoring_service",
-    "OnetService",
-    "RoadmapService",
-    "RoleMappingService",
     "get_onet_service",
+    "get_roadmap_service",
     "get_role_mapping_service",
-    "ScoringService",
-    "SessionService",
+    "get_scoring_service",
     "get_session_service",
-    "UploadService",
     "get_upload_service",
 ]
