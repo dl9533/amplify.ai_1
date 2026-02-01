@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useParams } from 'react-router-dom'
 import { useRoadmap, Phase, RoadmapCandidate } from '@/hooks/useRoadmap'
 
@@ -11,20 +11,59 @@ const GENERIC_ERROR_MESSAGE = 'An error occurred while loading roadmap data. Ple
 interface CandidateCardProps {
   candidate: RoadmapCandidate
   onDragStart: (e: React.DragEvent, candidateId: string) => void
+  onMoveToPhase: (candidateId: string, phase: Phase) => void
 }
 
-function CandidateCard({ candidate, onDragStart }: CandidateCardProps) {
+function CandidateCard({ candidate, onDragStart, onMoveToPhase }: CandidateCardProps) {
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault()
+        const currentIndex = PHASES.indexOf(candidate.phase)
+        if (currentIndex > 0) {
+          onMoveToPhase(candidate.id, PHASES[currentIndex - 1])
+        }
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault()
+        const currentIndex = PHASES.indexOf(candidate.phase)
+        if (currentIndex < PHASES.length - 1) {
+          onMoveToPhase(candidate.id, PHASES[currentIndex + 1])
+        }
+      }
+    },
+    [candidate.id, candidate.phase, onMoveToPhase]
+  )
+
+  // Get available phases to move to (exclude current phase)
+  const availablePhases = PHASES.filter((phase) => phase !== candidate.phase)
+
   return (
     <div
+      tabIndex={0}
       draggable="true"
       onDragStart={(e) => onDragStart(e, candidate.id)}
-      className="bg-white border rounded-lg p-4 shadow-sm cursor-grab hover:shadow-md transition-shadow"
-      aria-label={`${candidate.name} card`}
+      onKeyDown={handleKeyDown}
+      className="bg-white border rounded-lg p-4 shadow-sm cursor-grab hover:shadow-md transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500"
+      aria-label={`${candidate.name} card in ${candidate.phase} phase. Use arrow keys to move between phases.`}
     >
       <h4 className="text-base font-medium text-gray-900 mb-2">{candidate.name}</h4>
       <div className="text-sm text-gray-600 space-y-1">
         <div>Priority: {candidate.priorityScore.toFixed(2)}</div>
         <div>Exposure: {candidate.exposureScore.toFixed(2)}</div>
+      </div>
+      {/* Keyboard-accessible move buttons */}
+      <div className="mt-3 flex gap-2 flex-wrap">
+        {availablePhases.map((phase) => (
+          <button
+            key={phase}
+            type="button"
+            onClick={() => onMoveToPhase(candidate.id, phase)}
+            className="px-2 py-1 text-xs font-medium text-blue-600 bg-blue-50 rounded hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            aria-label={`Move ${candidate.name} to ${phase}`}
+          >
+            Move to {phase}
+          </button>
+        ))}
       </div>
     </div>
   )
@@ -36,9 +75,10 @@ interface KanbanColumnProps {
   onDragStart: (e: React.DragEvent, candidateId: string) => void
   onDragOver: (e: React.DragEvent) => void
   onDrop: (e: React.DragEvent, phase: Phase) => void
+  onMoveToPhase: (candidateId: string, phase: Phase) => void
 }
 
-function KanbanColumn({ phase, candidates, onDragStart, onDragOver, onDrop }: KanbanColumnProps) {
+function KanbanColumn({ phase, candidates, onDragStart, onDragOver, onDrop, onMoveToPhase }: KanbanColumnProps) {
   const phaseColors: Record<Phase, string> = {
     NOW: 'border-green-500 bg-green-50',
     NEXT: 'border-blue-500 bg-blue-50',
@@ -59,6 +99,7 @@ function KanbanColumn({ phase, candidates, onDragStart, onDragOver, onDrop }: Ka
             key={candidate.id}
             candidate={candidate}
             onDragStart={onDragStart}
+            onMoveToPhase={onMoveToPhase}
           />
         ))}
         {candidates.length === 0 && (
@@ -79,6 +120,58 @@ interface HandoffModalProps {
 }
 
 function HandoffModal({ isOpen, onConfirm, onCancel, isHandingOff }: HandoffModalProps) {
+  const cancelButtonRef = useRef<HTMLButtonElement>(null)
+  const confirmButtonRef = useRef<HTMLButtonElement>(null)
+  const modalRef = useRef<HTMLDivElement>(null)
+
+  // Focus cancel button when modal opens
+  useEffect(() => {
+    if (isOpen && cancelButtonRef.current) {
+      cancelButtonRef.current.focus()
+    }
+  }, [isOpen])
+
+  // Handle Escape key and focus trap
+  useEffect(() => {
+    if (!isOpen) return
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !isHandingOff) {
+        onCancel()
+        return
+      }
+
+      // Focus trap: trap Tab navigation between Cancel and Confirm buttons
+      if (e.key === 'Tab') {
+        const focusableElements = [cancelButtonRef.current, confirmButtonRef.current].filter(
+          (el): el is HTMLButtonElement => el !== null && !el.disabled
+        )
+
+        if (focusableElements.length === 0) return
+
+        const firstElement = focusableElements[0]
+        const lastElement = focusableElements[focusableElements.length - 1]
+
+        if (e.shiftKey) {
+          // Shift+Tab: if on first element, go to last
+          if (document.activeElement === firstElement) {
+            e.preventDefault()
+            lastElement.focus()
+          }
+        } else {
+          // Tab: if on last element, go to first
+          if (document.activeElement === lastElement) {
+            e.preventDefault()
+            firstElement.focus()
+          }
+        }
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen, isHandingOff, onCancel])
+
   if (!isOpen) return null
 
   return (
@@ -87,6 +180,7 @@ function HandoffModal({ isOpen, onConfirm, onCancel, isHandingOff }: HandoffModa
       role="dialog"
       aria-modal="true"
       aria-labelledby="handoff-modal-title"
+      ref={modalRef}
     >
       <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
         <h2 id="handoff-modal-title" className="text-xl font-bold text-gray-900 mb-4">
@@ -98,19 +192,21 @@ function HandoffModal({ isOpen, onConfirm, onCancel, isHandingOff }: HandoffModa
         </p>
         <div className="flex justify-end gap-3">
           <button
+            ref={cancelButtonRef}
             type="button"
             onClick={onCancel}
             disabled={isHandingOff}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 disabled:opacity-50"
+            className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
             aria-label="Cancel handoff"
           >
             Cancel
           </button>
           <button
+            ref={confirmButtonRef}
             type="button"
             onClick={onConfirm}
             disabled={isHandingOff}
-            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50"
+            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
             aria-label="Confirm handoff"
           >
             {isHandingOff ? 'Sending...' : 'Confirm'}
@@ -130,10 +226,12 @@ export function RoadmapStep() {
     updatePhase,
     handoff,
     isHandingOff,
+    handoffError,
   } = useRoadmap(sessionId)
 
   const [draggedCandidateId, setDraggedCandidateId] = useState<string | null>(null)
   const [isHandoffModalOpen, setIsHandoffModalOpen] = useState(false)
+  const [phaseAnnouncement, setPhaseAnnouncement] = useState<string>('')
 
   const handleDragStart = useCallback((e: React.DragEvent, candidateId: string) => {
     setDraggedCandidateId(candidateId)
@@ -149,25 +247,42 @@ export function RoadmapStep() {
     (e: React.DragEvent, phase: Phase) => {
       e.preventDefault()
       if (draggedCandidateId) {
-        updatePhase(draggedCandidateId, phase)
+        const candidate = candidates.find((c) => c.id === draggedCandidateId)
+        if (candidate && candidate.phase !== phase) {
+          updatePhase(draggedCandidateId, phase)
+          setPhaseAnnouncement(`${candidate.name} moved to ${phase} phase`)
+        }
         setDraggedCandidateId(null)
       }
     },
-    [draggedCandidateId, updatePhase]
+    [draggedCandidateId, updatePhase, candidates]
+  )
+
+  const handleMoveToPhase = useCallback(
+    (candidateId: string, phase: Phase) => {
+      const candidate = candidates.find((c) => c.id === candidateId)
+      if (candidate && candidate.phase !== phase) {
+        updatePhase(candidateId, phase)
+        setPhaseAnnouncement(`${candidate.name} moved to ${phase} phase`)
+      }
+    },
+    [candidates, updatePhase]
   )
 
   const handleExport = useCallback(() => {
-    // TODO: Implement export functionality (CSV, JSON, etc.)
     const exportData = JSON.stringify(candidates, null, 2)
     const blob = new Blob([exportData], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
-    link.href = url
-    link.download = `roadmap-${sessionId || 'export'}.json`
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    URL.revokeObjectURL(url)
+    try {
+      link.href = url
+      link.download = `roadmap-${sessionId || 'export'}.json`
+      document.body.appendChild(link)
+      link.click()
+    } finally {
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+    }
   }, [candidates, sessionId])
 
   const handleSendToIntake = useCallback(() => {
@@ -180,7 +295,8 @@ export function RoadmapStep() {
       setIsHandoffModalOpen(false)
       // TODO: Navigate to success page or show success message
     } catch {
-      // Error is handled by the hook
+      // Close modal on error so user isn't stuck
+      setIsHandoffModalOpen(false)
     }
   }, [handoff])
 
@@ -219,12 +335,24 @@ export function RoadmapStep() {
 
   return (
     <div className="max-w-7xl mx-auto p-6">
+      {/* ARIA live region for phase update announcements */}
+      <div aria-live="polite" aria-atomic="true" className="sr-only">
+        {phaseAnnouncement}
+      </div>
+
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Implementation Roadmap</h1>
         <p className="mt-2 text-gray-600">
           Organize AI candidates into implementation phases. Drag cards between columns to adjust priorities.
         </p>
       </div>
+
+      {/* Handoff Error Display */}
+      {handoffError && (
+        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-md" role="alert">
+          <span className="text-red-700">{handoffError}</span>
+        </div>
+      )}
 
       {/* Action Buttons */}
       <div className="mb-6 flex justify-end gap-3">
@@ -265,6 +393,7 @@ export function RoadmapStep() {
               onDragStart={handleDragStart}
               onDragOver={handleDragOver}
               onDrop={handleDrop}
+              onMoveToPhase={handleMoveToPhase}
             />
           ))}
         </div>
