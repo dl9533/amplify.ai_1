@@ -9,6 +9,8 @@ from fastapi.testclient import TestClient
 
 from app.routers.handoff import router
 from app.services.handoff_service import get_handoff_service
+from pydantic import ValidationError
+
 from app.schemas.handoff import (
     HandoffRequest,
     HandoffResponse,
@@ -16,6 +18,7 @@ from app.schemas.handoff import (
     HandoffStatus,
     HandoffError,
 )
+from app.schemas.analysis import PriorityTier
 
 
 @pytest.fixture
@@ -121,7 +124,7 @@ class TestSubmitHandoff:
         mock_handoff_service.submit_to_intake.assert_called_once()
         call_args = mock_handoff_service.submit_to_intake.call_args
         request_arg = call_args[0][1]  # Second positional arg is the request
-        assert request_arg.priority_tier == "HIGH"
+        assert request_arg.priority_tier == PriorityTier.HIGH
 
     def test_submit_handoff_fails_with_400_when_not_ready(
         self, client, mock_handoff_service
@@ -145,8 +148,8 @@ class TestSubmitHandoff:
         assert response.status_code == 400
         data = response.json()
         assert "detail" in data
-        assert "errors" in data
-        assert "No candidates selected for handoff" in data["errors"]
+        assert "errors" in data["detail"]
+        assert "No candidates selected for handoff" in data["detail"]["errors"]
 
         # Verify submit_to_intake was not called
         mock_handoff_service.submit_to_intake.assert_not_called()
@@ -176,6 +179,39 @@ class TestSubmitHandoff:
         )
 
         assert response.status_code == 422
+
+    def test_submit_handoff_rejects_both_candidate_ids_and_priority_tier(
+        self, client, mock_handoff_service
+    ):
+        """Should return 422 when both candidate_ids and priority_tier are provided."""
+        session_id = uuid4()
+
+        response = client.post(
+            f"/discovery/sessions/{session_id}/handoff",
+            json={
+                "candidate_ids": [str(uuid4()), str(uuid4())],
+                "priority_tier": "HIGH",
+            },
+        )
+
+        assert response.status_code == 422
+        data = response.json()
+        assert "candidate_ids" in str(data).lower() or "priority_tier" in str(data).lower()
+
+    def test_submit_handoff_rejects_invalid_priority_tier(
+        self, client, mock_handoff_service
+    ):
+        """Should return 422 when invalid priority_tier value is provided."""
+        session_id = uuid4()
+
+        response = client.post(
+            f"/discovery/sessions/{session_id}/handoff",
+            json={"priority_tier": "INVALID"},
+        )
+
+        assert response.status_code == 422
+        data = response.json()
+        assert "priority_tier" in str(data).lower()
 
 
 class TestValidateHandoff:
@@ -323,10 +359,30 @@ class TestHandoffSchemas:
 
     def test_handoff_request_with_priority_tier(self):
         """HandoffRequest should accept priority_tier."""
-        request = HandoffRequest(priority_tier="HIGH")
-        assert request.priority_tier == "HIGH"
+        request = HandoffRequest(priority_tier=PriorityTier.HIGH)
+        assert request.priority_tier == PriorityTier.HIGH
         assert request.candidate_ids is None
         assert request.notes is None
+
+    def test_handoff_request_with_priority_tier_string(self):
+        """HandoffRequest should accept priority_tier as string and convert to enum."""
+        request = HandoffRequest(priority_tier="HIGH")
+        assert request.priority_tier == PriorityTier.HIGH
+
+    def test_handoff_request_rejects_both_candidate_ids_and_priority_tier(self):
+        """HandoffRequest should reject when both candidate_ids and priority_tier are provided."""
+        with pytest.raises(ValidationError) as exc_info:
+            HandoffRequest(
+                candidate_ids=[uuid4(), uuid4()],
+                priority_tier=PriorityTier.HIGH,
+            )
+        assert "Provide either candidate_ids or priority_tier, not both" in str(exc_info.value)
+
+    def test_handoff_request_invalid_priority_tier(self):
+        """HandoffRequest should reject invalid priority_tier values."""
+        with pytest.raises(ValidationError) as exc_info:
+            HandoffRequest(priority_tier="INVALID")
+        assert "priority_tier" in str(exc_info.value).lower()
 
     def test_handoff_response_has_required_fields(self):
         """HandoffResponse should have all required fields."""

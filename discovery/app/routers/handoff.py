@@ -2,7 +2,6 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import JSONResponse
 
 from app.schemas.handoff import (
     HandoffError,
@@ -50,12 +49,12 @@ async def submit_handoff(
         )
 
     if not validation_result.is_ready:
-        return JSONResponse(
+        raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            content=HandoffError(
-                detail="Handoff validation failed",
-                errors=validation_result.errors,
-            ).model_dump(),
+            detail={
+                "detail": "Handoff validation failed",
+                "errors": validation_result.errors,
+            },
         )
 
     # Proceed with submission

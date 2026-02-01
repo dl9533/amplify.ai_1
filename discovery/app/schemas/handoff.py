@@ -3,7 +3,9 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+from app.schemas.analysis import PriorityTier
 
 
 class HandoffRequest(BaseModel):
@@ -21,14 +23,27 @@ class HandoffRequest(BaseModel):
         None,
         description="Optional notes to include with the handoff",
     )
-    priority_tier: Optional[str] = Field(
+    priority_tier: Optional[PriorityTier] = Field(
         None,
-        description="Priority tier filter (HIGH, MEDIUM, LOW)",
+        description="Priority tier filter",
     )
 
     model_config = {
         "from_attributes": True,
     }
+
+    @model_validator(mode='after')
+    def validate_selection_criteria(self) -> 'HandoffRequest':
+        """Validate that either candidate_ids or priority_tier is provided, not both."""
+        has_candidates = self.candidate_ids is not None and len(self.candidate_ids) > 0
+        has_tier = self.priority_tier is not None
+
+        # Both empty is OK - service layer handles this
+        # But if both are provided, that's a conflict
+        if has_candidates and has_tier:
+            raise ValueError("Provide either candidate_ids or priority_tier, not both")
+
+        return self
 
 
 class HandoffResponse(BaseModel):
