@@ -21,3 +21,6 @@ export type { Phase, RoadmapCandidate, UseRoadmapReturn } from './useRoadmap'
 
 export { useDiscoverySessions } from './useDiscoverySessions'
 export type { SessionStatus, DiscoverySession, UseDiscoverySessionsReturn } from './useDiscoverySessions'
+
+export { useDiscoveryRecovery } from './useDiscoveryRecovery'
+export type { UseDiscoveryRecoveryOptions, UseDiscoveryRecoveryReturn } from './useDiscoveryRecovery'
