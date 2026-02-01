@@ -6,6 +6,9 @@ from app.modules.discovery.repositories.onet_repository import (
     OnetIwaRepository,
     OnetOccupationRepository,
 )
+from app.modules.discovery.repositories.role_mapping_repository import (
+    DiscoveryRoleMappingRepository,
+)
 from app.modules.discovery.repositories.session_repository import (
     DiscoverySessionRepository,
 )
@@ -14,6 +17,7 @@ from app.modules.discovery.repositories.upload_repository import (
 )
 
 __all__ = [
+    "DiscoveryRoleMappingRepository",
     "DiscoverySessionRepository",
     "DiscoveryUploadRepository",
     "OnetDwaRepository",
