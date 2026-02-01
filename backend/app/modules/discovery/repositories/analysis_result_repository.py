@@ -57,7 +57,7 @@ class DiscoveryAnalysisResultRepository:
         role_mapping_id: UUID,
         dimension: AnalysisDimension,
         dimension_value: str,
-        ai_exposure_score: float,
+        ai_exposure_score: float | None = None,
         impact_score: float | None = None,
         complexity_score: float | None = None,
         priority_score: float | None = None,
@@ -72,7 +72,7 @@ class DiscoveryAnalysisResultRepository:
             role_mapping_id: UUID of the role mapping this result is for.
             dimension: The analysis dimension (e.g., ROLE, TASK, LOB).
             dimension_value: The specific value within the dimension.
-            ai_exposure_score: AI exposure score (0.0-1.0).
+            ai_exposure_score: Optional AI exposure score (0.0-1.0).
             impact_score: Optional impact score (0.0-1.0).
             complexity_score: Optional complexity score (0.0-1.0).
             priority_score: Optional priority score (0.0-1.0).
@@ -84,7 +84,7 @@ class DiscoveryAnalysisResultRepository:
         Raises:
             ValueError: If any score is outside the range 0.0-1.0.
         """
-        _validate_score(ai_exposure_score, "ai_exposure_score", allow_none=False)
+        _validate_score(ai_exposure_score, "ai_exposure_score", allow_none=True)
         _validate_score(impact_score, "impact_score", allow_none=True)
         _validate_score(complexity_score, "complexity_score", allow_none=True)
         _validate_score(priority_score, "priority_score", allow_none=True)

@@ -81,6 +81,36 @@ async def test_create_analysis_result_minimal(mock_db_session):
 
 
 @pytest.mark.asyncio
+async def test_create_analysis_result_with_null_ai_exposure_score(mock_db_session):
+    """Should create analysis result with null ai_exposure_score."""
+    repo = DiscoveryAnalysisResultRepository(mock_db_session)
+    session_id = uuid4()
+    role_mapping_id = uuid4()
+    dimension = AnalysisDimension.TASK
+    dimension_value = "Data Analysis"
+
+    result = await repo.create(
+        session_id=session_id,
+        role_mapping_id=role_mapping_id,
+        dimension=dimension,
+        dimension_value=dimension_value,
+        ai_exposure_score=None,
+    )
+
+    assert result.session_id == session_id
+    assert result.role_mapping_id == role_mapping_id
+    assert result.dimension == dimension
+    assert result.dimension_value == dimension_value
+    assert result.ai_exposure_score is None
+    assert result.impact_score is None
+    assert result.complexity_score is None
+    assert result.priority_score is None
+    assert result.breakdown is None
+    mock_db_session.add.assert_called_once()
+    mock_db_session.commit.assert_called_once()
+
+
+@pytest.mark.asyncio
 async def test_get_analysis_result_by_id(mock_db_session):
     """Should retrieve analysis result by ID."""
     repo = DiscoveryAnalysisResultRepository(mock_db_session)
