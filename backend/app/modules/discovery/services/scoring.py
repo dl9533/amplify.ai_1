@@ -6,9 +6,38 @@ which roles have the highest potential for AI agent automation.
 """
 
 from collections import defaultdict
-from typing import Any
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 from app.modules.discovery.enums import AnalysisDimension
+from app.modules.discovery.schemas.scoring import (
+    AnalysisScores,
+    DimensionAggregation,
+    SessionScoringResult,
+)
+
+if TYPE_CHECKING:
+    from app.modules.discovery.models.session import DiscoverySession
+    from app.modules.discovery.repositories.activity_selection_repository import (
+        DiscoveryActivitySelectionRepository,
+    )
+    from app.modules.discovery.repositories.analysis_result_repository import (
+        DiscoveryAnalysisResultRepository,
+    )
+    from app.modules.discovery.repositories.onet_repository import OnetDwaRepository
+    from app.modules.discovery.repositories.role_mapping_repository import (
+        DiscoveryRoleMappingRepository,
+    )
+
+
+@dataclass
+class _DwaWithExposure:
+    """Internal class for holding DWA with effective exposure score."""
+
+    ai_exposure_override: float
+    dwa_id: str
+    dwa_name: str
 
 
 class ScoringService:
@@ -546,3 +575,205 @@ class ScoringService:
             )
             for dim in AnalysisDimension
         }
+
+    async def score_session(
+        self,
+        session: "DiscoverySession",
+        role_mapping_repo: "DiscoveryRoleMappingRepository",
+        activity_selection_repo: "DiscoveryActivitySelectionRepository",
+        dwa_repo: "OnetDwaRepository",
+        analysis_result_repo: "DiscoveryAnalysisResultRepository | None" = None,
+        persist: bool = False,
+    ) -> SessionScoringResult:
+        """Score all role mappings for a discovery session.
+
+        This method orchestrates the complete scoring workflow:
+        1. Get all role mappings for the session
+        2. For each role, get selected activity DWAs
+        3. Get DWA objects to compute exposure scores
+        4. Calculate all scores for each role
+        5. Aggregate by all dimensions
+        6. Optionally persist results to the database
+
+        Exposure score calculation:
+        - Uses dwa.ai_exposure_override if set
+        - Falls back to dwa.iwa.gwa.ai_exposure_score otherwise
+        - Averages across all selected DWAs for the role
+
+        Args:
+            session: The discovery session to score.
+            role_mapping_repo: Repository for role mapping queries.
+            activity_selection_repo: Repository for activity selection queries.
+            dwa_repo: Repository for DWA queries with IWA/GWA relationships.
+            analysis_result_repo: Optional repository for persisting results.
+                Required if persist=True.
+            persist: Whether to persist results to the database. If True,
+                clears existing results and bulk creates new ones.
+
+        Returns:
+            SessionScoringResult containing all scores and aggregations.
+
+        Raises:
+            ValueError: If persist=True but analysis_result_repo is None.
+
+        Example:
+            >>> service = ScoringService()
+            >>> result = await service.score_session(
+            ...     session=session,
+            ...     role_mapping_repo=role_mapping_repo,
+            ...     activity_selection_repo=activity_selection_repo,
+            ...     dwa_repo=dwa_repo,
+            ...     persist=False,
+            ... )
+            >>> result.role_scores["role-1"].exposure
+            0.75
+        """
+        if persist and analysis_result_repo is None:
+            raise ValueError("analysis_result_repo is required when persist=True")
+
+        # Get all role mappings for the session
+        role_mappings = await role_mapping_repo.get_by_session_id(session.id)
+
+        if not role_mappings:
+            return SessionScoringResult(
+                session_id=session.id,
+                role_scores={},
+                dimension_aggregations=[],
+                max_headcount=0,
+                total_headcount=0,
+                total_roles=0,
+            )
+
+        # Calculate max headcount for normalization
+        max_headcount = max(
+            (rm.row_count or 0 for rm in role_mappings),
+            default=self.DEFAULT_MAX_HEADCOUNT,
+        )
+        if max_headcount == 0:
+            max_headcount = self.DEFAULT_MAX_HEADCOUNT
+
+        # Calculate total headcount
+        total_headcount = sum(rm.row_count or 0 for rm in role_mappings)
+
+        # For each role, get selected DWAs and calculate scores
+        role_scores: dict[str, AnalysisScores] = {}
+        scores_for_aggregation: dict[str, dict[str, float]] = {}
+        dwa_selections_for_aggregation: dict[str, list[Any]] = {}
+
+        for role_mapping in role_mappings:
+            role_id = str(role_mapping.id)
+
+            # Get selected activities for this role
+            selections = await activity_selection_repo.get_selected_for_role_mapping(
+                role_mapping.id
+            )
+
+            # Get DWA objects for exposure calculation
+            dwas = []
+            dwa_info_list = []
+            for selection in selections:
+                dwa = await dwa_repo.get_by_id(selection.dwa_id)
+                if dwa:
+                    # Calculate effective exposure score
+                    if dwa.ai_exposure_override is not None:
+                        effective_exposure = dwa.ai_exposure_override
+                    elif dwa.iwa and dwa.iwa.gwa and dwa.iwa.gwa.ai_exposure_score is not None:
+                        effective_exposure = dwa.iwa.gwa.ai_exposure_score
+                    else:
+                        effective_exposure = 0.0
+
+                    # Create a dataclass instance with the effective exposure
+                    dwa_with_exposure = _DwaWithExposure(
+                        ai_exposure_override=effective_exposure,
+                        dwa_id=dwa.id,
+                        dwa_name=dwa.name,
+                    )
+                    dwas.append(dwa_with_exposure)
+                    dwa_info_list.append(dwa_with_exposure)
+
+            # Calculate all scores for this role
+            scores = self.calculate_all_scores_for_role(
+                role_mapping=role_mapping,
+                selected_dwas=dwas,
+                max_headcount=max_headcount,
+            )
+
+            # Store as AnalysisScores dataclass
+            role_scores[role_id] = AnalysisScores(
+                exposure=scores["exposure"],
+                impact=scores["impact"],
+                complexity=scores["complexity"],
+                priority=scores["priority"],
+            )
+
+            # Store for aggregation
+            scores_for_aggregation[role_id] = scores
+            dwa_selections_for_aggregation[role_id] = dwa_info_list
+
+        # Aggregate by all dimensions
+        all_aggregations = self.aggregate_all_dimensions(
+            role_mappings=role_mappings,
+            scores=scores_for_aggregation,
+            dwa_selections=dwa_selections_for_aggregation,
+        )
+
+        # Convert aggregation dicts to DimensionAggregation dataclasses
+        dimension_aggregations: list[DimensionAggregation] = []
+        for dim, agg_list in all_aggregations.items():
+            for agg in agg_list:
+                dimension_aggregations.append(
+                    DimensionAggregation(
+                        dimension=agg["dimension"],
+                        dimension_value=agg["dimension_value"],
+                        ai_exposure_score=agg["ai_exposure_score"],
+                        impact_score=agg["impact_score"],
+                        complexity_score=agg["complexity_score"],
+                        priority_score=agg["priority_score"],
+                        total_headcount=agg["total_headcount"],
+                        role_count=agg["role_count"],
+                        breakdown=agg["breakdown"],
+                    )
+                )
+
+        # Persist results if requested
+        if persist and analysis_result_repo is not None:
+            # Clear old results
+            await analysis_result_repo.delete_by_session_id(session.id)
+
+            # Prepare results for bulk create
+            results_to_create: list[dict] = []
+
+            # Add role-level results (ROLE dimension)
+            for role_mapping in role_mappings:
+                role_id = str(role_mapping.id)
+                if role_id in role_scores:
+                    scores = role_scores[role_id]
+                    results_to_create.append({
+                        "session_id": session.id,
+                        "role_mapping_id": role_mapping.id,
+                        "dimension": AnalysisDimension.ROLE,
+                        "dimension_value": role_mapping.source_role or "Unknown",
+                        "ai_exposure_score": scores.exposure,
+                        "impact_score": scores.impact,
+                        "complexity_score": scores.complexity,
+                        "priority_score": scores.priority,
+                        "breakdown": None,
+                    })
+
+            # Note: We only persist role-level results (ROLE dimension) to the database.
+            # Aggregations for other dimensions (DEPARTMENT, LOB, GEOGRAPHY, TASK)
+            # are computed on-the-fly from role results and returned in the response,
+            # but not persisted. This avoids the semantic issue of linking aggregated
+            # dimension results to an arbitrary role_mapping_id.
+
+            if results_to_create:
+                await analysis_result_repo.bulk_create(results_to_create)
+
+        return SessionScoringResult(
+            session_id=session.id,
+            role_scores=role_scores,
+            dimension_aggregations=dimension_aggregations,
+            max_headcount=max_headcount,
+            total_headcount=total_headcount,
+            total_roles=len(role_mappings),
+        )

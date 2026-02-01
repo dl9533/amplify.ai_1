@@ -297,3 +297,81 @@ class DiscoveryAnalysisResultRepository:
         result = await self.session.execute(stmt)
         await self.session.commit()
         return result.rowcount
+
+    async def bulk_create(
+        self,
+        results: list[dict],
+    ) -> list[DiscoveryAnalysisResult]:
+        """Bulk create multiple analysis results.
+
+        Creates multiple analysis result records in a single transaction.
+        Each dict in the results list should contain:
+        - session_id: UUID
+        - role_mapping_id: UUID
+        - dimension: AnalysisDimension
+        - dimension_value: str
+        - ai_exposure_score: float (optional)
+        - impact_score: float (optional)
+        - complexity_score: float (optional)
+        - priority_score: float (optional)
+        - breakdown: dict (optional)
+
+        Args:
+            results: List of dictionaries with result data.
+
+        Returns:
+            List of created DiscoveryAnalysisResult instances.
+
+        Raises:
+            ValueError: If any score is outside the range 0.0-1.0.
+        """
+        if not results:
+            return []
+
+        created_results = []
+        for result_data in results:
+            # Validate scores
+            _validate_score(
+                result_data.get("ai_exposure_score"),
+                "ai_exposure_score",
+                allow_none=True,
+            )
+            _validate_score(
+                result_data.get("impact_score"),
+                "impact_score",
+                allow_none=True,
+            )
+            _validate_score(
+                result_data.get("complexity_score"),
+                "complexity_score",
+                allow_none=True,
+            )
+            _validate_score(
+                result_data.get("priority_score"),
+                "priority_score",
+                allow_none=True,
+            )
+
+            result = DiscoveryAnalysisResult(
+                session_id=result_data["session_id"],
+                role_mapping_id=result_data["role_mapping_id"],
+                dimension=result_data["dimension"],
+                dimension_value=result_data["dimension_value"],
+                ai_exposure_score=result_data.get("ai_exposure_score"),
+                impact_score=result_data.get("impact_score"),
+                complexity_score=result_data.get("complexity_score"),
+                priority_score=result_data.get("priority_score"),
+                breakdown=result_data.get("breakdown"),
+            )
+            self.session.add(result)
+            created_results.append(result)
+
+        await self.session.commit()
+
+        # Batch refresh: fetch all created results in a single query
+        result_ids = [r.id for r in created_results]
+        stmt = select(DiscoveryAnalysisResult).where(
+            DiscoveryAnalysisResult.id.in_(result_ids)
+        )
+        query_result = await self.session.execute(stmt)
+        return list(query_result.scalars().all())
