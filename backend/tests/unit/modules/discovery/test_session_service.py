@@ -433,6 +433,28 @@ async def test_select_candidates_for_build_empty_list(session_service, mock_cand
 
 
 @pytest.mark.asyncio
+async def test_get_handoff_bundle_when_session_not_found(
+    session_service,
+    mock_session_repo,
+    mock_candidate_repo,
+    mock_role_mapping_repo,
+    mock_analysis_result_repo
+):
+    """Should return empty candidates list when session not found."""
+    session_id = uuid4()
+    mock_session_repo.get_by_id.return_value = None
+
+    bundle = await session_service.get_handoff_bundle(session_id)
+
+    assert bundle["session_id"] == session_id
+    assert bundle["candidates"] == []
+    # Should not call other repos when session doesn't exist
+    mock_candidate_repo.get_selected_for_build.assert_not_called()
+    mock_role_mapping_repo.get_by_id.assert_not_called()
+    mock_analysis_result_repo.get_by_role_mapping_id.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_get_handoff_bundle(session_service, mock_session_repo, mock_candidate_repo, mock_role_mapping_repo, mock_analysis_result_repo):
     """Should prepare a handoff bundle for intake with complete candidate data."""
     session_id = uuid4()
