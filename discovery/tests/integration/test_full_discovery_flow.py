@@ -6,7 +6,7 @@ by mocking the service layer and testing actual HTTP endpoints.
 import io
 from datetime import datetime, timezone
 from typing import Any, AsyncIterator, Optional
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import pytest
 import pytest_asyncio
@@ -30,19 +30,25 @@ from app.services.chat_service import ChatService, get_chat_service
 from app.services.export_service import ExportService, get_export_service
 
 
-# Test data constants
-TEST_ORG_ID = uuid4()
-TEST_SESSION_ID = uuid4()
-TEST_UPLOAD_ID = uuid4()
-TEST_MAPPING_ID = uuid4()
-TEST_ACTIVITY_ID = uuid4()
-TEST_ROADMAP_ITEM_ID = uuid4()
-TEST_INTAKE_REQUEST_ID = uuid4()
+# Test data constants - Use fixed UUIDs for reproducibility
+TEST_ORG_ID = UUID("00000000-0000-0000-0000-000000000001")
+TEST_SESSION_ID = UUID("00000000-0000-0000-0000-000000000002")
+TEST_UPLOAD_ID = UUID("00000000-0000-0000-0000-000000000003")
+TEST_MAPPING_ID = UUID("00000000-0000-0000-0000-000000000004")
+TEST_ACTIVITY_ID = UUID("00000000-0000-0000-0000-000000000005")
+TEST_ROADMAP_ITEM_ID = UUID("00000000-0000-0000-0000-000000000006")
+TEST_INTAKE_REQUEST_ID = UUID("00000000-0000-0000-0000-000000000007")
 
 
 def _now_iso() -> str:
     """Return current timestamp in ISO format."""
     return datetime.now(timezone.utc).isoformat()
+
+
+def _generate_test_uuid() -> str:
+    """Generate a unique test UUID as string."""
+    import uuid
+    return str(uuid.uuid4())
 
 
 class MockSessionService(SessionService):
@@ -52,7 +58,7 @@ class MockSessionService(SessionService):
         self._sessions: dict[str, dict] = {}
 
     async def create(self, organization_id: UUID) -> dict:
-        session_id = str(uuid4())
+        session_id = _generate_test_uuid()
         now = _now_iso()
         session = {
             "id": session_id,
@@ -108,7 +114,7 @@ class MockUploadService(UploadService):
         file_name: str,
         content: bytes,
     ) -> dict:
-        upload_id = str(uuid4())
+        upload_id = _generate_test_uuid()
         # Parse CSV content to detect schema
         lines = content.decode("utf-8").strip().split("\n")
         headers = lines[0].split(",") if lines else []
@@ -309,7 +315,7 @@ class MockAnalysisService(AnalysisService):
     ) -> Optional[dict]:
         results = [
             {
-                "id": str(uuid4()),
+                "id": _generate_test_uuid(),
                 "name": "Software Engineer",
                 "ai_exposure_score": 0.85,
                 "impact_score": 0.9,
@@ -527,30 +533,41 @@ class MockExportService(ExportService):
         }
 
 
-# Create mock service instances
-mock_session_service = MockSessionService()
-mock_upload_service = MockUploadService()
-mock_role_mapping_service = MockRoleMappingService()
-mock_onet_service = MockOnetService()
-mock_activity_service = MockActivityService()
-mock_analysis_service = MockAnalysisService()
-mock_roadmap_service = MockRoadmapService()
-mock_handoff_service = MockHandoffService()
-mock_chat_service = MockChatService()
-mock_export_service = MockExportService()
+@pytest_asyncio.fixture(autouse=True)
+async def setup_fresh_mocks():
+    """Create fresh mock service instances for each test.
 
+    This fixture runs automatically for every test to ensure test isolation.
+    Each test gets fresh mock instances with no shared state from previous tests.
+    """
+    # Create fresh mock service instances
+    fresh_session_service = MockSessionService()
+    fresh_upload_service = MockUploadService()
+    fresh_role_mapping_service = MockRoleMappingService()
+    fresh_onet_service = MockOnetService()
+    fresh_activity_service = MockActivityService()
+    fresh_analysis_service = MockAnalysisService()
+    fresh_roadmap_service = MockRoadmapService()
+    fresh_handoff_service = MockHandoffService()
+    fresh_chat_service = MockChatService()
+    fresh_export_service = MockExportService()
 
-# Override dependencies
-app.dependency_overrides[get_session_service] = lambda: mock_session_service
-app.dependency_overrides[get_upload_service] = lambda: mock_upload_service
-app.dependency_overrides[get_role_mapping_service] = lambda: mock_role_mapping_service
-app.dependency_overrides[get_onet_service] = lambda: mock_onet_service
-app.dependency_overrides[get_activity_service] = lambda: mock_activity_service
-app.dependency_overrides[get_analysis_service] = lambda: mock_analysis_service
-app.dependency_overrides[get_roadmap_service] = lambda: mock_roadmap_service
-app.dependency_overrides[get_handoff_service] = lambda: mock_handoff_service
-app.dependency_overrides[get_chat_service] = lambda: mock_chat_service
-app.dependency_overrides[get_export_service] = lambda: mock_export_service
+    # Override app dependencies with fresh instances
+    app.dependency_overrides[get_session_service] = lambda: fresh_session_service
+    app.dependency_overrides[get_upload_service] = lambda: fresh_upload_service
+    app.dependency_overrides[get_role_mapping_service] = lambda: fresh_role_mapping_service
+    app.dependency_overrides[get_onet_service] = lambda: fresh_onet_service
+    app.dependency_overrides[get_activity_service] = lambda: fresh_activity_service
+    app.dependency_overrides[get_analysis_service] = lambda: fresh_analysis_service
+    app.dependency_overrides[get_roadmap_service] = lambda: fresh_roadmap_service
+    app.dependency_overrides[get_handoff_service] = lambda: fresh_handoff_service
+    app.dependency_overrides[get_chat_service] = lambda: fresh_chat_service
+    app.dependency_overrides[get_export_service] = lambda: fresh_export_service
+
+    yield
+
+    # Cleanup - clear all dependency overrides
+    app.dependency_overrides.clear()
 
 
 @pytest_asyncio.fixture
@@ -1049,9 +1066,11 @@ async def test_validate_handoff_readiness(client: AsyncClient):
 @pytest.mark.asyncio
 async def test_submit_handoff(client: AsyncClient):
     """Test submitting candidates to intake."""
+    # Use a fixed test UUID for reproducibility
+    test_candidate_id = "00000000-0000-0000-0000-000000000099"
     response = await client.post(
         f"/discovery/sessions/{TEST_SESSION_ID}/handoff",
-        json={"candidate_ids": [str(uuid4())], "notes": "Test handoff"},
+        json={"candidate_ids": [test_candidate_id], "notes": "Test handoff"},
     )
 
     assert response.status_code == 201
@@ -1229,6 +1248,9 @@ async def test_complete_discovery_flow(client: AsyncClient):
     6. Review roadmap
     7. Submit handoff
     8. Export results
+
+    Note: This test is self-contained and uses the session ID from the
+    created session throughout all operations.
     """
     # Step 1: Create a new discovery session
     create_response = await client.post(
@@ -1260,63 +1282,65 @@ async def test_complete_discovery_flow(client: AsyncClient):
     assert step_response.status_code == 200
     assert step_response.json()["current_step"] == 2
 
-    # Step 3: Role mappings (using mock data from TEST_SESSION_ID)
+    # Step 3: Role mappings - use the created session_id
+    # Note: Mock returns empty list for new sessions, which is valid behavior
     mappings_response = await client.get(
-        f"/discovery/sessions/{TEST_SESSION_ID}/role-mappings"
+        f"/discovery/sessions/{session_id}/role-mappings"
     )
     assert mappings_response.status_code == 200
 
-    # Bulk confirm high-confidence mappings
+    # Bulk confirm high-confidence mappings (will confirm 0 for new session)
     confirm_response = await client.post(
-        f"/discovery/sessions/{TEST_SESSION_ID}/role-mappings/confirm",
+        f"/discovery/sessions/{session_id}/role-mappings/confirm",
         json={"threshold": 0.9},
     )
     assert confirm_response.status_code == 200
 
-    # Step 4: Activities selection
+    # Step 4: Activities selection - use the created session_id
+    # Note: Mock returns empty list for new sessions, which is valid behavior
     activities_response = await client.get(
-        f"/discovery/sessions/{TEST_SESSION_ID}/activities"
+        f"/discovery/sessions/{session_id}/activities"
     )
     assert activities_response.status_code == 200
 
     # Get selection count
     count_response = await client.get(
-        f"/discovery/sessions/{TEST_SESSION_ID}/activities/count"
+        f"/discovery/sessions/{session_id}/activities/count"
     )
     assert count_response.status_code == 200
     assert "total" in count_response.json()
 
     # Step 5: Trigger analysis
     analyze_response = await client.post(
-        f"/discovery/sessions/{TEST_SESSION_ID}/analyze"
+        f"/discovery/sessions/{session_id}/analyze"
     )
     assert analyze_response.status_code == 202
     assert analyze_response.json()["status"] == "processing"
 
     # Get analysis results
     analysis_response = await client.get(
-        f"/discovery/sessions/{TEST_SESSION_ID}/analysis/ROLE"
+        f"/discovery/sessions/{session_id}/analysis/ROLE"
     )
     assert analysis_response.status_code == 200
     assert analysis_response.json()["dimension"] == "ROLE"
 
     # Step 6: Review roadmap
     roadmap_response = await client.get(
-        f"/discovery/sessions/{TEST_SESSION_ID}/roadmap"
+        f"/discovery/sessions/{session_id}/roadmap"
     )
     assert roadmap_response.status_code == 200
     assert "items" in roadmap_response.json()
 
     # Step 7: Validate and submit handoff
     validate_response = await client.post(
-        f"/discovery/sessions/{TEST_SESSION_ID}/handoff/validate"
+        f"/discovery/sessions/{session_id}/handoff/validate"
     )
     assert validate_response.status_code == 200
     validation = validate_response.json()
     assert validation["is_ready"] is True
 
     handoff_response = await client.post(
-        f"/discovery/sessions/{TEST_SESSION_ID}/handoff",
+        f"/discovery/sessions/{session_id}/handoff",
         json={"notes": "Ready for intake"},
     )
     assert handoff_response.status_code == 201
@@ -1324,12 +1348,12 @@ async def test_complete_discovery_flow(client: AsyncClient):
 
     # Step 8: Export results
     csv_export = await client.get(
-        f"/discovery/sessions/{TEST_SESSION_ID}/export/csv"
+        f"/discovery/sessions/{session_id}/export/csv"
     )
     assert csv_export.status_code == 200
 
     bundle_export = await client.get(
-        f"/discovery/sessions/{TEST_SESSION_ID}/export/handoff"
+        f"/discovery/sessions/{session_id}/export/handoff"
     )
     assert bundle_export.status_code == 200
     bundle = bundle_export.json()
@@ -1338,7 +1362,7 @@ async def test_complete_discovery_flow(client: AsyncClient):
 
     # Verify final status
     status_response = await client.get(
-        f"/discovery/sessions/{TEST_SESSION_ID}/handoff"
+        f"/discovery/sessions/{session_id}/handoff"
     )
     assert status_response.status_code == 200
     assert status_response.json()["handed_off"] is True
