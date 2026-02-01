@@ -5,7 +5,10 @@ role headcount and AI exposure scores. Impact scores help prioritize
 which roles have the highest potential for AI agent automation.
 """
 
+from collections import defaultdict
 from typing import Any
+
+from app.modules.discovery.enums import AnalysisDimension
 
 
 class ScoringService:
@@ -250,4 +253,296 @@ class ScoringService:
             "impact": impact,
             "complexity": complexity,
             "priority": priority,
+        }
+
+    def _get_dimension_value(
+        self,
+        role_mapping: Any,
+        dimension: AnalysisDimension,
+    ) -> str:
+        """Extract dimension value from a role mapping.
+
+        Args:
+            role_mapping: A role mapping object with source_role attribute and
+                metadata dict containing department, lob, and geography keys.
+            dimension: The dimension to extract the value for.
+
+        Returns:
+            The dimension value, or "Unknown" if the value is None or missing.
+        """
+        if dimension == AnalysisDimension.TASK:
+            # TASK dimension is handled separately via dwa_selections
+            return "Unknown"
+
+        if dimension == AnalysisDimension.ROLE:
+            # ROLE uses source_role directly
+            value = role_mapping.source_role
+            return value if value is not None else "Unknown"
+
+        # DEPARTMENT, LOB, GEOGRAPHY use metadata dict
+        metadata_key_map = {
+            AnalysisDimension.DEPARTMENT: "department",
+            AnalysisDimension.LOB: "lob",
+            AnalysisDimension.GEOGRAPHY: "geography",
+        }
+
+        key = metadata_key_map.get(dimension)
+        if key is None:
+            return "Unknown"
+
+        value = role_mapping.metadata.get(key)
+        return value if value is not None else "Unknown"
+
+    def _calculate_weighted_average(
+        self,
+        values_with_weights: list[tuple[float, int]],
+    ) -> float:
+        """Calculate weighted average of values.
+
+        Args:
+            values_with_weights: List of (value, weight) tuples.
+
+        Returns:
+            Weighted average, or 0.0 if total weight is 0.
+        """
+        total_weight = sum(weight for _, weight in values_with_weights)
+        if total_weight == 0:
+            return 0.0
+
+        weighted_sum = sum(value * weight for value, weight in values_with_weights)
+        return weighted_sum / total_weight
+
+    def aggregate_by_dimension(
+        self,
+        role_mappings: list[Any],
+        scores: dict[str, dict[str, float]],
+        dimension: AnalysisDimension,
+        dwa_selections: dict[str, list[Any]] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Aggregate scores by a specified dimension using weighted averages.
+
+        Groups role mappings by the specified dimension and calculates
+        weighted average scores based on headcount (row_count).
+
+        Args:
+            role_mappings: List of role mapping objects with id, source_role,
+                row_count, and metadata dict containing department, lob, geography.
+            scores: Dictionary mapping role_mapping.id to a dict containing
+                ai_exposure_score, impact_score, complexity_score, priority_score.
+            dimension: The AnalysisDimension to aggregate by (ROLE, DEPARTMENT,
+                LOB, GEOGRAPHY, or TASK).
+            dwa_selections: Optional dictionary keyed by role_mapping.id for TASK
+                dimension aggregation. Each value is a list of DWA objects with
+                dwa_id and dwa_name attributes.
+
+        Returns:
+            List of aggregation result dictionaries, each containing:
+            - dimension: The AnalysisDimension enum value
+            - dimension_value: The grouping key (e.g., "Technology" for DEPARTMENT)
+            - ai_exposure_score: Weighted average exposure score
+            - impact_score: Weighted average impact score
+            - complexity_score: Weighted average complexity score
+            - priority_score: Weighted average priority score
+            - total_headcount: Sum of row_count for all roles in this group
+            - role_count: Number of roles in this group
+            - breakdown: List of contributing role details
+
+        Example:
+            >>> service = ScoringService()
+            >>> service.aggregate_by_dimension(
+            ...     role_mappings=[...],
+            ...     scores={"role-1": {...}},
+            ...     dimension=AnalysisDimension.DEPARTMENT,
+            ... )
+            [{"dimension": DEPARTMENT, "dimension_value": "Technology", ...}]
+        """
+        if not role_mappings:
+            return []
+
+        # Handle TASK dimension separately
+        if dimension == AnalysisDimension.TASK:
+            return self._aggregate_by_task(role_mappings, scores, dwa_selections or {})
+
+        # Group roles by dimension value
+        groups: dict[str, list[Any]] = defaultdict(list)
+        for role_mapping in role_mappings:
+            dim_value = self._get_dimension_value(role_mapping, dimension)
+            groups[dim_value].append(role_mapping)
+
+        # Calculate aggregated scores for each group
+        results: list[dict[str, Any]] = []
+        for dim_value, group_mappings in groups.items():
+            result = self._aggregate_group(
+                dimension=dimension,
+                dimension_value=dim_value,
+                role_mappings=group_mappings,
+                scores=scores,
+            )
+            results.append(result)
+
+        return results
+
+    def _aggregate_by_task(
+        self,
+        role_mappings: list[Any],
+        scores: dict[str, dict[str, float]],
+        dwa_selections: dict[str, list[Any]],
+    ) -> list[dict[str, Any]]:
+        """Aggregate scores by TASK dimension using DWA selections.
+
+        Args:
+            role_mappings: List of role mapping objects.
+            scores: Dictionary mapping role_mapping.id to score dict.
+            dwa_selections: Dictionary keyed by role_mapping.id, where each value
+                is a list of DWA objects with dwa_id and dwa_name attributes.
+
+        Returns:
+            List of aggregation results grouped by task (dwa_name).
+        """
+        # Create a lookup for role mappings by id
+        role_mapping_lookup: dict[str, Any] = {
+            rm.id: rm for rm in role_mappings
+        }
+
+        # Group by task (dwa_name) - iterate over all DWAs for each role
+        task_groups: dict[str, list[str]] = defaultdict(list)
+        for role_id, dwas in dwa_selections.items():
+            for dwa in dwas:
+                task_groups[dwa.dwa_name].append(role_id)
+
+        # Calculate aggregated scores for each task
+        results: list[dict[str, Any]] = []
+        for task_name, role_ids in task_groups.items():
+            # Get role mappings for this task
+            task_mappings = [
+                role_mapping_lookup[rid]
+                for rid in role_ids
+                if rid in role_mapping_lookup
+            ]
+
+            if not task_mappings:
+                continue
+
+            result = self._aggregate_group(
+                dimension=AnalysisDimension.TASK,
+                dimension_value=task_name,
+                role_mappings=task_mappings,
+                scores=scores,
+            )
+            results.append(result)
+
+        return results
+
+    def _aggregate_group(
+        self,
+        dimension: AnalysisDimension,
+        dimension_value: str,
+        role_mappings: list[Any],
+        scores: dict[str, dict[str, float]],
+    ) -> dict[str, Any]:
+        """Calculate aggregated scores for a group of role mappings.
+
+        Args:
+            dimension: The AnalysisDimension being aggregated.
+            dimension_value: The grouping key value.
+            role_mappings: List of role mappings in this group.
+            scores: Dictionary mapping role_mapping.id to score dict.
+
+        Returns:
+            Aggregation result dictionary with all required fields.
+        """
+        # Collect values and weights for weighted averaging
+        exposure_values: list[tuple[float, int]] = []
+        impact_values: list[tuple[float, int]] = []
+        complexity_values: list[tuple[float, int]] = []
+        priority_values: list[tuple[float, int]] = []
+
+        breakdown: list[dict[str, Any]] = []
+        total_headcount = 0
+        role_count = 0
+
+        for rm in role_mappings:
+            role_id = rm.id
+            if role_id not in scores:
+                continue
+
+            role_scores = scores[role_id]
+            headcount = rm.row_count or 0
+            total_headcount += headcount
+            role_count += 1
+
+            # Collect values with headcount weights
+            exposure_values.append(
+                (role_scores.get("exposure", 0.0), headcount)
+            )
+            impact_values.append(
+                (role_scores.get("impact", 0.0), headcount)
+            )
+            complexity_values.append(
+                (role_scores.get("complexity", 0.0), headcount)
+            )
+            priority_values.append(
+                (role_scores.get("priority", 0.0), headcount)
+            )
+
+            # Add to breakdown
+            breakdown.append({
+                "role_id": role_id,
+                "role_name": rm.source_role,
+                "headcount": headcount,
+                "ai_exposure_score": role_scores.get("exposure", 0.0),
+                "impact_score": role_scores.get("impact", 0.0),
+                "complexity_score": role_scores.get("complexity", 0.0),
+                "priority_score": role_scores.get("priority", 0.0),
+            })
+
+        return {
+            "dimension": dimension,
+            "dimension_value": dimension_value,
+            "ai_exposure_score": self._calculate_weighted_average(exposure_values),
+            "impact_score": self._calculate_weighted_average(impact_values),
+            "complexity_score": self._calculate_weighted_average(complexity_values),
+            "priority_score": self._calculate_weighted_average(priority_values),
+            "total_headcount": total_headcount,
+            "role_count": role_count,
+            "breakdown": {"roles": breakdown},
+        }
+
+    def aggregate_all_dimensions(
+        self,
+        role_mappings: list[Any],
+        scores: dict[str, dict[str, float]],
+        dwa_selections: dict[str, list[Any]] | None = None,
+    ) -> dict[AnalysisDimension, list[dict[str, Any]]]:
+        """Aggregate scores across all 5 dimensions in one call.
+
+        Convenience method that calls aggregate_by_dimension for each
+        AnalysisDimension value.
+
+        Args:
+            role_mappings: List of role mapping objects with id, source_role,
+                row_count, and metadata dict containing department, lob, geography.
+            scores: Dictionary mapping role_mapping.id to a dict containing
+                ai_exposure_score, impact_score, complexity_score, priority_score.
+            dwa_selections: Optional dictionary keyed by role_mapping.id for TASK
+                dimension aggregation.
+
+        Returns:
+            Dictionary keyed by AnalysisDimension enum, where each value is
+            the list of aggregation results for that dimension.
+
+        Example:
+            >>> service = ScoringService()
+            >>> results = service.aggregate_all_dimensions(role_mappings, scores)
+            >>> results[AnalysisDimension.DEPARTMENT]
+            [{"dimension": DEPARTMENT, "dimension_value": "Technology", ...}]
+        """
+        return {
+            dim: self.aggregate_by_dimension(
+                role_mappings=role_mappings,
+                scores=scores,
+                dimension=dim,
+                dwa_selections=dwa_selections,
+            )
+            for dim in AnalysisDimension
         }
