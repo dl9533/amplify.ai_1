@@ -60,6 +60,18 @@ class TestPrioritization:
         assert result["c2"] == "medium"
         assert result["c3"] == "low"
 
+    @pytest.mark.asyncio
+    async def test_prioritize_empty_list(self, roadmap_agent):
+        """Should handle empty candidates list."""
+        result = await roadmap_agent.prioritize([])
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_generate_timeline_empty_candidates(self, roadmap_agent):
+        """Should return empty quarters for empty candidates."""
+        timeline = await roadmap_agent.generate_timeline([], quarters=4)
+        assert all(len(candidates) == 0 for candidates in timeline.values())
+
 
 class TestTimelineGeneration:
     """Tests for implementation timeline."""

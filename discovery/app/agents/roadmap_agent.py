@@ -1,5 +1,5 @@
 """Roadmap Subagent for candidate prioritization and timeline generation."""
-from typing import Any, Optional
+from typing import Any
 
 from app.agents.base import BaseSubagent
 
