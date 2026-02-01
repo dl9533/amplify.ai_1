@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 
 export interface Dwa {
   id: string
@@ -17,26 +17,35 @@ export interface GwaGroup {
 export interface DwaAccordionProps {
   group: GwaGroup
   onDwaToggle: (dwaId: string, isSelected: boolean) => void
+  onSelectAllInGroup?: (gwaId: string, dwaIds: string[]) => void
   defaultOpen?: boolean
 }
 
-export function DwaAccordion({ group, onDwaToggle, defaultOpen = false }: DwaAccordionProps) {
+export function DwaAccordion({ group, onDwaToggle, onSelectAllInGroup, defaultOpen = false }: DwaAccordionProps) {
   const [isOpen, setIsOpen] = useState(defaultOpen)
 
-  const selectedCount = group.dwas.filter((dwa) => dwa.isSelected).length
+  const selectedCount = useMemo(() => group.dwas.filter((dwa) => dwa.isSelected).length, [group.dwas])
   const totalCount = group.dwas.length
   const exposurePercentage = Math.round(group.aiExposureScore * 100)
+  const allSelected = selectedCount === totalCount
 
-  const handleSelectAll = () => {
+  const handleSelectAll = useCallback(() => {
     const unselectedDwas = group.dwas.filter((dwa) => !dwa.isSelected)
-    unselectedDwas.forEach((dwa) => {
-      onDwaToggle(dwa.id, true)
-    })
-  }
+    if (unselectedDwas.length === 0) return
 
-  const handleCheckboxChange = (dwa: Dwa) => {
+    if (onSelectAllInGroup) {
+      const dwaIds = unselectedDwas.map((dwa) => dwa.id)
+      onSelectAllInGroup(group.gwaId, dwaIds)
+    } else {
+      unselectedDwas.forEach((dwa) => {
+        onDwaToggle(dwa.id, true)
+      })
+    }
+  }, [group.dwas, group.gwaId, onDwaToggle, onSelectAllInGroup])
+
+  const handleCheckboxChange = useCallback((dwa: Dwa) => {
     onDwaToggle(dwa.id, !dwa.isSelected)
-  }
+  }, [onDwaToggle])
 
   return (
     <div className="border border-gray-200 rounded-lg overflow-hidden">
@@ -76,8 +85,14 @@ export function DwaAccordion({ group, onDwaToggle, defaultOpen = false }: DwaAcc
             <button
               type="button"
               onClick={handleSelectAll}
-              className="text-sm text-blue-600 hover:text-blue-800 font-medium"
-              aria-label="Select all"
+              disabled={allSelected}
+              className={`text-sm font-medium ${
+                allSelected
+                  ? 'text-gray-400 cursor-not-allowed'
+                  : 'text-blue-600 hover:text-blue-800'
+              }`}
+              aria-label={`Select all tasks in ${group.gwaTitle}`}
+              aria-disabled={allSelected}
             >
               Select all
             </button>
