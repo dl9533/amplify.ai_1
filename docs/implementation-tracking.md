@@ -114,15 +114,15 @@ Each task MUST follow this exact sequence. No shortcuts.
 
 | Task | Description | Implement | Spec Review | Code Review | Status |
 |------|-------------|:---------:|:-----------:|:-----------:|:------:|
-| 21 | Discovery Session Service | ⬜ | ⬜ | ⬜ | PENDING |
-| 22 | File Upload Service | ⬜ | ⬜ | ⬜ | PENDING |
-| 23 | AI Exposure Score Calculator | ⬜ | ⬜ | ⬜ | PENDING |
-| 24 | Impact Score Calculator | ⬜ | ⬜ | ⬜ | PENDING |
-| 25 | Priority Score Calculator | ⬜ | ⬜ | ⬜ | PENDING |
-| 26 | Multi-Dimension Aggregator | ⬜ | ⬜ | ⬜ | PENDING |
-| 27 | Scoring Service Integration | ⬜ | ⬜ | ⬜ | PENDING |
+| 21 | Discovery Session Service | ✅ | ✅ | ✅ | COMPLETE |
+| 22 | File Upload Service | ✅ | ✅ | ✅ | COMPLETE |
+| 23 | AI Exposure Score Calculator | ✅ | ✅ | ✅ | COMPLETE |
+| 24 | Impact Score Calculator | ✅ | ✅ | ✅ | COMPLETE |
+| 25 | Priority Score Calculator | ✅ | ✅ | ✅ | COMPLETE |
+| 26 | Multi-Dimension Aggregator | ✅ | ✅ | ✅ | COMPLETE |
+| 27 | Scoring Service Integration | ✅ | ✅ | ✅ | COMPLETE |
 
-**Part 4 Status**: ⬜ NOT STARTED (0/7 tasks)
+**Part 4 Status**: ✅ COMPLETE (7/7 tasks)
 
 ---
 
@@ -142,10 +142,10 @@ Each task MUST follow this exact sequence. No shortcuts.
 | Metric | Part 0 | Part 1 | Part 2 | Part 3 | Part 4 | Parts 5-8 | Total |
 |--------|--------|--------|--------|--------|--------|-----------|-------|
 | Tasks Total | 9 | 8 | 6 | 6 | 7 | TBD | 36+ |
-| Tasks Complete | 9 | 8 | 6 | 6 | 0 | 0 | 29 |
-| Tasks Remaining | 0 | 0 | 0 | 0 | 7 | TBD | 7+ |
+| Tasks Complete | 9 | 8 | 6 | 6 | 7 | 0 | 36 |
+| Tasks Remaining | 0 | 0 | 0 | 0 | 0 | TBD | TBD |
 
-**Overall Status**: 🔄 IN PROGRESS (29/36 tasks in Parts 0-4, Parts 5-8 pending planning)
+**Overall Status**: ✅ PARTS 0-4 COMPLETE (36/36 tasks), Parts 5-8 pending planning
 
 ---
 
@@ -168,6 +168,24 @@ Each task MUST follow this exact sequence. No shortcuts.
 | 18 | Code Quality | Inefficient bulk operations (N queries) | Important | Fixed with single DELETE/SELECT statements | ✅ |
 | 18 | Code Quality | Boolean comparison anti-pattern (== True) | Minor | Changed to .is_(True) | ✅ |
 | 19 | Code Quality | ai_exposure_score nullability mismatch | Important | Fixed to accept float | None = None | ✅ |
+| 21 | Code Quality | Missing edge case tests for null handling | Important | Added 6 new tests | ✅ |
+| 21 | Code Quality | N+1 queries in get_session_summary | Minor | Documented as trade-off | ✅ |
+| 21 | Code Quality | Incomplete handoff bundle fields | Important | Added all required fields | ✅ |
+| 22 | Code Quality | File size not validated before upload | Important | Added validate_file() call | ✅ |
+| 22 | Code Quality | No S3 cleanup on DB failure | Important | Added try-except with rollback | ✅ |
+| 22 | Code Quality | Missing S3 error handling | Important | Added try-except with RuntimeError | ✅ |
+| 23 | Code Quality | Using `Any` instead of Protocol | Important | Added GWALike, IWALike, DWALike Protocols | ✅ |
+| 23 | Code Quality | No score validation | Important | Added _validate_score() method | ✅ |
+| 24 | Code Quality | Using `Any` for role_mapping | Important | Added RoleMappingLike Protocol | ✅ |
+| 24 | Code Quality | No exposure_score validation | Important | Added range check | ✅ |
+| 25 | Code Quality | No input validation for priority params | Important | Added validation for exposure, impact, complexity | ✅ |
+| 25 | Code Quality | No weights validation | Important | Added checks for required keys and sum to 1.0 | ✅ |
+| 26 | Spec Review | Breakdown structure mismatch | Important | Changed to {"roles": [...]} format | ✅ |
+| 26 | Spec Review | dwa_selections structure mismatch | Important | Changed to dict keyed by role ID | ✅ |
+| 26 | Spec Review | Metadata access pattern mismatch | Important | Changed to role_mapping.metadata.get() | ✅ |
+| 26 | Code Quality | Score key naming inconsistency | Important | Normalized to short keys (exposure, impact, etc.) | ✅ |
+| 27 | Code Quality | Inner class definition inside loop | Important | Moved _DwaWithExposure to module level | ✅ |
+| 27 | Code Quality | Role mapping ID for aggregations | Important | Only persist role-level results | ✅ |
 
 *All issues resolved and verified.*
 
@@ -216,6 +234,22 @@ Each task MUST follow this exact sequence. No shortcuts.
   - Code review issues fixed: respx for HTTP mocking, score validation, bulk operation efficiency
   - Parts 2-3 now complete
   - Remaining: Part 4 (Tasks 21-27), then Parts 5-8
+
+### Session 4 (Part 4 Completion)
+- **Date**: 2026-01-31
+- **Tasks Completed**: 21-27 (7 tasks)
+- **Notes**:
+  - Task 21: DiscoverySessionService with create/update/progress, summary generation, handoff bundle
+  - Task 22: FileUploadService with S3 integration, CSV/XLSX parsing, unique value extraction
+  - Task 23: AI Exposure Score Calculator with GWA→IWA→DWA inheritance, Protocol types
+  - Task 24: Impact Score Calculator with formula: (role_count * exposure) / max_headcount
+  - Task 25: Priority Score Calculator with formula: (exposure * 0.4) + (impact * 0.4) + ((1 - complexity) * 0.2)
+  - Task 26: Multi-Dimension Aggregator for ROLE, DEPARTMENT, LOB, GEOGRAPHY, TASK dimensions
+  - Task 27: Scoring Service Integration with schemas, async score_session(), persistence
+  - Established patterns: Protocol types for duck typing, weighted averages by headcount
+  - All tasks followed subagent-driven-development workflow
+  - Part 4 (Scoring Engine) now complete
+  - Remaining: Parts 5-8 pending planning
 
 ---
 
