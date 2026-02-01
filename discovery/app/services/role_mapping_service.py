@@ -2,6 +2,9 @@
 from typing import List, Optional
 from uuid import UUID
 
+from app.config import get_settings
+from app.services.onet_client import OnetApiClient
+
 
 class RoleMappingService:
     """Role mapping service for managing role-to-O*NET mappings.
@@ -61,9 +64,20 @@ class RoleMappingService:
 class OnetService:
     """O*NET service for searching and retrieving occupation data.
 
-    This is a placeholder service that will be replaced with actual
-    O*NET database operations in a later task.
+    This service wraps the OnetApiClient to provide a clean interface
+    for searching and retrieving O*NET occupation data.
+
+    Attributes:
+        client: The OnetApiClient instance for making API calls.
     """
+
+    def __init__(self, client: OnetApiClient) -> None:
+        """Initialize the O*NET service.
+
+        Args:
+            client: OnetApiClient instance for API communication.
+        """
+        self.client = client
 
     async def search(self, query: str) -> List[dict]:
         """Search O*NET occupations by query.
@@ -74,7 +88,7 @@ class OnetService:
         Returns:
             List of matching occupations with code, title, and score.
         """
-        raise NotImplementedError("Service not implemented")
+        return await self.client.search_occupations(query)
 
     async def get_occupation(self, code: str) -> Optional[dict]:
         """Get O*NET occupation details by code.
@@ -85,7 +99,7 @@ class OnetService:
         Returns:
             Occupation details dictionary, or None if not found.
         """
-        raise NotImplementedError("Service not implemented")
+        return await self.client.get_occupation(code)
 
 
 def get_role_mapping_service() -> RoleMappingService:
@@ -94,5 +108,14 @@ def get_role_mapping_service() -> RoleMappingService:
 
 
 def get_onet_service() -> OnetService:
-    """Dependency to get O*NET service."""
-    return OnetService()
+    """Dependency to get O*NET service.
+
+    Creates an OnetApiClient with application settings and injects it
+    into a new OnetService instance.
+
+    Returns:
+        OnetService instance configured with API client.
+    """
+    settings = get_settings()
+    client = OnetApiClient(settings=settings)
+    return OnetService(client=client)
