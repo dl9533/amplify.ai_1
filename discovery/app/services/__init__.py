@@ -1,4 +1,5 @@
 """Services for the Discovery module."""
+from app.services.activity_service import ActivityService, get_activity_service
 from app.services.memory_service import AgentMemoryService
 from app.services.role_mapping_service import (
     OnetService,
@@ -10,7 +11,9 @@ from app.services.session_service import SessionService, get_session_service
 from app.services.upload_service import UploadService, get_upload_service
 
 __all__ = [
+    "ActivityService",
     "AgentMemoryService",
+    "get_activity_service",
     "OnetService",
     "RoleMappingService",
     "get_onet_service",

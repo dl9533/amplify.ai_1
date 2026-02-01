@@ -1,4 +1,12 @@
 """Schemas for the Discovery module."""
+from app.schemas.activity import (
+    ActivitySelectionUpdate,
+    BulkSelectionRequest,
+    BulkSelectionResponse,
+    DWAResponse,
+    GWAGroupResponse,
+    SelectionCountResponse,
+)
 from app.schemas.role_mapping import (
     BulkConfirmRequest,
     BulkConfirmResponse,
@@ -19,13 +27,19 @@ from app.schemas.upload import (
 )
 
 __all__ = [
+    "ActivitySelectionUpdate",
     "BulkConfirmRequest",
     "BulkConfirmResponse",
+    "BulkSelectionRequest",
+    "BulkSelectionResponse",
     "ColumnMappingUpdate",
+    "DWAResponse",
+    "GWAGroupResponse",
     "OnetOccupation",
     "OnetSearchResult",
     "RoleMappingResponse",
     "RoleMappingUpdate",
+    "SelectionCountResponse",
     "SessionCreate",
     "SessionResponse",
     "SessionList",
