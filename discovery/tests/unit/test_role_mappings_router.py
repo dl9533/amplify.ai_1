@@ -1,7 +1,7 @@
 """Tests for role mappings router."""
 import pytest
-from unittest.mock import AsyncMock, MagicMock
-from uuid import uuid4
+from unittest.mock import AsyncMock, MagicMock, call
+from uuid import UUID, uuid4
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -49,7 +49,7 @@ class TestGetRoleMappings:
 
     def test_get_role_mappings_returns_200(self, client, mock_role_mapping_service):
         """Should return role mappings for a session."""
-        session_id = str(uuid4())
+        session_id = uuid4()
         mapping_id = str(uuid4())
         mock_role_mapping_service.get_by_session_id.return_value = [
             {
@@ -73,17 +73,18 @@ class TestGetRoleMappings:
         assert data[0]["onet_title"] == "Software Developers"
         assert data[0]["confidence_score"] == 0.95
         assert data[0]["is_confirmed"] is False
-        mock_role_mapping_service.get_by_session_id.assert_called_once()
+        mock_role_mapping_service.get_by_session_id.assert_called_once_with(session_id=session_id)
 
     def test_get_role_mappings_empty_list(self, client, mock_role_mapping_service):
         """Should return empty list when no mappings exist."""
-        session_id = str(uuid4())
+        session_id = uuid4()
         mock_role_mapping_service.get_by_session_id.return_value = []
 
         response = client.get(f"/discovery/sessions/{session_id}/role-mappings")
 
         assert response.status_code == 200
         assert response.json() == []
+        mock_role_mapping_service.get_by_session_id.assert_called_once_with(session_id=session_id)
 
     def test_get_role_mappings_validates_uuid(self, client, mock_role_mapping_service):
         """Should validate session ID is a valid UUID."""
@@ -97,9 +98,9 @@ class TestUpdateRoleMapping:
 
     def test_update_role_mapping_returns_200(self, client, mock_role_mapping_service):
         """Should update role mapping and return 200."""
-        mapping_id = str(uuid4())
+        mapping_id = uuid4()
         mock_role_mapping_service.update.return_value = {
-            "id": mapping_id,
+            "id": str(mapping_id),
             "source_role": "Software Engineer",
             "onet_code": "15-1251.00",
             "onet_title": "Computer Programmers",
@@ -117,13 +118,18 @@ class TestUpdateRoleMapping:
         assert data["onet_code"] == "15-1251.00"
         assert data["onet_title"] == "Computer Programmers"
         assert data["is_confirmed"] is True
-        mock_role_mapping_service.update.assert_called_once()
+        mock_role_mapping_service.update.assert_called_once_with(
+            mapping_id=mapping_id,
+            onet_code="15-1251.00",
+            onet_title="Computer Programmers",
+            is_confirmed=True,
+        )
 
     def test_update_role_mapping_partial_update(self, client, mock_role_mapping_service):
         """Should allow partial update with only is_confirmed."""
-        mapping_id = str(uuid4())
+        mapping_id = uuid4()
         mock_role_mapping_service.update.return_value = {
-            "id": mapping_id,
+            "id": str(mapping_id),
             "source_role": "Software Engineer",
             "onet_code": "15-1252.00",
             "onet_title": "Software Developers",
@@ -138,10 +144,16 @@ class TestUpdateRoleMapping:
 
         assert response.status_code == 200
         assert response.json()["is_confirmed"] is True
+        mock_role_mapping_service.update.assert_called_once_with(
+            mapping_id=mapping_id,
+            onet_code=None,
+            onet_title=None,
+            is_confirmed=True,
+        )
 
     def test_update_role_mapping_not_found_returns_404(self, client, mock_role_mapping_service):
         """Should return 404 if mapping not found."""
-        mapping_id = str(uuid4())
+        mapping_id = uuid4()
         mock_role_mapping_service.update.return_value = None
 
         response = client.put(
@@ -150,6 +162,24 @@ class TestUpdateRoleMapping:
         )
 
         assert response.status_code == 404
+        mock_role_mapping_service.update.assert_called_once_with(
+            mapping_id=mapping_id,
+            onet_code=None,
+            onet_title=None,
+            is_confirmed=True,
+        )
+
+    def test_update_role_mapping_invalid_onet_code_format(self, client, mock_role_mapping_service):
+        """Should reject invalid O*NET code format."""
+        mapping_id = uuid4()
+
+        response = client.put(
+            f"/discovery/role-mappings/{mapping_id}",
+            json={"onet_code": "invalid-code"},
+        )
+
+        assert response.status_code == 422
+        mock_role_mapping_service.update.assert_not_called()
 
     def test_update_role_mapping_validates_uuid(self, client, mock_role_mapping_service):
         """Should validate mapping ID is a valid UUID."""
@@ -166,7 +196,7 @@ class TestBulkConfirm:
 
     def test_bulk_confirm_returns_200(self, client, mock_role_mapping_service):
         """Should bulk confirm mappings and return count."""
-        session_id = str(uuid4())
+        session_id = uuid4()
         mock_role_mapping_service.bulk_confirm.return_value = {"confirmed_count": 5}
 
         response = client.post(
@@ -176,11 +206,14 @@ class TestBulkConfirm:
 
         assert response.status_code == 200
         assert response.json()["confirmed_count"] == 5
-        mock_role_mapping_service.bulk_confirm.assert_called_once()
+        mock_role_mapping_service.bulk_confirm.assert_called_once_with(
+            session_id=session_id,
+            threshold=0.8,
+        )
 
     def test_bulk_confirm_zero_threshold(self, client, mock_role_mapping_service):
         """Should accept threshold of 0."""
-        session_id = str(uuid4())
+        session_id = uuid4()
         mock_role_mapping_service.bulk_confirm.return_value = {"confirmed_count": 10}
 
         response = client.post(
@@ -190,6 +223,10 @@ class TestBulkConfirm:
 
         assert response.status_code == 200
         assert response.json()["confirmed_count"] == 10
+        mock_role_mapping_service.bulk_confirm.assert_called_once_with(
+            session_id=session_id,
+            threshold=0.0,
+        )
 
     def test_bulk_confirm_max_threshold(self, client, mock_role_mapping_service):
         """Should accept threshold of 1."""
@@ -253,7 +290,7 @@ class TestOnetSearch:
         assert data[0]["code"] == "15-1252.00"
         assert data[0]["title"] == "Software Developers"
         assert data[0]["score"] == 0.95
-        mock_onet_service.search.assert_called_once()
+        mock_onet_service.search.assert_called_once_with(query="software engineer")
 
     def test_search_onet_empty_results(self, client, mock_onet_service):
         """Should return empty list when no matches found."""
@@ -263,6 +300,7 @@ class TestOnetSearch:
 
         assert response.status_code == 200
         assert response.json() == []
+        mock_onet_service.search.assert_called_once_with(query="xyz123nonexistent")
 
     def test_search_onet_requires_query(self, client, mock_onet_service):
         """Should require query parameter."""
@@ -300,7 +338,7 @@ class TestOnetDetails:
         assert data["title"] == "Software Developers"
         assert data["description"] is not None
         assert len(data["gwas"]) == 2
-        mock_onet_service.get_occupation.assert_called_once()
+        mock_onet_service.get_occupation.assert_called_once_with(code="15-1252.00")
 
     def test_get_onet_occupation_without_optional_fields(self, client, mock_onet_service):
         """Should return occupation without optional fields."""
@@ -317,6 +355,7 @@ class TestOnetDetails:
         assert data["title"] == "Software Developers"
         assert data.get("description") is None
         assert data.get("gwas") is None
+        mock_onet_service.get_occupation.assert_called_once_with(code="15-1252.00")
 
     def test_get_onet_occupation_not_found(self, client, mock_onet_service):
         """Should return 404 if occupation not found."""
@@ -325,6 +364,28 @@ class TestOnetDetails:
         response = client.get("/discovery/onet/99-9999.00")
 
         assert response.status_code == 404
+        mock_onet_service.get_occupation.assert_called_once_with(code="99-9999.00")
+
+    def test_get_onet_occupation_invalid_code_format(self, client, mock_onet_service):
+        """Should reject invalid O*NET code format."""
+        response = client.get("/discovery/onet/invalid-code")
+
+        assert response.status_code == 422
+        mock_onet_service.get_occupation.assert_not_called()
+
+    def test_get_onet_occupation_invalid_code_missing_decimal(self, client, mock_onet_service):
+        """Should reject O*NET code without decimal portion."""
+        response = client.get("/discovery/onet/15-1252")
+
+        assert response.status_code == 422
+        mock_onet_service.get_occupation.assert_not_called()
+
+    def test_get_onet_occupation_invalid_code_wrong_format(self, client, mock_onet_service):
+        """Should reject O*NET code with wrong number format."""
+        response = client.get("/discovery/onet/151-252.00")
+
+        assert response.status_code == 422
+        mock_onet_service.get_occupation.assert_not_called()
 
 
 class TestSchemas:
@@ -430,3 +491,55 @@ class TestSchemas:
         assert schema.code == "15-1252.00"
         assert schema.title == "Software Developers"
         assert schema.score == 0.95
+
+    def test_role_mapping_response_invalid_onet_code(self):
+        """RoleMappingResponse should reject invalid O*NET code format."""
+        from app.schemas.role_mapping import RoleMappingResponse
+
+        with pytest.raises(ValueError):
+            RoleMappingResponse(
+                id=uuid4(),
+                source_role="Software Engineer",
+                onet_code="invalid-code",
+                onet_title="Software Developers",
+                confidence_score=0.95,
+                is_confirmed=False,
+            )
+
+    def test_role_mapping_response_valid_onet_code_formats(self):
+        """RoleMappingResponse should accept valid O*NET code formats."""
+        from app.schemas.role_mapping import RoleMappingResponse
+
+        # Test various valid O*NET codes
+        valid_codes = ["15-1252.00", "11-1011.00", "99-9999.99"]
+        for code in valid_codes:
+            schema = RoleMappingResponse(
+                id=uuid4(),
+                source_role="Test Role",
+                onet_code=code,
+                onet_title="Test Title",
+                confidence_score=0.5,
+                is_confirmed=True,
+            )
+            assert schema.onet_code == code
+
+    def test_role_mapping_update_invalid_onet_code(self):
+        """RoleMappingUpdate should reject invalid O*NET code format."""
+        from app.schemas.role_mapping import RoleMappingUpdate
+
+        with pytest.raises(ValueError):
+            RoleMappingUpdate(onet_code="bad-format")
+
+    def test_role_mapping_update_valid_onet_code(self):
+        """RoleMappingUpdate should accept valid O*NET code format."""
+        from app.schemas.role_mapping import RoleMappingUpdate
+
+        schema = RoleMappingUpdate(onet_code="15-1252.00")
+        assert schema.onet_code == "15-1252.00"
+
+    def test_role_mapping_update_none_onet_code(self):
+        """RoleMappingUpdate should accept None for onet_code."""
+        from app.schemas.role_mapping import RoleMappingUpdate
+
+        schema = RoleMappingUpdate(onet_code=None)
+        assert schema.onet_code is None

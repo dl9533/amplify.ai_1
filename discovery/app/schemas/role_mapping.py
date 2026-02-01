@@ -1,8 +1,21 @@
 """Role mapping schemas for the Discovery module."""
+import re
 from typing import Any, List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
+
+# O*NET code format: XX-XXXX.XX (e.g., 15-1252.00)
+ONET_CODE_PATTERN = re.compile(r"^\d{2}-\d{4}\.\d{2}$")
+
+
+def validate_onet_code(code: str) -> str:
+    """Validate O*NET code format (XX-XXXX.XX)."""
+    if not ONET_CODE_PATTERN.match(code):
+        raise ValueError(
+            f"Invalid O*NET code format: {code}. Expected format: XX-XXXX.XX (e.g., 15-1252.00)"
+        )
+    return code
 
 
 class RoleMappingResponse(BaseModel):
@@ -35,6 +48,12 @@ class RoleMappingResponse(BaseModel):
         description="Whether the mapping has been confirmed by user",
     )
 
+    @field_validator("onet_code")
+    @classmethod
+    def validate_onet_code_format(cls, v: str) -> str:
+        """Validate O*NET code format."""
+        return validate_onet_code(v)
+
     model_config = {
         "from_attributes": True,
     }
@@ -56,6 +75,14 @@ class RoleMappingUpdate(BaseModel):
         description="Whether the mapping has been confirmed by user",
     )
 
+    @field_validator("onet_code")
+    @classmethod
+    def validate_onet_code_format(cls, v: Optional[str]) -> Optional[str]:
+        """Validate O*NET code format if provided."""
+        if v is not None:
+            return validate_onet_code(v)
+        return v
+
 
 class BulkConfirmRequest(BaseModel):
     """Schema for bulk confirm request."""
@@ -66,14 +93,6 @@ class BulkConfirmRequest(BaseModel):
         le=1.0,
         description="Minimum confidence score threshold for auto-confirmation (0-1)",
     )
-
-    @field_validator("threshold")
-    @classmethod
-    def validate_threshold(cls, v: float) -> float:
-        """Validate threshold is between 0 and 1."""
-        if v < 0.0 or v > 1.0:
-            raise ValueError("Threshold must be between 0 and 1")
-        return v
 
 
 class BulkConfirmResponse(BaseModel):

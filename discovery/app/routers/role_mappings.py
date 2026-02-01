@@ -2,7 +2,7 @@
 from typing import List
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 
 from app.schemas.role_mapping import (
     BulkConfirmRequest,
@@ -26,6 +26,25 @@ router = APIRouter(
 )
 
 
+def _dict_to_role_mapping_response(data: dict) -> RoleMappingResponse:
+    """Convert a dictionary to RoleMappingResponse, handling UUID conversion.
+
+    Args:
+        data: Dictionary containing role mapping data.
+
+    Returns:
+        RoleMappingResponse instance.
+    """
+    return RoleMappingResponse(
+        id=UUID(data["id"]) if isinstance(data["id"], str) else data["id"],
+        source_role=data["source_role"],
+        onet_code=data["onet_code"],
+        onet_title=data["onet_title"],
+        confidence_score=data["confidence_score"],
+        is_confirmed=data["is_confirmed"],
+    )
+
+
 @router.get(
     "/sessions/{session_id}/role-mappings",
     response_model=List[RoleMappingResponse],
@@ -40,17 +59,7 @@ async def get_role_mappings(
     """Get all role mappings for a session."""
     result = await service.get_by_session_id(session_id=session_id)
 
-    return [
-        RoleMappingResponse(
-            id=UUID(item["id"]) if isinstance(item["id"], str) else item["id"],
-            source_role=item["source_role"],
-            onet_code=item["onet_code"],
-            onet_title=item["onet_title"],
-            confidence_score=item["confidence_score"],
-            is_confirmed=item["is_confirmed"],
-        )
-        for item in result
-    ]
+    return [_dict_to_role_mapping_response(item) for item in result]
 
 
 @router.put(
@@ -79,14 +88,7 @@ async def update_role_mapping(
             detail=f"Role mapping with ID {mapping_id} not found",
         )
 
-    return RoleMappingResponse(
-        id=UUID(result["id"]) if isinstance(result["id"], str) else result["id"],
-        source_role=result["source_role"],
-        onet_code=result["onet_code"],
-        onet_title=result["onet_title"],
-        confidence_score=result["confidence_score"],
-        is_confirmed=result["is_confirmed"],
-    )
+    return _dict_to_role_mapping_response(result)
 
 
 @router.post(
@@ -146,7 +148,11 @@ async def search_onet(
     description="Retrieves detailed information about an O*NET occupation.",
 )
 async def get_onet_occupation(
-    code: str,
+    code: str = Path(
+        ...,
+        pattern=r"^\d{2}-\d{4}\.\d{2}$",
+        description="O*NET SOC code in format XX-XXXX.XX (e.g., 15-1252.00)",
+    ),
     service: OnetService = Depends(get_onet_service),
 ) -> OnetOccupation:
     """Get O*NET occupation details by code."""
