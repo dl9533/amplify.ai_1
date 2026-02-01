@@ -1,5 +1,4 @@
 import pytest
-from unittest.mock import AsyncMock
 
 from app.agents.base import BaseSubagent
 
@@ -47,3 +46,33 @@ def test_base_subagent_uses_brainstorming_style():
     agent = TestAgent(session=None, memory_service=None)
     # Verify format_response exists and returns structured response
     assert hasattr(agent, "format_response")
+
+
+def test_format_response_returns_structured_response():
+    """format_response should return a properly structured dictionary."""
+    class TestAgent(BaseSubagent):
+        agent_type = "test_agent"
+        async def process(self, message: str):
+            return message
+
+    agent = TestAgent(session=None, memory_service=None)
+    response = agent.format_response("Test message", choices=["A", "B"], custom_field="value")
+
+    assert response["message"] == "Test message"
+    assert response["agent_type"] == "test_agent"
+    assert response["choices"] == ["A", "B"]
+    assert response["custom_field"] == "value"
+
+
+def test_format_response_without_choices():
+    """format_response should work without choices."""
+    class TestAgent(BaseSubagent):
+        agent_type = "test_agent"
+        async def process(self, message: str):
+            return message
+
+    agent = TestAgent(session=None, memory_service=None)
+    response = agent.format_response("Test message")
+
+    assert "choices" not in response
+    assert response["message"] == "Test message"
