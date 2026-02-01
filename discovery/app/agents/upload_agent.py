@@ -23,10 +23,16 @@ class UploadSubagent(BaseSubagent):
 
     agent_type: str = "upload"
 
+    # Supported file types for upload
+    SUPPORTED_FILE_TYPES: set[str] = {"csv"}  # Add "xlsx" when implemented
+
     # Column mapping keywords for suggestions
     _ROLE_KEYWORDS = ["role", "title", "job", "position"]
     _DEPARTMENT_KEYWORDS = ["department", "dept", "division", "team", "unit"]
     _HEADCOUNT_KEYWORDS = ["headcount", "count", "fte", "employees", "staff", "size"]
+
+    # Order in which column mappings are requested
+    _MAPPING_ORDER = ["role_column", "department_column", "headcount_column"]
 
     def __init__(self, session: Any, memory_service: Any) -> None:
         """Initialize the UploadSubagent.
@@ -50,10 +56,16 @@ class UploadSubagent(BaseSubagent):
 
         Returns:
             A list of column names detected from the file.
+
+        Raises:
+            ValueError: If the file type is not supported.
         """
+        if file_type not in self.SUPPORTED_FILE_TYPES:
+            raise ValueError(
+                f"Unsupported file type: {file_type}. Supported: {self.SUPPORTED_FILE_TYPES}"
+            )
         if file_type == "csv":
             return self._parse_csv_columns(file_content)
-        # Future support for xlsx can be added here
         return []
 
     def _parse_csv_columns(self, file_content: str) -> list[str]:
@@ -143,9 +155,7 @@ class UploadSubagent(BaseSubagent):
             A response with the next column mapping question.
         """
         # Determine which mapping to ask about next
-        mapping_order = ["role_column", "department_column", "headcount_column"]
-
-        for mapping_key in mapping_order:
+        for mapping_key in self._MAPPING_ORDER:
             if mapping_key not in self._column_mappings:
                 self._pending_question = mapping_key
                 question = self._get_question_for_mapping(mapping_key)
@@ -189,13 +199,20 @@ class UploadSubagent(BaseSubagent):
             A response confirming the selection and asking the next question.
         """
         if self._pending_question:
+            # Validate that selected column exists in the available columns
+            if selected_column not in self._columns:
+                return self.format_response(
+                    message=f"'{selected_column}' is not a valid column. Please select from the available columns.",
+                    question=self._get_question_for_mapping(self._pending_question),
+                    choices=self._columns[:5],
+                )
+
             self._column_mappings[self._pending_question] = selected_column
             confirmed_mapping = self._pending_question
             self._pending_question = None
 
             # Check if there are more mappings to complete
-            mapping_order = ["role_column", "department_column", "headcount_column"]
-            for mapping_key in mapping_order:
+            for mapping_key in self._MAPPING_ORDER:
                 if mapping_key not in self._column_mappings:
                     # Ask next question
                     self._pending_question = mapping_key

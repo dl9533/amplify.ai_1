@@ -43,6 +43,18 @@ class TestColumnDetection:
         assert "Role" in result
 
     @pytest.mark.asyncio
+    async def test_detect_columns_empty_file(self, upload_agent):
+        """Should return empty list for empty file."""
+        result = await upload_agent.detect_columns("", file_type="csv")
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_detect_columns_unsupported_type_raises_error(self, upload_agent):
+        """Should raise ValueError for unsupported file types."""
+        with pytest.raises(ValueError, match="Unsupported file type"):
+            await upload_agent.detect_columns("content", file_type="xlsx")
+
+    @pytest.mark.asyncio
     async def test_suggest_column_mappings(self, upload_agent):
         """Should suggest which columns map to required fields."""
         columns = ["Employee Name", "Dept", "Job Title", "Location", "Headcount"]
@@ -52,6 +64,24 @@ class TestColumnDetection:
         assert "role_column" in result
         assert "department_column" in result
         assert "headcount_column" in result
+
+    @pytest.mark.asyncio
+    async def test_suggest_column_mappings_finds_correct_columns(self, upload_agent):
+        """Should correctly identify which columns map to which fields."""
+        columns = ["Employee Name", "Dept", "Job Title", "Location", "Headcount"]
+        result = await upload_agent.suggest_column_mappings(columns)
+        assert result["role_column"] == "Job Title"
+        assert result["department_column"] == "Dept"
+        assert result["headcount_column"] == "Headcount"
+
+    @pytest.mark.asyncio
+    async def test_suggest_mappings_none_when_no_match(self, upload_agent):
+        """Should return None for fields with no matching columns."""
+        columns = ["Column A", "Column B", "Column C"]
+        result = await upload_agent.suggest_column_mappings(columns)
+        assert result["role_column"] is None
+        assert result["department_column"] is None
+        assert result["headcount_column"] is None
 
 
 class TestBrainstormingInteraction:
