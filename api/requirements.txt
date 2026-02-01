@@ -1,0 +1,25 @@
+# Discovery API Dependencies
+# Production dependencies only - use pip install -e ".[dev]" for dev dependencies
+
+# Web framework
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+
+# Database
+sqlalchemy[asyncio]>=2.0.25
+asyncpg>=0.29.0
+alembic>=1.13.0
+
+# Configuration
+pydantic>=2.0,<3.0
+pydantic-settings>=2.1.0
+python-dotenv>=1.0.0
+
+# HTTP client for O*NET API
+httpx>=0.26.0
+
+# AWS S3 storage
+boto3>=1.34.0
+
+# Cache
+redis>=5.0.0

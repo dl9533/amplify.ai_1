@@ -1,0 +1,75 @@
+# Discovery API Development Dockerfile
+# Optimized for development with hot reload and debugging
+
+FROM python:3.12-slim
+
+# Labels for container metadata
+LABEL org.opencontainers.image.title="Discovery API (Development)" \
+      org.opencontainers.image.description="Development image with hot reload for Discovery API"
+
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONFAULTHANDLER=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    # Application settings
+    APP_HOME=/app \
+    APP_USER=discovery \
+    APP_UID=1000 \
+    APP_GID=1000 \
+    # API settings
+    API_HOST=0.0.0.0 \
+    API_PORT=8001 \
+    # Python path for module discovery
+    PYTHONPATH=/app/src \
+    # Development settings
+    DEBUG=true \
+    LOG_LEVEL=DEBUG
+
+WORKDIR $APP_HOME
+
+# Create non-root user for security (even in dev)
+RUN groupadd --gid $APP_GID $APP_USER \
+    && useradd --uid $APP_UID --gid $APP_GID --shell /bin/bash --create-home $APP_USER
+
+# Install development dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    git \
+    vim \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Copy requirements and install dependencies
+# Note: In development, we install directly (not via wheels) for simplicity
+COPY api/requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Install development tools
+RUN pip install --no-cache-dir \
+    pytest>=8.0.0 \
+    pytest-asyncio>=0.23.0 \
+    pytest-cov>=4.1.0 \
+    httpx>=0.26.0 \
+    ruff>=0.2.0 \
+    mypy>=1.8.0
+
+# Copy application code (will be overridden by volume mount in docker-compose)
+COPY api/src/ ./src/
+
+# Change ownership to non-root user
+RUN chown -R $APP_USER:$APP_USER $APP_HOME
+
+# Switch to non-root user
+USER $APP_USER
+
+# Expose the API port
+EXPOSE 8001
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl --fail http://localhost:8001/health || exit 1
+
+# Run uvicorn with hot reload enabled for development
+CMD ["uvicorn", "discovery.main:app", "--host", "0.0.0.0", "--port", "8001", "--reload", "--reload-dir", "/app/src"]

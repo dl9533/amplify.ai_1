@@ -1,0 +1,135 @@
+# Discovery Module Docker Compose Stack
+# Production-like configuration for the discovery service
+
+services:
+  # =============================================================================
+  # API Service - Discovery FastAPI application
+  # =============================================================================
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: discovery-api
+    ports:
+      - "8001:8001"
+    environment:
+      - POSTGRES_HOST=${POSTGRES_HOST:-postgres}
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - POSTGRES_USER=${POSTGRES_USER:-discovery}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-discovery_dev}
+      - POSTGRES_DB=${POSTGRES_DB:-discovery}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://localstack:4566}
+      - S3_BUCKET=${S3_BUCKET:-discovery-uploads}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-test}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-test}
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - API_HOST=${API_HOST:-0.0.0.0}
+      - API_PORT=${API_PORT:-8001}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - discovery-network
+    restart: unless-stopped
+
+  # =============================================================================
+  # PostgreSQL Database
+  # =============================================================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: discovery-postgres
+    ports:
+      - "5433:5432"
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-discovery}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-discovery_dev}
+      - POSTGRES_DB=${POSTGRES_DB:-discovery}
+    volumes:
+      - ./docker/postgres:/docker-entrypoint-initdb.d
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-discovery} -d $${POSTGRES_DB:-discovery}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - discovery-network
+    restart: unless-stopped
+
+  # =============================================================================
+  # Redis Cache
+  # =============================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: discovery-redis
+    ports:
+      - "6380:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - discovery-network
+    restart: unless-stopped
+
+  # =============================================================================
+  # LocalStack - S3-compatible storage for development
+  # =============================================================================
+  localstack:
+    image: localstack/localstack:3
+    container_name: discovery-localstack
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=s3
+      - DEBUG=0
+      - PERSISTENCE=1
+      - AWS_DEFAULT_REGION=us-east-1
+    volumes:
+      - localstack-data:/var/lib/localstack
+      - ./docker/localstack:/etc/localstack/init/ready.d
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - discovery-network
+    restart: unless-stopped
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  discovery-network:
+    driver: bridge
+    name: discovery-network
+
+# =============================================================================
+# Volumes
+# =============================================================================
+volumes:
+  postgres-data:
+    name: discovery-postgres-data
+  redis-data:
+    name: discovery-redis-data
+  localstack-data:
+    name: discovery-localstack-data

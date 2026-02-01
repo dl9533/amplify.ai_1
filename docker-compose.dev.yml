@@ -1,0 +1,61 @@
+# Discovery Module Docker Compose Development Overrides
+# Use with: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+services:
+  # =============================================================================
+  # API Service - Development overrides
+  # =============================================================================
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    volumes:
+      # Mount source code for hot reload
+      - ./api/src:/app/src
+      # Mount tests for development
+      - ./tests:/app/tests
+    environment:
+      # Debug settings
+      - DEBUG=true
+      - LOG_LEVEL=DEBUG
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONUNBUFFERED=1
+      # Enable uvicorn reload
+      - UVICORN_RELOAD=true
+    ports:
+      # Expose additional debug port (8001 is inherited from base)
+      - "5678:5678"  # debugpy port for remote debugging
+    # Override command for development with hot reload
+    command: >
+      uvicorn discovery.main:app
+      --host 0.0.0.0
+      --port 8001
+      --reload
+      --reload-dir /app/src
+
+  # =============================================================================
+  # PostgreSQL - Development overrides
+  # =============================================================================
+  postgres:
+    environment:
+      # Enable logging for development
+      - POSTGRES_INITDB_ARGS=--data-checksums
+    command: >
+      postgres
+      -c log_statement=all
+      -c log_duration=on
+      -c log_min_duration_statement=0
+
+  # =============================================================================
+  # Redis - Development overrides
+  # =============================================================================
+  redis:
+    command: redis-server --appendonly yes --loglevel verbose
+
+  # =============================================================================
+  # LocalStack - Development overrides
+  # =============================================================================
+  localstack:
+    environment:
+      # Enable debug logging (PERSISTENCE=1 inherited from base)
+      - DEBUG=1
