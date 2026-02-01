@@ -1,5 +1,8 @@
 """Discovery repositories package."""
 
+from app.modules.discovery.repositories.activity_selection_repository import (
+    DiscoveryActivitySelectionRepository,
+)
 from app.modules.discovery.repositories.onet_repository import (
     OnetDwaRepository,
     OnetGwaRepository,
@@ -17,6 +20,7 @@ from app.modules.discovery.repositories.upload_repository import (
 )
 
 __all__ = [
+    "DiscoveryActivitySelectionRepository",
     "DiscoveryRoleMappingRepository",
     "DiscoverySessionRepository",
     "DiscoveryUploadRepository",
