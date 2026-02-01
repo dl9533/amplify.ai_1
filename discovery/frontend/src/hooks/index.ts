@@ -12,3 +12,6 @@ export type { OnetOccupation, UseOnetSearchReturn } from './useOnetSearch'
 
 export { useActivitySelections } from './useActivitySelections'
 export type { DWA, GWA, UseActivitySelectionsReturn } from './useActivitySelections'
+
+export { useAnalysisResults } from './useAnalysisResults'
+export type { Dimension, PriorityTier, AnalysisResult, UseAnalysisResultsReturn } from './useAnalysisResults'
