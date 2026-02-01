@@ -47,6 +47,7 @@ class TestGetActivities:
             {
                 "gwa_code": "4.A.1",
                 "gwa_title": "Analyzing Data or Information",
+                "ai_exposure_score": 0.75,
                 "dwas": [
                     {
                         "id": dwa_id,
@@ -67,12 +68,42 @@ class TestGetActivities:
         assert len(data) == 1
         assert data[0]["gwa_code"] == "4.A.1"
         assert data[0]["gwa_title"] == "Analyzing Data or Information"
+        assert data[0]["ai_exposure_score"] == 0.75
         assert len(data[0]["dwas"]) == 1
         assert data[0]["dwas"][0]["id"] == dwa_id
         assert data[0]["dwas"][0]["selected"] is True
         mock_activity_service.get_activities_by_session.assert_called_once_with(
             session_id=session_id, include_unselected=True
         )
+
+    def test_get_activities_with_null_ai_exposure_score(
+        self, client, mock_activity_service
+    ):
+        """Should handle null ai_exposure_score."""
+        session_id = uuid4()
+        dwa_id = str(uuid4())
+        mock_activity_service.get_activities_by_session.return_value = [
+            {
+                "gwa_code": "4.A.1",
+                "gwa_title": "Analyzing Data or Information",
+                "dwas": [
+                    {
+                        "id": dwa_id,
+                        "code": "4.A.1.a.1",
+                        "title": "Analyze data",
+                        "description": None,
+                        "selected": False,
+                        "gwa_code": "4.A.1",
+                    }
+                ],
+            }
+        ]
+
+        response = client.get(f"/discovery/sessions/{session_id}/activities")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data[0]["ai_exposure_score"] is None
 
     def test_get_activities_with_include_unselected_false(
         self, client, mock_activity_service
@@ -339,6 +370,7 @@ class TestGetSelectionCount:
             "total": 100,
             "selected": 75,
             "unselected": 25,
+            "gwas_with_selections": 10,
         }
 
         response = client.get(f"/discovery/sessions/{session_id}/activities/count")
@@ -348,6 +380,7 @@ class TestGetSelectionCount:
         assert data["total"] == 100
         assert data["selected"] == 75
         assert data["unselected"] == 25
+        assert data["gwas_with_selections"] == 10
         mock_activity_service.get_selection_count.assert_called_once_with(
             session_id=session_id
         )
@@ -359,6 +392,7 @@ class TestGetSelectionCount:
             "total": 0,
             "selected": 0,
             "unselected": 0,
+            "gwas_with_selections": 0,
         }
 
         response = client.get(f"/discovery/sessions/{session_id}/activities/count")
@@ -368,6 +402,7 @@ class TestGetSelectionCount:
         assert data["total"] == 0
         assert data["selected"] == 0
         assert data["unselected"] == 0
+        assert data["gwas_with_selections"] == 0
 
     def test_get_selection_count_session_not_found_returns_404(
         self, client, mock_activity_service
@@ -443,12 +478,67 @@ class TestSchemas:
             gwa_code="4.A.1",
             gwa_title="Analyzing Data or Information",
             dwas=[dwa],
+            ai_exposure_score=0.85,
         )
 
         assert schema.gwa_code == "4.A.1"
         assert schema.gwa_title == "Analyzing Data or Information"
         assert len(schema.dwas) == 1
         assert schema.dwas[0].code == "4.A.1.a.1"
+        assert schema.ai_exposure_score == 0.85
+
+    def test_gwa_group_response_optional_ai_exposure_score(self):
+        """GWAGroupResponse should allow None for ai_exposure_score."""
+        from app.schemas.activity import GWAGroupResponse
+
+        schema = GWAGroupResponse(
+            gwa_code="4.A.1",
+            gwa_title="Analyzing Data or Information",
+            dwas=[],
+        )
+
+        assert schema.ai_exposure_score is None
+
+    def test_gwa_group_response_ai_exposure_score_validation(self):
+        """GWAGroupResponse should validate ai_exposure_score range."""
+        from pydantic import ValidationError
+
+        from app.schemas.activity import GWAGroupResponse
+
+        # Valid range (0.0 - 1.0)
+        schema = GWAGroupResponse(
+            gwa_code="4.A.1",
+            gwa_title="Test",
+            dwas=[],
+            ai_exposure_score=0.0,
+        )
+        assert schema.ai_exposure_score == 0.0
+
+        schema = GWAGroupResponse(
+            gwa_code="4.A.1",
+            gwa_title="Test",
+            dwas=[],
+            ai_exposure_score=1.0,
+        )
+        assert schema.ai_exposure_score == 1.0
+
+        # Invalid: below 0.0
+        with pytest.raises(ValidationError):
+            GWAGroupResponse(
+                gwa_code="4.A.1",
+                gwa_title="Test",
+                dwas=[],
+                ai_exposure_score=-0.1,
+            )
+
+        # Invalid: above 1.0
+        with pytest.raises(ValidationError):
+            GWAGroupResponse(
+                gwa_code="4.A.1",
+                gwa_title="Test",
+                dwas=[],
+                ai_exposure_score=1.1,
+            )
 
     def test_gwa_group_response_empty_dwas(self):
         """GWAGroupResponse should allow empty dwas list."""
@@ -519,11 +609,13 @@ class TestSchemas:
             total=100,
             selected=75,
             unselected=25,
+            gwas_with_selections=10,
         )
 
         assert schema.total == 100
         assert schema.selected == 75
         assert schema.unselected == 25
+        assert schema.gwas_with_selections == 10
 
     def test_selection_count_response_zero_values(self):
         """SelectionCountResponse should allow zero values."""
@@ -533,8 +625,34 @@ class TestSchemas:
             total=0,
             selected=0,
             unselected=0,
+            gwas_with_selections=0,
         )
 
         assert schema.total == 0
         assert schema.selected == 0
         assert schema.unselected == 0
+        assert schema.gwas_with_selections == 0
+
+    def test_selection_count_response_gwas_with_selections_validation(self):
+        """SelectionCountResponse should validate gwas_with_selections is non-negative."""
+        from pydantic import ValidationError
+
+        from app.schemas.activity import SelectionCountResponse
+
+        # Valid: zero
+        schema = SelectionCountResponse(
+            total=0,
+            selected=0,
+            unselected=0,
+            gwas_with_selections=0,
+        )
+        assert schema.gwas_with_selections == 0
+
+        # Invalid: negative
+        with pytest.raises(ValidationError):
+            SelectionCountResponse(
+                total=10,
+                selected=5,
+                unselected=5,
+                gwas_with_selections=-1,
+            )

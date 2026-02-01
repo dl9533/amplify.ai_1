@@ -1,5 +1,4 @@
 """Activities router for the Discovery module."""
-from typing import List
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -56,12 +55,13 @@ def _dict_to_gwa_group_response(data: dict) -> GWAGroupResponse:
         gwa_code=data["gwa_code"],
         gwa_title=data["gwa_title"],
         dwas=[_dict_to_dwa_response(dwa) for dwa in data["dwas"]],
+        ai_exposure_score=data.get("ai_exposure_score"),
     )
 
 
 @router.get(
     "/sessions/{session_id}/activities",
-    response_model=List[GWAGroupResponse],
+    response_model=list[GWAGroupResponse],
     status_code=status.HTTP_200_OK,
     summary="Get activities for session",
     description="Retrieves activities grouped by GWA for a specific discovery session.",
@@ -73,7 +73,7 @@ async def get_activities(
         description="Whether to include unselected activities",
     ),
     service: ActivityService = Depends(get_activity_service),
-) -> List[GWAGroupResponse]:
+) -> list[GWAGroupResponse]:
     """Get all activities for a session grouped by GWA."""
     result = await service.get_activities_by_session(
         session_id=session_id,
@@ -168,4 +168,5 @@ async def get_selection_count(
         total=result["total"],
         selected=result["selected"],
         unselected=result["unselected"],
+        gwas_with_selections=result["gwas_with_selections"],
     )

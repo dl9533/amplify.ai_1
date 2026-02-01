@@ -23,6 +23,8 @@ class ActivityService:
 
         Returns:
             List of GWA groups with their DWAs, or None if session not found.
+            Each GWA group contains: gwa_code, gwa_title, dwas, and
+            ai_exposure_score (optional, 0.0-1.0).
 
         Raises:
             NotImplementedError: Service not implemented.
@@ -79,7 +81,7 @@ class ActivityService:
             session_id: The session ID to get counts for.
 
         Returns:
-            Dict with total, selected, and unselected counts,
+            Dict with total, selected, unselected, and gwas_with_selections counts,
             or None if session not found.
 
         Raises:

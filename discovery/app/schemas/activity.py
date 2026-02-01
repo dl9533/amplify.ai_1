@@ -53,6 +53,12 @@ class GWAGroupResponse(BaseModel):
         ...,
         description="List of DWAs in this GWA group",
     )
+    ai_exposure_score: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="AI exposure score for this GWA (0.0-1.0)",
+    )
 
     model_config = {
         "from_attributes": True,
@@ -108,4 +114,9 @@ class SelectionCountResponse(BaseModel):
         ...,
         ge=0,
         description="Number of unselected activities",
+    )
+    gwas_with_selections: int = Field(
+        ...,
+        ge=0,
+        description="Number of GWAs with at least one selected activity",
     )
