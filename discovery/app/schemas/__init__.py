@@ -5,10 +5,16 @@ from app.schemas.session import (
     SessionList,
     StepUpdate,
 )
+from app.schemas.upload import (
+    ColumnMappingUpdate,
+    UploadResponse,
+)
 
 __all__ = [
     "SessionCreate",
     "SessionResponse",
     "SessionList",
     "StepUpdate",
+    "ColumnMappingUpdate",
+    "UploadResponse",
 ]
