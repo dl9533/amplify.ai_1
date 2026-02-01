@@ -18,3 +18,6 @@ export type { Dimension, PriorityTier, AnalysisResult, UseAnalysisResultsReturn 
 
 export { useRoadmap } from './useRoadmap'
 export type { Phase, RoadmapCandidate, UseRoadmapReturn } from './useRoadmap'
+
+export { useDiscoverySessions } from './useDiscoverySessions'
+export type { SessionStatus, DiscoverySession, UseDiscoverySessionsReturn } from './useDiscoverySessions'
