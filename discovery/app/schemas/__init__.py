@@ -16,6 +16,14 @@ from app.schemas.analysis import (
     PriorityTier,
     TriggerAnalysisResponse,
 )
+from app.schemas.chat import (
+    ChatHistoryItem,
+    ChatMessage,
+    ChatResponse,
+    QuickAction,
+    QuickActionRequest,
+    QuickActionResponse,
+)
 from app.schemas.roadmap import (
     BulkPhaseUpdate,
     BulkUpdateRequest,
@@ -59,6 +67,9 @@ __all__ = [
     "BulkSelectionResponse",
     "BulkUpdateRequest",
     "BulkUpdateResponse",
+    "ChatHistoryItem",
+    "ChatMessage",
+    "ChatResponse",
     "ColumnMappingUpdate",
     "DimensionAnalysisResponse",
     "DimensionSummary",
@@ -69,6 +80,9 @@ __all__ = [
     "OnetSearchResult",
     "PhaseUpdate",
     "PriorityTier",
+    "QuickAction",
+    "QuickActionRequest",
+    "QuickActionResponse",
     "ReorderRequest",
     "ReorderResponse",
     "RoadmapItem",

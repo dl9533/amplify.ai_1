@@ -6,6 +6,7 @@ from app.services.analysis_service import (
     get_analysis_service,
     get_scoring_service,
 )
+from app.services.chat_service import ChatService, get_chat_service
 from app.services.memory_service import AgentMemoryService
 from app.services.roadmap_service import RoadmapService, get_roadmap_service
 from app.services.role_mapping_service import (
@@ -21,8 +22,10 @@ __all__ = [
     "ActivityService",
     "AgentMemoryService",
     "AnalysisService",
+    "ChatService",
     "get_activity_service",
     "get_analysis_service",
+    "get_chat_service",
     "get_roadmap_service",
     "get_scoring_service",
     "OnetService",
