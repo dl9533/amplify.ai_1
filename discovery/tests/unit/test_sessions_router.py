@@ -1,14 +1,15 @@
 """Tests for discovery session router."""
 import pytest
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.routers.sessions import router, get_session_service
-from app.schemas.session import SessionCreate, SessionResponse, SessionList, StepUpdate
+from app.routers.sessions import router
+from app.services.session_service import get_session_service
+from app.schemas.session import SessionCreate, SessionResponse, SessionList, StepUpdate, SessionStatus
 
 
 @pytest.fixture
@@ -189,6 +190,18 @@ class TestListSessions:
         assert data["items"] == []
         assert data["total"] == 0
 
+    def test_list_sessions_page_zero_returns_422(self, client, mock_session_service):
+        """Should return 422 when page is 0."""
+        response = client.get("/discovery/sessions?page=0")
+
+        assert response.status_code == 422
+
+    def test_list_sessions_per_page_over_100_returns_422(self, client, mock_session_service):
+        """Should return 422 when per_page exceeds 100."""
+        response = client.get("/discovery/sessions?per_page=101")
+
+        assert response.status_code == 422
+
 
 class TestUpdateStep:
     """Tests for PATCH /discovery/sessions/{id}/step."""
@@ -334,3 +347,24 @@ class TestSchemas:
 
         with pytest.raises(ValueError):
             StepUpdate(step=-1)
+
+    def test_session_status_enum_values(self):
+        """SessionStatus enum should have correct values."""
+        assert SessionStatus.DRAFT == "draft"
+        assert SessionStatus.IN_PROGRESS == "in_progress"
+        assert SessionStatus.COMPLETED == "completed"
+
+    def test_session_response_accepts_status_enum(self):
+        """SessionResponse should accept SessionStatus enum."""
+        session_id = uuid4()
+        now = datetime.now(timezone.utc)
+
+        schema = SessionResponse(
+            id=session_id,
+            status=SessionStatus.DRAFT,
+            current_step=1,
+            created_at=now,
+            updated_at=now,
+        )
+
+        assert schema.status == SessionStatus.DRAFT

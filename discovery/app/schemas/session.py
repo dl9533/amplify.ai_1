@@ -1,9 +1,18 @@
 """Session schemas for the Discovery module."""
 from datetime import datetime
+from enum import Enum
 from typing import List
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
+
+
+class SessionStatus(str, Enum):
+    """Enum for session status values."""
+
+    DRAFT = "draft"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
 
 
 class SessionCreate(BaseModel):
@@ -22,7 +31,7 @@ class SessionResponse(BaseModel):
         ...,
         description="Unique session identifier",
     )
-    status: str = Field(
+    status: SessionStatus = Field(
         ...,
         description="Current session status (draft, in_progress, completed)",
     )
@@ -73,11 +82,3 @@ class StepUpdate(BaseModel):
         gt=0,
         description="The new step number (must be positive)",
     )
-
-    @field_validator("step")
-    @classmethod
-    def validate_step_positive(cls, v: int) -> int:
-        """Validate that step is a positive integer."""
-        if v <= 0:
-            raise ValueError("Step must be a positive integer")
-        return v
