@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 
 export type Dimension = 'ROLE' | 'DEPARTMENT' | 'GEOGRAPHY'
 export type PriorityTier = 'HIGH' | 'MEDIUM' | 'LOW'
@@ -97,7 +97,8 @@ const mockResultsByDimension: Record<Dimension, AnalysisResult[]> = {
   ],
 }
 
-export function useAnalysisResults(_sessionId?: string): UseAnalysisResultsReturn {
+// TODO: sessionId will be used for API calls to fetch analysis results for a specific session
+export function useAnalysisResults(sessionId?: string): UseAnalysisResultsReturn {
   const [results, setResults] = useState<AnalysisResult[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -109,6 +110,7 @@ export function useAnalysisResults(_sessionId?: string): UseAnalysisResultsRetur
       setIsLoading(true)
       setError(null)
       // Simulate API delay
+      // TODO: Replace with actual API call using sessionId
       await new Promise((resolve) => setTimeout(resolve, 100))
       setResults(mockResultsByDimension[selectedDimension])
     } catch (err) {
@@ -122,9 +124,12 @@ export function useAnalysisResults(_sessionId?: string): UseAnalysisResultsRetur
     fetchResults()
   }, [fetchResults])
 
-  const filteredResults = filterTier === 'ALL'
-    ? results
-    : results.filter((result) => result.tier === filterTier)
+  // Memoize filtered results to avoid recalculating on every render
+  const filteredResults = useMemo(() => {
+    return filterTier === 'ALL'
+      ? results
+      : results.filter((result) => result.tier === filterTier)
+  }, [results, filterTier])
 
   return {
     results,

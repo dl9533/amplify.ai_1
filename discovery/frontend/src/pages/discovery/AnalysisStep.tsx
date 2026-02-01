@@ -1,20 +1,43 @@
+import { useMemo, useCallback, useRef } from 'react'
 import { useParams } from 'react-router-dom'
 import { useAnalysisResults, Dimension, PriorityTier, AnalysisResult } from '@/hooks/useAnalysisResults'
+
+// Utility function moved outside component for performance
+function formatScore(score: number): string {
+  return (score * 100).toFixed(0) + '%'
+}
+
+// Constants moved outside component to avoid recreating on each render
+const DIMENSIONS: { dimension: Dimension; label: string }[] = [
+  { dimension: 'ROLE', label: 'Role' },
+  { dimension: 'DEPARTMENT', label: 'Department' },
+  { dimension: 'GEOGRAPHY', label: 'Geography' },
+]
+
+// Generic error message to prevent XSS
+const GENERIC_ERROR_MESSAGE = 'An error occurred while loading analysis results. Please try again.'
 
 interface DimensionTabProps {
   dimension: Dimension
   label: string
   isSelected: boolean
+  tabIndex: number
+  panelId: string
   onSelect: (dimension: Dimension) => void
+  onKeyDown: (event: React.KeyboardEvent, dimension: Dimension) => void
 }
 
-function DimensionTab({ dimension, label, isSelected, onSelect }: DimensionTabProps) {
+function DimensionTab({ dimension, label, isSelected, tabIndex, panelId, onSelect, onKeyDown }: DimensionTabProps) {
   return (
     <button
       role="tab"
+      id={`tab-${dimension}`}
       aria-selected={isSelected}
+      aria-controls={panelId}
       aria-label={label}
+      tabIndex={tabIndex}
       onClick={() => onSelect(dimension)}
+      onKeyDown={(e) => onKeyDown(e, dimension)}
       className={`px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 transition-colors ${
         isSelected
           ? 'border-blue-600 text-blue-600 bg-blue-50'
@@ -49,8 +72,6 @@ interface ResultCardProps {
 }
 
 function ResultCard({ result }: ResultCardProps) {
-  const formatScore = (score: number) => (score * 100).toFixed(0) + '%'
-
   return (
     <div className="bg-white border rounded-lg p-4 shadow-sm">
       <div className="flex items-center justify-between mb-3">
@@ -87,11 +108,34 @@ export function AnalysisStep() {
     setFilterTier,
   } = useAnalysisResults(sessionId)
 
-  const dimensions: { dimension: Dimension; label: string }[] = [
-    { dimension: 'ROLE', label: 'Role' },
-    { dimension: 'DEPARTMENT', label: 'Department' },
-    { dimension: 'GEOGRAPHY', label: 'Geography' },
-  ]
+  const tablistRef = useRef<HTMLDivElement>(null)
+
+  // Memoize dimensions array (using constant defined outside component)
+  const dimensions = useMemo(() => DIMENSIONS, [])
+
+  const panelId = `tabpanel-${selectedDimension}`
+
+  // Handle keyboard navigation for tabs
+  const handleTabKeyDown = useCallback((event: React.KeyboardEvent, currentDimension: Dimension) => {
+    const currentIndex = dimensions.findIndex(d => d.dimension === currentDimension)
+    let newIndex: number | null = null
+
+    if (event.key === 'ArrowRight') {
+      event.preventDefault()
+      newIndex = (currentIndex + 1) % dimensions.length
+    } else if (event.key === 'ArrowLeft') {
+      event.preventDefault()
+      newIndex = (currentIndex - 1 + dimensions.length) % dimensions.length
+    }
+
+    if (newIndex !== null) {
+      const newDimension = dimensions[newIndex].dimension
+      setSelectedDimension(newDimension)
+      // Focus the new tab
+      const newTab = tablistRef.current?.querySelector(`#tab-${newDimension}`) as HTMLButtonElement
+      newTab?.focus()
+    }
+  }, [dimensions, setSelectedDimension])
 
   if (!sessionId) {
     return (
@@ -107,7 +151,7 @@ export function AnalysisStep() {
     return (
       <div className="flex items-center justify-center p-8">
         <span className="text-red-500" role="alert">
-          Error: {error}
+          {GENERIC_ERROR_MESSAGE}
         </span>
       </div>
     )
@@ -123,14 +167,17 @@ export function AnalysisStep() {
       </div>
 
       {/* Dimension Tabs */}
-      <div className="flex gap-1 mb-6 border-b border-gray-200" role="tablist">
+      <div ref={tablistRef} className="flex gap-1 mb-6 border-b border-gray-200" role="tablist">
         {dimensions.map(({ dimension, label }) => (
           <DimensionTab
             key={dimension}
             dimension={dimension}
             label={label}
             isSelected={selectedDimension === dimension}
+            tabIndex={selectedDimension === dimension ? 0 : -1}
+            panelId={panelId}
             onSelect={setSelectedDimension}
+            onKeyDown={handleTabKeyDown}
           />
         ))}
       </div>
@@ -162,9 +209,14 @@ export function AnalysisStep() {
         </div>
       )}
 
-      {/* Results */}
+      {/* Results Panel */}
       {!isLoading && (
-        <div className="space-y-4">
+        <div
+          role="tabpanel"
+          id={panelId}
+          aria-labelledby={`tab-${selectedDimension}`}
+          className="space-y-4"
+        >
           {filteredResults.map((result) => (
             <ResultCard key={result.id} result={result} />
           ))}
