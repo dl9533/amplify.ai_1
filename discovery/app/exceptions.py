@@ -1,6 +1,6 @@
-"""O*NET API exception classes.
+"""Exception classes for the Discovery service.
 
-This module defines custom exceptions for O*NET API error handling,
+This module defines custom exceptions for API error handling,
 providing specific exception types for different error conditions.
 """
 
@@ -88,3 +88,78 @@ class OnetNotFoundError(OnetApiError):
         """
         super().__init__(message, status_code=404)
         self.resource = resource
+
+
+class LLMError(Exception):
+    """Base exception for LLM service errors.
+
+    This is the base class for all LLM-related exceptions.
+    It can be caught to handle any LLM error generically.
+
+    Attributes:
+        message: Human-readable error description.
+    """
+
+    def __init__(self, message: str) -> None:
+        """Initialize the exception.
+
+        Args:
+            message: Human-readable error description.
+        """
+        self.message = message
+        super().__init__(self.message)
+
+
+class LLMAuthError(LLMError):
+    """Exception raised when LLM API authentication fails.
+
+    This exception indicates an authentication error,
+    typically due to an invalid or missing API key.
+    """
+
+    def __init__(self, message: str = "LLM API authentication failed") -> None:
+        """Initialize the authentication error.
+
+        Args:
+            message: Human-readable error description.
+        """
+        super().__init__(message)
+
+
+class LLMRateLimitError(LLMError):
+    """Exception raised when LLM API rate limit is exceeded.
+
+    This exception indicates that too many requests have been made
+    and the client should back off and retry later.
+
+    Attributes:
+        retry_after: Optional number of seconds to wait before retrying.
+    """
+
+    def __init__(
+        self, message: str = "LLM API rate limit exceeded", retry_after: float | None = None
+    ) -> None:
+        """Initialize the rate limit exception.
+
+        Args:
+            message: Human-readable error description.
+            retry_after: Optional number of seconds to wait before retrying.
+        """
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
+class LLMConnectionError(LLMError):
+    """Exception raised when connection to LLM API fails.
+
+    This exception indicates a network connectivity issue
+    preventing communication with the LLM service.
+    """
+
+    def __init__(self, message: str = "Failed to connect to LLM API") -> None:
+        """Initialize the connection error.
+
+        Args:
+            message: Human-readable error description.
+        """
+        super().__init__(message)

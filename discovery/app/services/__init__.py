@@ -10,6 +10,7 @@ from app.services.chat_service import ChatService, get_chat_service
 from app.services.context_service import ContextService, get_context_service
 from app.services.export_service import ExportService, get_export_service
 from app.services.handoff_service import HandoffService, get_handoff_service
+from app.services.llm_service import LLMService, get_llm_service
 from app.services.memory_service import AgentMemoryService
 from app.services.onet_client import OnetApiClient
 from app.services.roadmap_service import RoadmapService, get_roadmap_service
@@ -30,6 +31,7 @@ __all__ = [
     "ContextService",
     "ExportService",
     "HandoffService",
+    "LLMService",
     "OnetApiClient",
     "OnetService",
     "RoadmapService",
@@ -43,6 +45,7 @@ __all__ = [
     "get_context_service",
     "get_export_service",
     "get_handoff_service",
+    "get_llm_service",
     "get_onet_service",
     "get_roadmap_service",
     "get_role_mapping_service",
