@@ -1,6 +1,6 @@
 """Chat schemas for the Discovery module."""
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -55,7 +55,7 @@ class ChatResponse(BaseModel):
 class ChatHistoryItem(BaseModel):
     """Schema for a single chat history item."""
 
-    role: str = Field(
+    role: Literal["user", "assistant"] = Field(
         ...,
         description="The role of the message sender (user or assistant)",
     )

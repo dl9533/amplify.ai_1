@@ -2,6 +2,7 @@
 import pytest
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
+from pydantic import ValidationError
 from uuid import uuid4
 
 from fastapi import FastAPI
@@ -364,3 +365,12 @@ class TestSchemas:
         """QuickActionResponse should default to empty data."""
         resp = QuickActionResponse(response="Done")
         assert resp.data == {}
+
+    def test_chat_history_item_rejects_invalid_role(self):
+        """Test that ChatHistoryItem rejects invalid role values."""
+        with pytest.raises(ValidationError):
+            ChatHistoryItem(
+                role="invalid",  # Should fail
+                content="Test",
+                timestamp=datetime.now(timezone.utc),
+            )
