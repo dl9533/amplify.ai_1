@@ -102,8 +102,16 @@ describe('DiscoverySessionList', () => {
 
   it('shows empty state when no sessions', async () => {
     ;(useDiscoverySessionsModule.useDiscoverySessions as Mock).mockReturnValue({
-      ...defaultMockReturn,
       sessions: [],
+      isLoading: false,
+      error: null,
+      page: 1,
+      totalPages: 0,
+      setPage: vi.fn(),
+      createSession: vi.fn().mockResolvedValue(undefined),
+      deleteSession: vi.fn().mockResolvedValue(undefined),
+      isCreating: false,
+      isDeleting: null,
     })
 
     render(<MemoryRouter><DiscoverySessionList /></MemoryRouter>)
@@ -209,5 +217,55 @@ describe('DiscoverySessionList', () => {
     await waitFor(() => {
       expect(screen.queryByText(/confirm delete/i)).not.toBeInTheDocument()
     })
+  })
+
+  it('handles createSession error gracefully', async () => {
+    const mockCreateSession = vi.fn().mockRejectedValue(new Error('Failed to create session'))
+    ;(useDiscoverySessionsModule.useDiscoverySessions as Mock).mockReturnValue({
+      ...defaultMockReturn,
+      createSession: mockCreateSession,
+    })
+
+    render(<MemoryRouter><DiscoverySessionList /></MemoryRouter>)
+
+    const createButton = screen.getByRole('button', { name: /new discovery/i })
+    fireEvent.click(createButton)
+
+    await waitFor(() => {
+      expect(mockCreateSession).toHaveBeenCalled()
+    })
+
+    // Component should still be rendered (not crash)
+    expect(screen.getByRole('button', { name: /new discovery/i })).toBeInTheDocument()
+  })
+
+  it('keeps modal open when deleteSession fails', async () => {
+    const mockDeleteSession = vi.fn().mockRejectedValue(new Error('Failed to delete session'))
+    ;(useDiscoverySessionsModule.useDiscoverySessions as Mock).mockReturnValue({
+      ...defaultMockReturn,
+      deleteSession: mockDeleteSession,
+    })
+
+    render(<MemoryRouter><DiscoverySessionList /></MemoryRouter>)
+
+    // Click delete on first session
+    const deleteButtons = await screen.findAllByRole('button', { name: /delete q1 discovery/i })
+    fireEvent.click(deleteButtons[0])
+
+    // Modal should be open
+    await waitFor(() => {
+      expect(screen.getByText(/confirm delete/i)).toBeInTheDocument()
+    })
+
+    // Confirm delete
+    const confirmButton = screen.getByRole('button', { name: /confirm delete/i })
+    fireEvent.click(confirmButton)
+
+    await waitFor(() => {
+      expect(mockDeleteSession).toHaveBeenCalledWith('session-1')
+    })
+
+    // Modal should still be open after error
+    expect(screen.getByText(/confirm delete/i)).toBeInTheDocument()
   })
 })
