@@ -4,8 +4,9 @@ This module provides centralized configuration management using pydantic-setting
 loading values from environment variables with sensible defaults.
 """
 from functools import lru_cache
+from urllib.parse import quote_plus
 
-from pydantic import computed_field
+from pydantic import SecretStr, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -26,7 +27,7 @@ class Settings(BaseSettings):
     postgres_host: str = "localhost"
     postgres_port: int = 5432
     postgres_user: str = "discovery"
-    postgres_password: str = "discovery_dev"
+    postgres_password: SecretStr = SecretStr("discovery_dev")
     postgres_db: str = "discovery"
 
     # Redis configuration
@@ -36,15 +37,15 @@ class Settings(BaseSettings):
     s3_endpoint_url: str | None = None
     s3_bucket: str = "discovery-uploads"
     aws_access_key_id: str | None = None
-    aws_secret_access_key: str | None = None
+    aws_secret_access_key: SecretStr | None = None
     aws_region: str = "us-east-1"
 
     # O*NET API configuration
-    onet_api_key: str = ""
+    onet_api_key: SecretStr = SecretStr("")
     onet_api_base_url: str = "https://services.onetcenter.org/ws/"
 
     # Anthropic configuration
-    anthropic_api_key: str = ""
+    anthropic_api_key: SecretStr = SecretStr("")
     anthropic_model: str = "claude-sonnet-4-20250514"
 
     # Application settings
@@ -53,7 +54,7 @@ class Settings(BaseSettings):
     debug: bool = False
     log_level: str = "INFO"
 
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field(repr=False)  # type: ignore[prop-decorator]
     @property
     def database_url(self) -> str:
         """Build PostgreSQL connection URL with asyncpg driver.
@@ -62,8 +63,9 @@ class Settings(BaseSettings):
             PostgreSQL connection string in the format:
             postgresql+asyncpg://user:password@host:port/database
         """
+        encoded_password = quote_plus(self.postgres_password.get_secret_value())
         return (
-            f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}"
+            f"postgresql+asyncpg://{self.postgres_user}:{encoded_password}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
         )
 

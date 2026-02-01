@@ -1,210 +1,192 @@
 """Tests for configuration module with pydantic-settings."""
-import os
-from functools import lru_cache
-from unittest.mock import patch
-
 import pytest
 
 
 class TestSettingsFromEnvironment:
     """Tests for loading settings from environment variables."""
 
-    def test_settings_loads_database_config_from_env(self):
+    def test_settings_loads_database_config_from_env(self, monkeypatch):
         """Settings should load database configuration from environment variables."""
-        env_vars = {
-            "POSTGRES_HOST": "db.example.com",
-            "POSTGRES_PORT": "5433",
-            "POSTGRES_USER": "test_user",
-            "POSTGRES_PASSWORD": "test_pass",
-            "POSTGRES_DB": "test_db",
-        }
-        with patch.dict(os.environ, env_vars, clear=False):
-            # Clear any cached settings
-            from app.config import get_settings
-            get_settings.cache_clear()
+        monkeypatch.setenv("POSTGRES_HOST", "db.example.com")
+        monkeypatch.setenv("POSTGRES_PORT", "5433")
+        monkeypatch.setenv("POSTGRES_USER", "test_user")
+        monkeypatch.setenv("POSTGRES_PASSWORD", "test_pass")
+        monkeypatch.setenv("POSTGRES_DB", "test_db")
 
-            settings = get_settings()
+        from app.config import get_settings
+        get_settings.cache_clear()
 
-            assert settings.postgres_host == "db.example.com"
-            assert settings.postgres_port == 5433
-            assert settings.postgres_user == "test_user"
-            assert settings.postgres_password == "test_pass"
-            assert settings.postgres_db == "test_db"
+        settings = get_settings()
 
-    def test_settings_loads_redis_config_from_env(self):
+        assert settings.postgres_host == "db.example.com"
+        assert settings.postgres_port == 5433
+        assert settings.postgres_user == "test_user"
+        assert settings.postgres_password.get_secret_value() == "test_pass"
+        assert settings.postgres_db == "test_db"
+
+    def test_settings_loads_redis_config_from_env(self, monkeypatch):
         """Settings should load Redis configuration from environment variables."""
-        env_vars = {
-            "REDIS_URL": "redis://redis.example.com:6380/1",
-        }
-        with patch.dict(os.environ, env_vars, clear=False):
-            from app.config import get_settings
-            get_settings.cache_clear()
+        monkeypatch.setenv("REDIS_URL", "redis://redis.example.com:6380/1")
 
-            settings = get_settings()
+        from app.config import get_settings
+        get_settings.cache_clear()
 
-            assert settings.redis_url == "redis://redis.example.com:6380/1"
+        settings = get_settings()
 
-    def test_settings_loads_s3_config_from_env(self):
+        assert settings.redis_url == "redis://redis.example.com:6380/1"
+
+    def test_settings_loads_s3_config_from_env(self, monkeypatch):
         """Settings should load S3 configuration from environment variables."""
-        env_vars = {
-            "S3_ENDPOINT_URL": "http://minio:9000",
-            "S3_BUCKET": "test-bucket",
-            "AWS_ACCESS_KEY_ID": "test_access_key",
-            "AWS_SECRET_ACCESS_KEY": "test_secret_key",
-            "AWS_REGION": "eu-west-1",
-        }
-        with patch.dict(os.environ, env_vars, clear=False):
-            from app.config import get_settings
-            get_settings.cache_clear()
+        monkeypatch.setenv("S3_ENDPOINT_URL", "http://minio:9000")
+        monkeypatch.setenv("S3_BUCKET", "test-bucket")
+        monkeypatch.setenv("AWS_ACCESS_KEY_ID", "test_access_key")
+        monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "test_secret_key")
+        monkeypatch.setenv("AWS_REGION", "eu-west-1")
 
-            settings = get_settings()
+        from app.config import get_settings
+        get_settings.cache_clear()
 
-            assert settings.s3_endpoint_url == "http://minio:9000"
-            assert settings.s3_bucket == "test-bucket"
-            assert settings.aws_access_key_id == "test_access_key"
-            assert settings.aws_secret_access_key == "test_secret_key"
-            assert settings.aws_region == "eu-west-1"
+        settings = get_settings()
 
-    def test_settings_loads_onet_config_from_env(self):
+        assert settings.s3_endpoint_url == "http://minio:9000"
+        assert settings.s3_bucket == "test-bucket"
+        assert settings.aws_access_key_id == "test_access_key"
+        assert settings.aws_secret_access_key.get_secret_value() == "test_secret_key"
+        assert settings.aws_region == "eu-west-1"
+
+    def test_settings_loads_onet_config_from_env(self, monkeypatch):
         """Settings should load O*NET API configuration from environment variables."""
-        env_vars = {
-            "ONET_API_KEY": "onet_test_key_12345",
-            "ONET_API_BASE_URL": "https://custom.onet.org/api/",
-        }
-        with patch.dict(os.environ, env_vars, clear=False):
-            from app.config import get_settings
-            get_settings.cache_clear()
+        monkeypatch.setenv("ONET_API_KEY", "onet_test_key_12345")
+        monkeypatch.setenv("ONET_API_BASE_URL", "https://custom.onet.org/api/")
 
-            settings = get_settings()
+        from app.config import get_settings
+        get_settings.cache_clear()
 
-            assert settings.onet_api_key == "onet_test_key_12345"
-            assert settings.onet_api_base_url == "https://custom.onet.org/api/"
+        settings = get_settings()
 
-    def test_settings_loads_anthropic_config_from_env(self):
+        assert settings.onet_api_key.get_secret_value() == "onet_test_key_12345"
+        assert settings.onet_api_base_url == "https://custom.onet.org/api/"
+
+    def test_settings_loads_anthropic_config_from_env(self, monkeypatch):
         """Settings should load Anthropic configuration from environment variables."""
-        env_vars = {
-            "ANTHROPIC_API_KEY": "sk-ant-test-key",
-            "ANTHROPIC_MODEL": "claude-opus-4-20250514",
-        }
-        with patch.dict(os.environ, env_vars, clear=False):
-            from app.config import get_settings
-            get_settings.cache_clear()
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-key")
+        monkeypatch.setenv("ANTHROPIC_MODEL", "claude-opus-4-20250514")
 
-            settings = get_settings()
+        from app.config import get_settings
+        get_settings.cache_clear()
 
-            assert settings.anthropic_api_key == "sk-ant-test-key"
-            assert settings.anthropic_model == "claude-opus-4-20250514"
+        settings = get_settings()
 
-    def test_settings_loads_application_settings_from_env(self):
+        assert settings.anthropic_api_key.get_secret_value() == "sk-ant-test-key"
+        assert settings.anthropic_model == "claude-opus-4-20250514"
+
+    def test_settings_loads_application_settings_from_env(self, monkeypatch):
         """Settings should load application settings from environment variables."""
-        env_vars = {
-            "API_HOST": "0.0.0.0",
-            "API_PORT": "9000",
-            "DEBUG": "true",
-            "LOG_LEVEL": "DEBUG",
-        }
-        with patch.dict(os.environ, env_vars, clear=False):
-            from app.config import get_settings
-            get_settings.cache_clear()
+        monkeypatch.setenv("API_HOST", "0.0.0.0")
+        monkeypatch.setenv("API_PORT", "9000")
+        monkeypatch.setenv("DEBUG", "true")
+        monkeypatch.setenv("LOG_LEVEL", "DEBUG")
 
-            settings = get_settings()
+        from app.config import get_settings
+        get_settings.cache_clear()
 
-            assert settings.api_host == "0.0.0.0"
-            assert settings.api_port == 9000
-            assert settings.debug is True
-            assert settings.log_level == "DEBUG"
+        settings = get_settings()
+
+        assert settings.api_host == "0.0.0.0"
+        assert settings.api_port == 9000
+        assert settings.debug is True
+        assert settings.log_level == "DEBUG"
 
 
 class TestDatabaseUrl:
     """Tests for database_url computed property."""
 
-    def test_database_url_constructed_correctly(self):
+    def test_database_url_constructed_correctly(self, monkeypatch):
         """database_url property should construct proper PostgreSQL connection URL."""
-        env_vars = {
-            "POSTGRES_HOST": "db.example.com",
-            "POSTGRES_PORT": "5432",
-            "POSTGRES_USER": "myuser",
-            "POSTGRES_PASSWORD": "mypass",
-            "POSTGRES_DB": "mydb",
-        }
-        with patch.dict(os.environ, env_vars, clear=False):
-            from app.config import get_settings
-            get_settings.cache_clear()
+        monkeypatch.setenv("POSTGRES_HOST", "db.example.com")
+        monkeypatch.setenv("POSTGRES_PORT", "5432")
+        monkeypatch.setenv("POSTGRES_USER", "myuser")
+        monkeypatch.setenv("POSTGRES_PASSWORD", "mypass")
+        monkeypatch.setenv("POSTGRES_DB", "mydb")
 
-            settings = get_settings()
+        from app.config import get_settings
+        get_settings.cache_clear()
 
-            expected = "postgresql+asyncpg://myuser:mypass@db.example.com:5432/mydb"
-            assert settings.database_url == expected
+        settings = get_settings()
 
-    def test_database_url_uses_default_port(self):
+        expected = "postgresql+asyncpg://myuser:mypass@db.example.com:5432/mydb"
+        assert settings.database_url == expected
+
+    def test_database_url_uses_default_port(self, monkeypatch):
         """database_url should use default port when not specified."""
-        env_vars = {
-            "POSTGRES_HOST": "localhost",
-            "POSTGRES_USER": "user",
-            "POSTGRES_PASSWORD": "pass",
-            "POSTGRES_DB": "db",
-        }
-        with patch.dict(os.environ, env_vars, clear=False):
-            from app.config import get_settings
-            get_settings.cache_clear()
+        monkeypatch.setenv("POSTGRES_HOST", "localhost")
+        monkeypatch.setenv("POSTGRES_USER", "user")
+        monkeypatch.setenv("POSTGRES_PASSWORD", "pass")
+        monkeypatch.setenv("POSTGRES_DB", "db")
 
-            settings = get_settings()
+        from app.config import get_settings
+        get_settings.cache_clear()
 
-            assert ":5432/" in settings.database_url
+        settings = get_settings()
+
+        assert ":5432/" in settings.database_url
+
+    def test_database_url_encodes_special_characters(self, monkeypatch):
+        """database_url should URL-encode special characters in password."""
+        monkeypatch.setenv("POSTGRES_HOST", "localhost")
+        monkeypatch.setenv("POSTGRES_USER", "user")
+        monkeypatch.setenv("POSTGRES_PASSWORD", "p@ss:word/with#special")
+        monkeypatch.setenv("POSTGRES_DB", "db")
+
+        from app.config import get_settings
+        get_settings.cache_clear()
+
+        settings = get_settings()
+
+        # Password should be URL-encoded
+        assert "p%40ss%3Aword%2Fwith%23special" in settings.database_url
+        # Raw password should not appear
+        assert "p@ss:word/with#special" not in settings.database_url
 
 
 class TestDefaultValues:
     """Tests for default configuration values."""
 
-    def test_onet_api_base_url_default(self):
+    def test_onet_api_base_url_default(self, monkeypatch):
         """onet_api_base_url should default to O*NET services URL."""
+        monkeypatch.delenv("ONET_API_BASE_URL", raising=False)
+
         from app.config import Settings
 
-        # Create Settings directly to test defaults without environment interference
-        # Remove the env var if it exists
-        original = os.environ.pop("ONET_API_BASE_URL", None)
-        try:
-            settings = Settings()
-            assert settings.onet_api_base_url == "https://services.onetcenter.org/ws/"
-        finally:
-            if original is not None:
-                os.environ["ONET_API_BASE_URL"] = original
+        settings = Settings()
+        assert settings.onet_api_base_url == "https://services.onetcenter.org/ws/"
 
-    def test_anthropic_model_default(self):
+    def test_anthropic_model_default(self, monkeypatch):
         """anthropic_model should default to claude-sonnet-4-20250514."""
+        monkeypatch.delenv("ANTHROPIC_MODEL", raising=False)
+
         from app.config import Settings
 
-        original = os.environ.pop("ANTHROPIC_MODEL", None)
-        try:
-            settings = Settings()
-            assert settings.anthropic_model == "claude-sonnet-4-20250514"
-        finally:
-            if original is not None:
-                os.environ["ANTHROPIC_MODEL"] = original
+        settings = Settings()
+        assert settings.anthropic_model == "claude-sonnet-4-20250514"
 
-    def test_debug_defaults_to_false(self):
+    def test_debug_defaults_to_false(self, monkeypatch):
         """debug should default to False."""
+        monkeypatch.delenv("DEBUG", raising=False)
+
         from app.config import Settings
 
-        original = os.environ.pop("DEBUG", None)
-        try:
-            settings = Settings()
-            assert settings.debug is False
-        finally:
-            if original is not None:
-                os.environ["DEBUG"] = original
+        settings = Settings()
+        assert settings.debug is False
 
-    def test_log_level_defaults_to_info(self):
+    def test_log_level_defaults_to_info(self, monkeypatch):
         """log_level should default to INFO."""
+        monkeypatch.delenv("LOG_LEVEL", raising=False)
+
         from app.config import Settings
 
-        original = os.environ.pop("LOG_LEVEL", None)
-        try:
-            settings = Settings()
-            assert settings.log_level == "INFO"
-        finally:
-            if original is not None:
-                os.environ["LOG_LEVEL"] = original
+        settings = Settings()
+        assert settings.log_level == "INFO"
 
 
 class TestGetSettingsSingleton:
@@ -227,3 +209,103 @@ class TestGetSettingsSingleton:
         # lru_cache decorated functions have cache_info method
         assert hasattr(get_settings, "cache_info")
         assert hasattr(get_settings, "cache_clear")
+
+
+class TestSecretFieldProtection:
+    """Tests for sensitive field protection in serialization."""
+
+    def test_postgres_password_hidden_in_repr(self, monkeypatch):
+        """postgres_password should be hidden in repr output."""
+        monkeypatch.setenv("POSTGRES_PASSWORD", "super_secret_password")
+
+        from app.config import get_settings
+        get_settings.cache_clear()
+
+        settings = get_settings()
+        repr_output = repr(settings)
+
+        assert "super_secret_password" not in repr_output
+        assert "SecretStr" in repr_output or "**********" in repr_output
+
+    def test_aws_secret_access_key_hidden_in_repr(self, monkeypatch):
+        """aws_secret_access_key should be hidden in repr output."""
+        monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "aws_super_secret")
+
+        from app.config import get_settings
+        get_settings.cache_clear()
+
+        settings = get_settings()
+        repr_output = repr(settings)
+
+        assert "aws_super_secret" not in repr_output
+
+    def test_onet_api_key_hidden_in_repr(self, monkeypatch):
+        """onet_api_key should be hidden in repr output."""
+        monkeypatch.setenv("ONET_API_KEY", "onet_secret_key")
+
+        from app.config import get_settings
+        get_settings.cache_clear()
+
+        settings = get_settings()
+        repr_output = repr(settings)
+
+        assert "onet_secret_key" not in repr_output
+
+    def test_anthropic_api_key_hidden_in_repr(self, monkeypatch):
+        """anthropic_api_key should be hidden in repr output."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-secret")
+
+        from app.config import get_settings
+        get_settings.cache_clear()
+
+        settings = get_settings()
+        repr_output = repr(settings)
+
+        assert "sk-ant-secret" not in repr_output
+
+    def test_database_url_hidden_in_repr(self, monkeypatch):
+        """database_url should be hidden in repr output (contains password)."""
+        monkeypatch.setenv("POSTGRES_PASSWORD", "db_password_secret")
+
+        from app.config import get_settings
+        get_settings.cache_clear()
+
+        settings = get_settings()
+        repr_output = repr(settings)
+
+        # database_url should not appear in repr
+        assert "database_url" not in repr_output
+        assert "db_password_secret" not in repr_output
+
+    def test_model_dump_excludes_secret_values(self, monkeypatch):
+        """model_dump() should not expose secret values as plain strings."""
+        monkeypatch.setenv("POSTGRES_PASSWORD", "secret_pg_pass")
+        monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "secret_aws_key")
+        monkeypatch.setenv("ONET_API_KEY", "secret_onet_key")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "secret_anthropic_key")
+
+        from app.config import get_settings
+        get_settings.cache_clear()
+
+        settings = get_settings()
+        dumped = settings.model_dump()
+
+        # Secret values should be SecretStr objects, not exposed strings
+        assert dumped["postgres_password"] != "secret_pg_pass"
+        assert dumped["aws_secret_access_key"] != "secret_aws_key"
+        assert dumped["onet_api_key"] != "secret_onet_key"
+        assert dumped["anthropic_api_key"] != "secret_anthropic_key"
+
+    def test_str_output_hides_secrets(self, monkeypatch):
+        """str() output should hide sensitive fields."""
+        monkeypatch.setenv("POSTGRES_PASSWORD", "str_secret_pass")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "str_secret_key")
+
+        from app.config import get_settings
+        get_settings.cache_clear()
+
+        settings = get_settings()
+        str_output = str(settings)
+
+        assert "str_secret_pass" not in str_output
+        assert "str_secret_key" not in str_output
