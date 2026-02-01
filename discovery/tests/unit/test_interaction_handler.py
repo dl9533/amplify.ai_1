@@ -63,6 +63,18 @@ class TestQuestionFormatting:
         assert result.choices == []
         assert result.question == "No choices?"
 
+    def test_format_question_filters_empty_choices(self, handler):
+        """Should filter out empty strings from choices."""
+        result = handler.format_question(
+            question="Filter empties?",
+            choices=["Valid", "", "Also Valid", "", "Third"],
+        )
+
+        # Empty strings should be filtered out
+        assert "" not in result.choices
+        assert len(result.choices) == 3  # "Valid", "Also Valid", "Third"
+        assert result.choices == ["Valid", "Also Valid", "Third"]
+
 
 class TestOneQuestionAtATime:
     """Tests for one-question-at-a-time pattern."""
@@ -120,6 +132,57 @@ class TestOneQuestionAtATime:
 
         result = handler.get_next_question()
         assert result.allow_freeform is True
+
+    def test_get_next_question_twice_preserves_first_state(self, handler):
+        """Should preserve state when get_next_question is called multiple times."""
+        # Queue a question with freeform enabled
+        handler.queue_question("First?", ["A", "B"], allow_freeform=True)
+
+        # Get the question the first time - this sets the state
+        first_call = handler.get_next_question()
+        assert first_call.question == "First?"
+
+        # Manually change the question's attributes (simulating a race condition)
+        handler._queue[0] = handler.format_question(
+            "Modified?", ["X", "Y", "Z"], allow_freeform=False
+        )
+
+        # Get the question again - state should NOT be overwritten
+        second_call = handler.get_next_question()
+
+        # The returned question is the modified one from the queue
+        assert second_call.question == "Modified?"
+
+        # But the internal state should still be from the first call
+        assert handler._current_choices == ["A", "B"]
+        assert handler._allow_freeform is True
+
+    def test_mark_answered_stores_answer(self, handler):
+        """Should store the answer in the answered question."""
+        handler.queue_question("What is your choice?", ["A", "B"])
+        handler.get_next_question()
+
+        handler.mark_answered("A")
+
+        # The answer should be stored in last_answered_question
+        assert handler.last_answered_question is not None
+        assert handler.last_answered_question.question == "What is your choice?"
+        assert handler.last_answered_question.answer == "A"
+
+    def test_mark_answered_resets_question_active_flag(self, handler):
+        """Should reset the question active flag after marking answered."""
+        handler.queue_question("First?", ["A"])
+        handler.queue_question("Second?", ["X", "Y"])
+
+        # Get first question and answer it
+        handler.get_next_question()
+        assert handler._question_active is True
+        handler.mark_answered("A")
+        assert handler._question_active is False
+
+        # Get second question - should set new state
+        handler.get_next_question()
+        assert handler._current_choices == ["X", "Y"]
 
 
 class TestResponseParsing:
@@ -190,3 +253,31 @@ class TestResponseParsing:
 
         assert result.is_freeform is True
         assert result.freeform_value == "Any response"
+
+    def test_parse_response_with_empty_string(self, handler):
+        """Should return no match for empty or whitespace-only responses."""
+        handler._current_choices = ["Option 1", "Option 2"]
+        handler._allow_freeform = True
+
+        # Test empty string
+        result_empty = handler.parse_response("")
+        assert result_empty.matched_choice is None
+        assert result_empty.is_freeform is False
+        assert result_empty.freeform_value is None
+
+        # Test whitespace-only string
+        result_whitespace = handler.parse_response("   ")
+        assert result_whitespace.matched_choice is None
+        assert result_whitespace.is_freeform is False
+        assert result_whitespace.freeform_value is None
+
+    def test_parse_response_empty_not_treated_as_freeform(self, handler):
+        """Empty responses should not be treated as freeform even when freeform is allowed."""
+        handler._current_choices = []
+        handler._allow_freeform = True
+
+        result = handler.parse_response("")
+
+        # Even with freeform enabled, empty should not be freeform
+        assert result.is_freeform is False
+        assert result.freeform_value is None
