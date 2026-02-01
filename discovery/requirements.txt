@@ -1,0 +1,10 @@
+# Discovery service dependencies
+fastapi>=0.128.0
+uvicorn>=0.34.0
+pydantic>=2.12.0
+pydantic-settings>=2.12.0
+httpx>=0.28.0
+
+# Testing
+pytest>=9.0.0
+pytest-asyncio>=1.3.0
