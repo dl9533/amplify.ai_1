@@ -3,6 +3,9 @@
 from app.modules.discovery.repositories.activity_selection_repository import (
     DiscoveryActivitySelectionRepository,
 )
+from app.modules.discovery.repositories.analysis_result_repository import (
+    DiscoveryAnalysisResultRepository,
+)
 from app.modules.discovery.repositories.onet_repository import (
     OnetDwaRepository,
     OnetGwaRepository,
@@ -21,6 +24,7 @@ from app.modules.discovery.repositories.upload_repository import (
 
 __all__ = [
     "DiscoveryActivitySelectionRepository",
+    "DiscoveryAnalysisResultRepository",
     "DiscoveryRoleMappingRepository",
     "DiscoverySessionRepository",
     "DiscoveryUploadRepository",
