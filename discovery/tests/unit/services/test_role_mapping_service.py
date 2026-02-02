@@ -176,37 +176,10 @@ class TestGetOnetServiceDependency:
                 assert service.client is mock_client
 
 
-class TestRoleMappingService:
-    """Tests for RoleMappingService (placeholder tests)."""
+class TestRoleMappingServiceDependency:
+    """Tests for get_role_mapping_service dependency function."""
 
-    def test_get_role_mapping_service_returns_instance(self):
-        """get_role_mapping_service should return RoleMappingService instance."""
-        service = get_role_mapping_service()
-        assert isinstance(service, RoleMappingService)
-
-    @pytest.mark.asyncio
-    async def test_get_by_session_id_raises_not_implemented(self):
-        """RoleMappingService.get_by_session_id should raise NotImplementedError."""
-        service = RoleMappingService()
-        from uuid import uuid4
-
-        with pytest.raises(NotImplementedError):
-            await service.get_by_session_id(uuid4())
-
-    @pytest.mark.asyncio
-    async def test_update_raises_not_implemented(self):
-        """RoleMappingService.update should raise NotImplementedError."""
-        service = RoleMappingService()
-        from uuid import uuid4
-
-        with pytest.raises(NotImplementedError):
-            await service.update(uuid4())
-
-    @pytest.mark.asyncio
-    async def test_bulk_confirm_raises_not_implemented(self):
-        """RoleMappingService.bulk_confirm should raise NotImplementedError."""
-        service = RoleMappingService()
-        from uuid import uuid4
-
-        with pytest.raises(NotImplementedError):
-            await service.bulk_confirm(uuid4(), 0.8)
+    def test_get_role_mapping_service_raises_not_implemented(self):
+        """get_role_mapping_service should raise NotImplementedError (use DI)."""
+        with pytest.raises(NotImplementedError, match="dependency injection"):
+            get_role_mapping_service()

@@ -153,13 +153,14 @@ class TestDefaultValues:
     """Tests for default configuration values."""
 
     def test_onet_api_base_url_default(self, monkeypatch):
-        """onet_api_base_url should default to O*NET services URL."""
+        """onet_api_base_url should default to O*NET v2 API URL."""
         monkeypatch.delenv("ONET_API_BASE_URL", raising=False)
 
         from app.config import Settings
 
         settings = Settings()
-        assert settings.onet_api_base_url == "https://services.onetcenter.org/ws/"
+        # Updated to v2 API in Jan 2026
+        assert settings.onet_api_base_url == "https://api-v2.onetcenter.org/"
 
     def test_anthropic_model_default(self, monkeypatch):
         """anthropic_model should default to claude-sonnet-4-20250514."""
@@ -171,12 +172,13 @@ class TestDefaultValues:
         assert settings.anthropic_model == "claude-sonnet-4-20250514"
 
     def test_debug_defaults_to_false(self, monkeypatch):
-        """debug should default to False."""
+        """debug should default to False when no env or .env sets it."""
         monkeypatch.delenv("DEBUG", raising=False)
 
         from app.config import Settings
 
-        settings = Settings()
+        # Create settings without loading .env file
+        settings = Settings(_env_file=None)
         assert settings.debug is False
 
     def test_log_level_defaults_to_info(self, monkeypatch):

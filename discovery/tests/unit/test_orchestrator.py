@@ -9,8 +9,17 @@ from app.enums import DiscoveryStep
 
 @pytest.fixture
 def orchestrator():
+    # Create mock services dict required by orchestrator
+    mock_services = {
+        "upload": AsyncMock(),
+        "mapping": AsyncMock(),
+        "activity": AsyncMock(),
+        "analysis": AsyncMock(),
+        "roadmap": AsyncMock(),
+    }
     return DiscoveryOrchestrator(
         session=MagicMock(id=uuid4(), current_step=DiscoveryStep.UPLOAD),
+        services=mock_services,
         memory_service=AsyncMock(),
     )
 

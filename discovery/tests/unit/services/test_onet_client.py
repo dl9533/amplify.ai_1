@@ -45,20 +45,18 @@ class TestOnetApiClientInit:
 
 
 class TestOnetApiClientAuth:
-    """Tests for O*NET API authentication."""
+    """Tests for O*NET API v2 authentication using X-API-Key header."""
 
-    def test_creates_basic_auth_with_api_key_as_username(self, onet_client):
-        """Should create Basic Auth with API key as username."""
-        auth = onet_client._get_auth()
-        assert isinstance(auth, httpx.BasicAuth)
-        # Basic auth should use API key as username
-        assert auth._auth_header is not None
+    def test_creates_headers_with_api_key(self, onet_client):
+        """Should create headers with X-API-Key."""
+        headers = onet_client._get_headers()
+        assert "X-API-Key" in headers
+        assert headers["X-API-Key"] == "test_api_key"
 
-    def test_basic_auth_uses_empty_password(self, onet_client):
-        """Basic Auth should use empty string as password."""
-        # The password can be empty or same as username per requirements
-        auth = onet_client._get_auth()
-        assert auth is not None
+    def test_headers_include_accept_json(self, onet_client):
+        """Headers should include Accept: application/json."""
+        headers = onet_client._get_headers()
+        assert headers.get("Accept") == "application/json"
 
 
 class TestSearchOccupations:
@@ -69,8 +67,9 @@ class TestSearchOccupations:
         """Should return list of occupation dicts matching keyword."""
         mock_response = MagicMock()
         mock_response.status_code = 200
+        # v2 API uses 'career' key instead of 'occupation'
         mock_response.json.return_value = {
-            "occupation": [
+            "career": [
                 {"code": "15-1252.00", "title": "Software Developers"},
                 {"code": "15-1251.00", "title": "Computer Programmers"},
             ]
@@ -96,7 +95,7 @@ class TestSearchOccupations:
         """Should return empty list when no matches found."""
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.json.return_value = {"occupation": []}
+        mock_response.json.return_value = {"career": []}
         mock_response.raise_for_status = MagicMock()
 
         with patch("httpx.AsyncClient") as mock_client_class:
@@ -115,7 +114,7 @@ class TestSearchOccupations:
         """Should call the correct O*NET search endpoint."""
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.json.return_value = {"occupation": []}
+        mock_response.json.return_value = {"career": []}
         mock_response.raise_for_status = MagicMock()
 
         with patch("httpx.AsyncClient") as mock_client_class:
@@ -372,7 +371,7 @@ class TestHttpxAsyncClient:
         """Should use httpx.AsyncClient for HTTP requests."""
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.json.return_value = {"occupation": []}
+        mock_response.json.return_value = {"career": []}
         mock_response.raise_for_status = MagicMock()
 
         with patch("httpx.AsyncClient") as mock_client_class:
@@ -387,11 +386,11 @@ class TestHttpxAsyncClient:
             mock_client_class.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_passes_basic_auth(self, onet_client):
-        """Should pass Basic Auth credentials to requests."""
+    async def test_passes_api_key_header(self, onet_client):
+        """Should pass X-API-Key header in requests (v2 API)."""
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.json.return_value = {"occupation": []}
+        mock_response.json.return_value = {"career": []}
         mock_response.raise_for_status = MagicMock()
 
         with patch("httpx.AsyncClient") as mock_client_class:
@@ -404,15 +403,16 @@ class TestHttpxAsyncClient:
             await onet_client.search_occupations("test")
 
             call_args = mock_client.get.call_args
-            assert "auth" in call_args.kwargs
-            assert isinstance(call_args.kwargs["auth"], httpx.BasicAuth)
+            headers = call_args.kwargs.get("headers", {})
+            assert "X-API-Key" in headers
+            assert headers["X-API-Key"] == "test_api_key"
 
     @pytest.mark.asyncio
     async def test_sets_json_accept_header(self, onet_client):
         """Should set Accept: application/json header."""
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.json.return_value = {"occupation": []}
+        mock_response.json.return_value = {"career": []}
         mock_response.raise_for_status = MagicMock()
 
         with patch("httpx.AsyncClient") as mock_client_class:
@@ -433,7 +433,7 @@ class TestHttpxAsyncClient:
         """Should configure httpx.AsyncClient with timeout."""
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.json.return_value = {"occupation": []}
+        mock_response.json.return_value = {"career": []}
         mock_response.raise_for_status = MagicMock()
 
         with patch("httpx.AsyncClient") as mock_client_class:
@@ -501,24 +501,25 @@ class TestEdgeCases:
             assert exc_info.value.status_code == 429
             assert exc_info.value.retry_after is None
 
-    def test_empty_api_key_creates_valid_auth(self):
-        """Should create Basic Auth even with empty API key."""
+    def test_empty_api_key_creates_valid_headers(self):
+        """Should create headers even with empty API key."""
         mock_settings = MagicMock(spec=Settings)
         mock_settings.onet_api_key = MagicMock()
         mock_settings.onet_api_key.get_secret_value.return_value = ""
         mock_settings.onet_api_base_url = "https://services.onetcenter.org/ws/"
 
         client = OnetApiClient(settings=mock_settings)
-        auth = client._get_auth()
+        headers = client._get_headers()
 
-        assert isinstance(auth, httpx.BasicAuth)
+        assert "X-API-Key" in headers
+        assert headers["X-API-Key"] == ""
 
     @pytest.mark.asyncio
-    async def test_search_occupations_missing_occupation_key(self, onet_client):
-        """Should return empty list when response is missing 'occupation' key."""
+    async def test_search_occupations_missing_career_key(self, onet_client):
+        """Should return empty list when response is missing 'career' key."""
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.json.return_value = {}  # Missing 'occupation' key
+        mock_response.json.return_value = {}  # Missing 'career' key
         mock_response.raise_for_status = MagicMock()
 
         with patch("httpx.AsyncClient") as mock_client_class:

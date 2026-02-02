@@ -201,8 +201,8 @@ class MockRoleMappingService(RoleMappingService):
         return {"confirmed_count": count}
 
 
-class MockOnetService(OnetService):
-    """Mock O*NET service for testing."""
+class MockOnetService:
+    """Mock O*NET service for testing (duck-typed, no inheritance)."""
 
     async def search(self, query: str) -> list[dict]:
         return [
@@ -301,8 +301,8 @@ class MockActivityService(ActivityService):
         }
 
 
-class MockAnalysisService(AnalysisService):
-    """Mock analysis service for testing."""
+class MockAnalysisService:
+    """Mock analysis service for testing (duck-typed, no inheritance)."""
 
     async def trigger_analysis(self, session_id: UUID) -> Optional[dict]:
         return {"status": "processing"}
@@ -480,8 +480,8 @@ class MockChatService(ChatService):
         return generate()
 
 
-class MockExportService(ExportService):
-    """Mock export service for testing."""
+class MockExportService:
+    """Mock export service for testing (duck-typed, no inheritance)."""
 
     async def generate_csv(
         self,
