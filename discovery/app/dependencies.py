@@ -4,6 +4,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.models.base import async_session_maker
 from app.repositories import (
     OnetRepository,
@@ -12,7 +13,10 @@ from app.repositories import (
     RoleMappingRepository,
     AnalysisRepository,
 )
+from app.services.file_parser import FileParser
+from app.services.s3_client import S3Client
 from app.services.session_service import SessionService
+from app.services.upload_service import UploadService
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
@@ -59,3 +63,33 @@ def get_session_service_dep(
     via an auth dependency.
     """
     return SessionService(repository=repository, user_id=user_id)
+
+
+def get_s3_client() -> S3Client:
+    """Get S3 client dependency."""
+    settings = get_settings()
+    return S3Client(
+        endpoint_url=settings.s3_endpoint_url,
+        bucket=settings.s3_bucket,
+        access_key=settings.aws_access_key_id,
+        secret_key=settings.aws_secret_access_key.get_secret_value() if settings.aws_secret_access_key else None,
+        region=settings.aws_region,
+    )
+
+
+def get_file_parser() -> FileParser:
+    """Get file parser dependency."""
+    return FileParser()
+
+
+def get_upload_service_dep(
+    repository: UploadRepository,
+    s3_client: S3Client,
+    file_parser: FileParser,
+) -> UploadService:
+    """Get upload service dependency."""
+    return UploadService(
+        repository=repository,
+        s3_client=s3_client,
+        file_parser=file_parser,
+    )
