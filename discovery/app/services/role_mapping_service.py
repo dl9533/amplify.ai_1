@@ -1,28 +1,120 @@
+# discovery/app/services/role_mapping_service.py
 """Role mapping service for managing role-to-O*NET mappings."""
-from typing import List, Optional
+from typing import Any, List, Optional
 from uuid import UUID
 
 from app.config import get_settings
+from app.repositories.role_mapping_repository import RoleMappingRepository
 from app.services.onet_client import OnetApiClient
+from app.services.upload_service import UploadService
+from app.services.fuzzy_matcher import FuzzyMatcher
+from app.services.file_parser import FileParser
 
 
 class RoleMappingService:
-    """Role mapping service for managing role-to-O*NET mappings.
+    """Service for role-to-O*NET occupation mapping."""
 
-    This is a placeholder service that will be replaced with actual
-    database operations in a later task.
-    """
+    def __init__(
+        self,
+        repository: RoleMappingRepository,
+        onet_client: OnetApiClient | None = None,
+        upload_service: UploadService | None = None,
+        fuzzy_matcher: FuzzyMatcher | None = None,
+    ) -> None:
+        self.repository = repository
+        self.onet_client = onet_client
+        self.upload_service = upload_service
+        self.fuzzy_matcher = fuzzy_matcher or FuzzyMatcher()
+        self._file_parser = FileParser()
 
-    async def get_by_session_id(self, session_id: UUID) -> List[dict]:
-        """Get all role mappings for a session.
+    async def create_mappings_from_upload(
+        self,
+        session_id: UUID,
+        upload_id: UUID,
+        role_column: str,
+    ) -> list[dict[str, Any]]:
+        """Create role mappings from uploaded file.
 
         Args:
-            session_id: The session ID to get mappings for.
+            session_id: Discovery session ID.
+            upload_id: Upload ID containing the file.
+            role_column: Column name containing roles.
 
         Returns:
-            List of role mapping dictionaries.
+            List of created mapping dicts.
         """
-        raise NotImplementedError("Service not implemented")
+        if not self.upload_service or not self.onet_client:
+            raise ValueError("upload_service and onet_client required")
+
+        # Get file content
+        content = await self.upload_service.get_file_content(upload_id)
+        if not content:
+            return []
+
+        # Extract unique roles
+        upload = await self.upload_service.repository.get_by_id(upload_id)
+        unique_roles = self._file_parser.extract_unique_values(
+            content, upload.file_name, role_column
+        )
+
+        mappings = []
+        for role_data in unique_roles:
+            role_name = role_data["value"]
+            row_count = role_data["count"]
+
+            # Search O*NET for matches
+            search_results = await self.onet_client.search_occupations(role_name)
+
+            # Find best match using fuzzy matching
+            if search_results:
+                best_matches = self.fuzzy_matcher.find_best_matches(
+                    role_name, search_results, top_n=1
+                )
+                if best_matches:
+                    best = best_matches[0]
+                    onet_code = best.get("code")
+                    confidence = best.get("score", 0.0)
+                else:
+                    onet_code = None
+                    confidence = 0.0
+            else:
+                onet_code = None
+                confidence = 0.0
+
+            # Create mapping record
+            mapping = await self.repository.create(
+                session_id=session_id,
+                source_role=role_name,
+                onet_code=onet_code,
+                confidence_score=confidence,
+                row_count=row_count,
+            )
+
+            mappings.append({
+                "id": str(mapping.id),
+                "source_role": mapping.source_role,
+                "onet_code": mapping.onet_code,
+                "confidence_score": mapping.confidence_score,
+                "row_count": mapping.row_count,
+                "user_confirmed": mapping.user_confirmed,
+            })
+
+        return mappings
+
+    async def get_by_session_id(self, session_id: UUID) -> list[dict[str, Any]]:
+        """Get all mappings for a session."""
+        mappings = await self.repository.get_for_session(session_id)
+        return [
+            {
+                "id": str(m.id),
+                "source_role": m.source_role,
+                "onet_code": m.onet_code,
+                "confidence_score": m.confidence_score,
+                "row_count": m.row_count,
+                "user_confirmed": m.user_confirmed,
+            }
+            for m in mappings
+        ]
 
     async def update(
         self,
@@ -42,23 +134,59 @@ class RoleMappingService:
         Returns:
             Updated role mapping dictionary, or None if not found.
         """
-        raise NotImplementedError("Service not implemented")
+        mapping = await self.repository.update(
+            mapping_id, onet_code=onet_code, user_confirmed=is_confirmed
+        )
+        if not mapping:
+            return None
+        return {
+            "id": str(mapping.id),
+            "source_role": mapping.source_role,
+            "onet_code": mapping.onet_code,
+            "user_confirmed": mapping.user_confirmed,
+        }
+
+    async def confirm_mapping(
+        self,
+        mapping_id: UUID,
+        onet_code: str,
+    ) -> dict[str, Any] | None:
+        """Confirm a mapping with selected O*NET code."""
+        mapping = await self.repository.confirm(mapping_id, onet_code)
+        if not mapping:
+            return None
+        return {
+            "id": str(mapping.id),
+            "source_role": mapping.source_role,
+            "onet_code": mapping.onet_code,
+            "user_confirmed": mapping.user_confirmed,
+        }
 
     async def bulk_confirm(
         self,
         session_id: UUID,
-        threshold: float,
-    ) -> dict:
-        """Bulk confirm mappings above a confidence threshold.
+        min_confidence: float = 0.85,
+    ) -> dict[str, Any]:
+        """Bulk confirm mappings above confidence threshold."""
+        mappings = await self.repository.get_for_session(session_id)
+        confirmed = 0
 
-        Args:
-            session_id: The session ID to confirm mappings for.
-            threshold: Minimum confidence score for auto-confirmation.
+        for mapping in mappings:
+            if (
+                not mapping.user_confirmed
+                and mapping.onet_code
+                and mapping.confidence_score >= min_confidence
+            ):
+                await self.repository.confirm(mapping.id, mapping.onet_code)
+                confirmed += 1
 
-        Returns:
-            Dictionary with confirmed_count.
-        """
-        raise NotImplementedError("Service not implemented")
+        return {"confirmed_count": confirmed}
+
+    async def search_occupations(self, query: str) -> list[dict[str, Any]]:
+        """Search O*NET occupations for manual mapping."""
+        if not self.onet_client:
+            return []
+        return await self.onet_client.search_occupations(query)
 
 
 class OnetService:
@@ -103,8 +231,8 @@ class OnetService:
 
 
 def get_role_mapping_service() -> RoleMappingService:
-    """Dependency to get role mapping service."""
-    return RoleMappingService()
+    """Dependency placeholder - will be replaced with DI."""
+    raise NotImplementedError("Use dependency injection")
 
 
 def get_onet_service() -> OnetService:
