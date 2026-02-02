@@ -3,6 +3,47 @@
 This module defines custom exceptions for API error handling,
 providing specific exception types for different error conditions.
 """
+from typing import Any
+
+
+class DiscoveryException(Exception):
+    """Base exception for Discovery module."""
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None):
+        super().__init__(message)
+        self.message = message
+        self.details = details or {}
+
+
+class SessionNotFoundException(DiscoveryException):
+    """Session not found."""
+
+    def __init__(self, session_id: str):
+        super().__init__(f"Session not found: {session_id}")
+        self.session_id = session_id
+
+
+class ValidationException(DiscoveryException):
+    """Validation error."""
+    pass
+
+
+class FileParseException(DiscoveryException):
+    """File parsing error."""
+
+    def __init__(self, message: str, filename: str | None = None):
+        super().__init__(message, {"filename": filename})
+        self.filename = filename
+
+
+class AnalysisException(DiscoveryException):
+    """Analysis error."""
+    pass
+
+
+class HandoffException(DiscoveryException):
+    """Handoff to Build error."""
+    pass
 
 
 class OnetApiError(Exception):
