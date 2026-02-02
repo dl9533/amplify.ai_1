@@ -230,9 +230,30 @@ class OnetService:
         return await self.client.get_occupation(code)
 
 
-def get_role_mapping_service() -> RoleMappingService:
-    """Dependency placeholder - will be replaced with DI."""
-    raise NotImplementedError("Use dependency injection")
+from collections.abc import AsyncGenerator
+
+
+async def get_role_mapping_service() -> AsyncGenerator[RoleMappingService, None]:
+    """Get role mapping service dependency for FastAPI.
+
+    Yields a fully configured RoleMappingService with repository, O*NET client,
+    and fuzzy matcher.
+    """
+    from app.models.base import async_session_maker
+    from app.repositories.role_mapping_repository import RoleMappingRepository
+
+    settings = get_settings()
+    onet_client = OnetApiClient(settings=settings)
+    fuzzy_matcher = FuzzyMatcher()
+
+    async with async_session_maker() as db:
+        repository = RoleMappingRepository(db)
+        service = RoleMappingService(
+            repository=repository,
+            onet_client=onet_client,
+            fuzzy_matcher=fuzzy_matcher,
+        )
+        yield service
 
 
 def get_onet_service() -> OnetService:

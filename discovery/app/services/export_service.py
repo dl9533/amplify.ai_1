@@ -115,6 +115,23 @@ class ExportService:
         return await self.export_json(session_id)
 
 
-def get_export_service() -> ExportService:
-    """Dependency placeholder - will be replaced with DI."""
-    raise NotImplementedError("Use dependency injection")
+from collections.abc import AsyncGenerator
+
+
+async def get_export_service() -> AsyncGenerator[ExportService, None]:
+    """Get export service dependency for FastAPI.
+
+    Yields a fully configured ExportService with all repositories.
+    """
+    from app.models.base import async_session_maker
+
+    async with async_session_maker() as db:
+        session_repository = SessionRepository(db)
+        analysis_repository = AnalysisRepository(db)
+        candidate_repository = CandidateRepository(db)
+        service = ExportService(
+            session_repository=session_repository,
+            analysis_repository=analysis_repository,
+            candidate_repository=candidate_repository,
+        )
+        yield service

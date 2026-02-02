@@ -157,16 +157,27 @@ class SessionService:
         return await repo.delete(session_id)
 
 
-def get_session_service() -> SessionService:
+from collections.abc import AsyncGenerator
+
+
+async def get_session_service() -> AsyncGenerator[SessionService, None]:
     """Get session service dependency for FastAPI.
 
-    Note: This returns a service without repository configured.
-    Use create_session_service() for database-backed service.
-
-    Returns:
-        SessionService without repository.
+    Yields a fully configured SessionService with database repository
+    and a default user ID for development.
     """
-    return SessionService()
+    from uuid import uuid4
+    from app.models.base import async_session_maker
+    from app.repositories.session_repository import SessionRepository
+
+    # For development: use a fixed user ID
+    # In production, this would come from JWT token via auth middleware
+    dev_user_id = uuid4()
+
+    async with async_session_maker() as db:
+        repository = SessionRepository(db)
+        service = SessionService(repository=repository, user_id=dev_user_id)
+        yield service
 
 
 def create_session_service(

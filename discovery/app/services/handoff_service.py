@@ -131,6 +131,21 @@ class HandoffService:
         )
 
 
-def get_handoff_service() -> HandoffService:
-    """Dependency placeholder - will be replaced with DI."""
-    raise NotImplementedError("Use dependency injection")
+from collections.abc import AsyncGenerator
+
+
+async def get_handoff_service() -> AsyncGenerator[HandoffService, None]:
+    """Get handoff service dependency for FastAPI.
+
+    Yields a fully configured HandoffService with repositories.
+    """
+    from app.models.base import async_session_maker
+
+    async with async_session_maker() as db:
+        candidate_repository = CandidateRepository(db)
+        session_repository = SessionRepository(db)
+        service = HandoffService(
+            candidate_repository=candidate_repository,
+            session_repository=session_repository,
+        )
+        yield service

@@ -210,6 +210,22 @@ class ActivityService:
         }
 
 
-def get_activity_service() -> ActivityService:
-    """Dependency placeholder - will be replaced with DI."""
-    raise NotImplementedError("Use dependency injection")
+from collections.abc import AsyncGenerator
+
+
+async def get_activity_service() -> AsyncGenerator[ActivityService, None]:
+    """Get activity service dependency for FastAPI.
+
+    Yields a fully configured ActivityService with selection and O*NET repositories.
+    """
+    from app.models.base import async_session_maker
+    from app.repositories.onet_repository import OnetRepository
+
+    async with async_session_maker() as db:
+        selection_repository = ActivitySelectionRepository(db)
+        onet_repository = OnetRepository(db)
+        service = ActivityService(
+            selection_repository=selection_repository,
+            onet_repository=onet_repository,
+        )
+        yield service

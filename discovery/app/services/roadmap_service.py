@@ -188,6 +188,21 @@ class RoadmapService:
         )
 
 
-def get_roadmap_service() -> RoadmapService:
-    """Dependency placeholder."""
-    raise NotImplementedError("Use dependency injection")
+from collections.abc import AsyncGenerator
+
+
+async def get_roadmap_service() -> AsyncGenerator[RoadmapService, None]:
+    """Get roadmap service dependency for FastAPI.
+
+    Yields a fully configured RoadmapService with repositories.
+    """
+    from app.models.base import async_session_maker
+
+    async with async_session_maker() as db:
+        candidate_repository = CandidateRepository(db)
+        analysis_repository = AnalysisRepository(db)
+        service = RoadmapService(
+            candidate_repository=candidate_repository,
+            analysis_repository=analysis_repository,
+        )
+        yield service

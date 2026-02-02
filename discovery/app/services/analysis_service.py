@@ -167,9 +167,28 @@ class ScoringService:
         return {"status": "use_analysis_service"}
 
 
-def get_analysis_service() -> AnalysisService:
-    """Dependency placeholder - will be replaced with DI."""
-    raise NotImplementedError("Use dependency injection")
+from collections.abc import AsyncGenerator
+
+
+async def get_analysis_service() -> AsyncGenerator[AnalysisService, None]:
+    """Get analysis service dependency for FastAPI.
+
+    Yields a fully configured AnalysisService with repositories and scoring engine.
+    """
+    from app.models.base import async_session_maker
+
+    async with async_session_maker() as db:
+        analysis_repository = AnalysisRepository(db)
+        role_mapping_repository = RoleMappingRepository(db)
+        activity_selection_repository = ActivitySelectionRepository(db)
+        scoring_engine = ScoringEngine()
+        service = AnalysisService(
+            analysis_repository=analysis_repository,
+            role_mapping_repository=role_mapping_repository,
+            activity_selection_repository=activity_selection_repository,
+            scoring_engine=scoring_engine,
+        )
+        yield service
 
 
 def get_scoring_service() -> ScoringService:

@@ -179,7 +179,8 @@ class TestGetOnetServiceDependency:
 class TestRoleMappingServiceDependency:
     """Tests for get_role_mapping_service dependency function."""
 
-    def test_get_role_mapping_service_raises_not_implemented(self):
-        """get_role_mapping_service should raise NotImplementedError (use DI)."""
-        with pytest.raises(NotImplementedError, match="dependency injection"):
-            get_role_mapping_service()
+    def test_get_role_mapping_service_is_async_generator(self):
+        """get_role_mapping_service should be an async generator function."""
+        import inspect
+
+        assert inspect.isasyncgenfunction(get_role_mapping_service)

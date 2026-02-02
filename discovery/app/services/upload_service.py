@@ -120,6 +120,36 @@ class UploadService:
         return types.get(ext, "application/octet-stream")
 
 
-def get_upload_service() -> UploadService:
-    """Dependency placeholder - will be replaced with DI."""
-    raise NotImplementedError("Use dependency injection")
+from collections.abc import AsyncGenerator
+
+
+async def get_upload_service() -> AsyncGenerator[UploadService, None]:
+    """Get upload service dependency for FastAPI.
+
+    Yields a fully configured UploadService with S3 client and file parser.
+    """
+    from app.config import get_settings
+    from app.models.base import async_session_maker
+    from app.repositories.upload_repository import UploadRepository
+    from app.services.s3_client import S3Client
+    from app.services.file_parser import FileParser
+
+    settings = get_settings()
+
+    s3_client = S3Client(
+        endpoint_url=settings.s3_endpoint_url,
+        bucket=settings.s3_bucket,
+        access_key=settings.aws_access_key_id,
+        secret_key=settings.aws_secret_access_key.get_secret_value() if settings.aws_secret_access_key else None,
+        region=settings.aws_region,
+    )
+    file_parser = FileParser()
+
+    async with async_session_maker() as db:
+        repository = UploadRepository(db)
+        service = UploadService(
+            repository=repository,
+            s3_client=s3_client,
+            file_parser=file_parser,
+        )
+        yield service
