@@ -1,105 +1,175 @@
-"""Analysis and scoring services for the Discovery module."""
-from typing import Optional
+# discovery/app/services/analysis_service.py
+"""Analysis service for scoring and aggregation."""
+from typing import Any, Optional
 from uuid import UUID
 
+from app.repositories.analysis_repository import AnalysisRepository
+from app.repositories.role_mapping_repository import RoleMappingRepository
+from app.repositories.activity_selection_repository import ActivitySelectionRepository
+from app.services.scoring_engine import ScoringEngine
 from app.schemas.analysis import AnalysisDimension, PriorityTier
+from app.models.discovery_analysis import AnalysisDimension as DBDimension
 
 
 class AnalysisService:
-    """Analysis service for managing analysis results.
+    """Service for analysis and scoring operations."""
 
-    This is a placeholder service that will be replaced with actual
-    database operations in a later task.
-    """
-
-    async def trigger_analysis(
+    def __init__(
         self,
-        session_id: UUID,
-    ) -> Optional[dict]:
+        analysis_repository: AnalysisRepository,
+        role_mapping_repository: RoleMappingRepository | None = None,
+        activity_selection_repository: ActivitySelectionRepository | None = None,
+        scoring_engine: ScoringEngine | None = None,
+    ) -> None:
+        self.analysis_repository = analysis_repository
+        self.role_mapping_repository = role_mapping_repository
+        self.activity_selection_repository = activity_selection_repository
+        self.scoring_engine = scoring_engine or ScoringEngine()
+
+    async def trigger_analysis(self, session_id: UUID) -> dict[str, Any] | None:
         """Trigger scoring analysis for a session.
 
-        Args:
-            session_id: The session ID to trigger analysis for.
-
-        Returns:
-            Dict with status "processing", or None if session not found.
-
-        Raises:
-            NotImplementedError: Service not implemented.
+        Calculates scores for all role mappings and stores results.
         """
-        raise NotImplementedError("Service not implemented")
+        if not self.role_mapping_repository or not self.activity_selection_repository:
+            return {"status": "error", "message": "Missing dependencies"}
+
+        # Get all role mappings
+        mappings = await self.role_mapping_repository.get_for_session(session_id)
+        if not mappings:
+            return {"status": "error", "message": "No mappings found"}
+
+        # Calculate total rows
+        total_rows = sum(m.row_count or 0 for m in mappings)
+
+        results_to_save = []
+        for mapping in mappings:
+            # Get selected DWAs for this mapping
+            selections = await self.activity_selection_repository.get_for_role_mapping(
+                mapping.id
+            )
+            selected_dwas = [s for s in selections if s.selected]
+
+            # For now, use placeholder exposure scores (would come from DWA model)
+            dwa_scores = [0.7] * len(selected_dwas) if selected_dwas else [0.5]
+
+            # Calculate scores
+            scores = self.scoring_engine.score_role(
+                dwa_scores=dwa_scores,
+                row_count=mapping.row_count or 0,
+                total_rows=total_rows,
+            )
+
+            priority_tier = self.scoring_engine.classify_priority_tier(
+                scores["priority"], scores["complexity"]
+            )
+
+            results_to_save.append({
+                "session_id": session_id,
+                "role_mapping_id": mapping.id,
+                "dimension": DBDimension.ROLE,
+                "dimension_value": mapping.source_role,
+                "ai_exposure_score": scores["ai_exposure"],
+                "impact_score": scores["impact"],
+                "complexity_score": scores["complexity"],
+                "priority_score": scores["priority"],
+                "breakdown": {
+                    "dwa_count": len(selected_dwas),
+                    "priority_tier": priority_tier,
+                },
+            })
+
+        await self.analysis_repository.save_results(results_to_save)
+        return {"status": "completed", "count": len(results_to_save)}
 
     async def get_by_dimension(
         self,
         session_id: UUID,
         dimension: AnalysisDimension,
-        priority_tier: Optional[PriorityTier] = None,
-    ) -> Optional[dict]:
-        """Get analysis results for a specific dimension.
+        priority_tier: PriorityTier | None = None,
+    ) -> dict[str, Any] | None:
+        """Get analysis results for a dimension."""
+        # Map schema dimension to DB dimension
+        dimension_map = {
+            AnalysisDimension.ROLE: DBDimension.ROLE,
+            AnalysisDimension.DEPARTMENT: DBDimension.DEPARTMENT,
+            AnalysisDimension.LOB: DBDimension.LOB,
+            AnalysisDimension.GEOGRAPHY: DBDimension.GEOGRAPHY,
+            AnalysisDimension.TASK: DBDimension.TASK,
+        }
+        db_dimension = dimension_map.get(dimension, DBDimension.ROLE)
 
-        Args:
-            session_id: The session ID to get analysis for.
-            dimension: The analysis dimension to filter by.
-            priority_tier: Optional priority tier to filter results.
+        results = await self.analysis_repository.get_for_session(
+            session_id, db_dimension
+        )
 
-        Returns:
-            Dict with dimension and results list, or None if analysis not found.
-            Each result contains: id, name, ai_exposure_score, impact_score,
-            complexity_score, priority_score, and priority_tier.
+        if not results:
+            return {"dimension": dimension.value, "results": []}
 
-        Raises:
-            NotImplementedError: Service not implemented.
-        """
-        raise NotImplementedError("Service not implemented")
+        formatted = []
+        for r in results:
+            tier = r.breakdown.get("priority_tier") if r.breakdown else None
+            if priority_tier and tier != priority_tier.value:
+                continue
 
-    async def get_all_dimensions(
-        self,
-        session_id: UUID,
-    ) -> Optional[dict]:
-        """Get summary of all dimensions for a session.
+            formatted.append({
+                "id": str(r.id),
+                "name": r.dimension_value,
+                "ai_exposure_score": r.ai_exposure_score,
+                "impact_score": r.impact_score,
+                "complexity_score": r.complexity_score,
+                "priority_score": r.priority_score,
+                "priority_tier": tier,
+            })
 
-        Args:
-            session_id: The session ID to get analysis summary for.
+        return {"dimension": dimension.value, "results": formatted}
 
-        Returns:
-            Dict with dimension names as keys and summary stats as values.
-            Each summary contains: count and avg_exposure.
-            Returns None if session not found or analysis not run.
+    async def get_all_dimensions(self, session_id: UUID) -> dict[str, Any] | None:
+        """Get summary of all dimensions."""
+        results = await self.analysis_repository.get_for_session(session_id)
 
-        Raises:
-            NotImplementedError: Service not implemented.
-        """
-        raise NotImplementedError("Service not implemented")
+        if not results:
+            return None
+
+        # Group by dimension
+        by_dimension: dict[str, list] = {}
+        for r in results:
+            dim = r.dimension.value
+            if dim not in by_dimension:
+                by_dimension[dim] = []
+            by_dimension[dim].append(r.ai_exposure_score)
+
+        summary = {}
+        for dim, scores in by_dimension.items():
+            summary[dim] = {
+                "count": len(scores),
+                "avg_exposure": round(sum(scores) / len(scores), 3) if scores else 0,
+            }
+
+        return summary
 
 
 class ScoringService:
-    """Scoring service for computing analysis scores.
+    """Scoring service wrapper for ScoringEngine.
 
-    This is a placeholder service that will be replaced with actual
-    scoring logic in a later task.
+    Provides async interface for session-level scoring operations.
     """
 
-    async def score_session(
-        self,
-        session_id: UUID,
-    ) -> Optional[dict]:
+    def __init__(self, scoring_engine: ScoringEngine | None = None) -> None:
+        self.engine = scoring_engine or ScoringEngine()
+
+    async def score_session(self, session_id: UUID) -> Optional[dict]:
         """Score all entities in a session.
 
-        Args:
-            session_id: The session ID to score.
-
-        Returns:
-            Dict with scoring results, or None if session not found.
-
-        Raises:
-            NotImplementedError: Service not implemented.
+        Note: Use AnalysisService.trigger_analysis() for full scoring workflow.
+        This method is a placeholder for direct scoring API.
         """
-        raise NotImplementedError("Service not implemented")
+        return {"status": "use_analysis_service"}
 
 
 def get_analysis_service() -> AnalysisService:
-    """Dependency to get analysis service."""
-    return AnalysisService()
+    """Dependency placeholder - will be replaced with DI."""
+    raise NotImplementedError("Use dependency injection")
 
 
 def get_scoring_service() -> ScoringService:
