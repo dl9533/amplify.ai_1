@@ -1,27 +1,19 @@
+# discovery/app/agents/orchestrator.py
 """Discovery Orchestrator for routing messages to appropriate subagents."""
 from typing import Any
 from uuid import uuid4
 
 from app.enums import DiscoveryStep
+from app.agents.upload_agent import UploadSubagent
+from app.agents.mapping_agent import MappingSubagent
+from app.agents.activity_agent import ActivitySubagent
+from app.agents.analysis_agent import AnalysisSubagent
+from app.agents.roadmap_agent import RoadmapSubagent
 
 
 class DiscoveryOrchestrator:
-    """Orchestrates the discovery wizard by routing messages to appropriate subagents.
+    """Orchestrates the discovery wizard by routing to subagents."""
 
-    The orchestrator manages the discovery workflow by:
-    - Routing messages to the correct subagent based on current step
-    - Advancing through wizard steps when subagents complete
-    - Maintaining conversation history and thread management
-
-    Attributes:
-        _session: The current discovery session.
-        _memory_service: Service for agent memory management.
-        _subagents: Dictionary mapping step names to subagent instances.
-        _conversation_id: UUID for the current conversation thread.
-        _message_history: List of messages in the conversation.
-    """
-
-    # Step order for wizard progression
     _STEP_ORDER: list[DiscoveryStep] = [
         DiscoveryStep.UPLOAD,
         DiscoveryStep.MAP_ROLES,
@@ -30,76 +22,99 @@ class DiscoveryOrchestrator:
         DiscoveryStep.ROADMAP,
     ]
 
-    # Mapping from DiscoveryStep to subagent key
-    _STEP_TO_SUBAGENT: dict[DiscoveryStep, str] = {
-        DiscoveryStep.UPLOAD: "upload",
-        DiscoveryStep.MAP_ROLES: "mapping",
-        DiscoveryStep.SELECT_ACTIVITIES: "activity",
-        DiscoveryStep.ANALYZE: "analysis",
-        DiscoveryStep.ROADMAP: "roadmap",
-    }
-
-    def __init__(self, session: Any, memory_service: Any) -> None:
-        """Initialize the DiscoveryOrchestrator.
-
-        Args:
-            session: The discovery session with current_step attribute.
-            memory_service: Service for agent memory management.
-        """
+    def __init__(
+        self,
+        session: Any,
+        services: dict[str, Any],
+        memory_service: Any = None,
+    ) -> None:
         self._session = session
+        self._services = services
         self._memory_service = memory_service
-        self._subagents: dict[str, Any] = {}
         self._conversation_id: str = str(uuid4())
         self._message_history: list[dict[str, Any]] = []
+        self._subagents: dict[str, Any] = {}
+
+        # Initialize subagents with their services
+        self._init_subagents()
+
+    def _init_subagents(self) -> None:
+        """Initialize subagent instances."""
+        if "upload" in self._services:
+            self._subagents["upload"] = UploadSubagent(
+                session=self._session,
+                upload_service=self._services["upload"],
+                memory_service=self._memory_service,
+            )
+        if "mapping" in self._services:
+            self._subagents["mapping"] = MappingSubagent(
+                session=self._session,
+                mapping_service=self._services["mapping"],
+                memory_service=self._memory_service,
+            )
+        if "activity" in self._services:
+            self._subagents["activity"] = ActivitySubagent(
+                session=self._session,
+                activity_service=self._services["activity"],
+                memory_service=self._memory_service,
+            )
+        if "analysis" in self._services:
+            self._subagents["analysis"] = AnalysisSubagent(
+                session=self._session,
+                analysis_service=self._services["analysis"],
+                memory_service=self._memory_service,
+            )
+        if "roadmap" in self._services:
+            self._subagents["roadmap"] = RoadmapSubagent(
+                session=self._session,
+                roadmap_service=self._services["roadmap"],
+                memory_service=self._memory_service,
+            )
 
     async def process(self, message: str) -> dict[str, Any]:
-        """Process an incoming message by routing to the appropriate subagent.
+        """Process message by routing to appropriate subagent."""
+        self._message_history.append({"role": "user", "content": message})
 
-        Routes the message to the subagent responsible for the current step,
-        advances to the next step if the subagent indicates completion,
-        and maintains conversation history.
+        # Get subagent for current step
+        step_to_agent = {
+            DiscoveryStep.UPLOAD: "upload",
+            DiscoveryStep.MAP_ROLES: "mapping",
+            DiscoveryStep.SELECT_ACTIVITIES: "activity",
+            DiscoveryStep.ANALYZE: "analysis",
+            DiscoveryStep.ROADMAP: "roadmap",
+        }
 
-        Args:
-            message: The input message to process.
+        agent_key = step_to_agent.get(self._session.current_step)
+        if not agent_key or agent_key not in self._subagents:
+            return {
+                "message": "Invalid step or agent not configured.",
+                "step_complete": False,
+            }
 
-        Returns:
-            The response from the subagent.
-        """
-        # Store user message in history
-        self._message_history.append({
-            "role": "user",
-            "content": message,
-        })
+        subagent = self._subagents[agent_key]
+        response = await subagent.process(message)
 
-        # Get the appropriate subagent for the current step
-        current_step = self._session.current_step
-        subagent_key = self._STEP_TO_SUBAGENT.get(current_step)
-
-        if subagent_key is None or subagent_key not in self._subagents:
-            response = {"message": "Unknown step", "step_complete": False}
-        else:
-            subagent = self._subagents[subagent_key]
-            response = await subagent.process(message)
-
-        # Store agent response in history
         self._message_history.append({
             "role": "assistant",
             "content": response.get("message", ""),
         })
 
-        # Advance step if subagent indicates completion
-        if response.get("step_complete", False):
+        # Advance step if complete
+        if response.get("step_complete"):
             self._advance_step()
 
         return response
 
     def _advance_step(self) -> None:
-        """Advance to the next step in the wizard workflow."""
-        current_step = self._session.current_step
+        """Advance to next step in wizard."""
+        current = self._session.current_step
         try:
-            current_index = self._STEP_ORDER.index(current_step)
-            if current_index < len(self._STEP_ORDER) - 1:
-                self._session.current_step = self._STEP_ORDER[current_index + 1]
+            idx = self._STEP_ORDER.index(current)
+            if idx < len(self._STEP_ORDER) - 1:
+                self._session.current_step = self._STEP_ORDER[idx + 1]
         except ValueError:
-            # Current step not found in order, don't advance
             pass
+
+    def get_conversation_history(self) -> list[dict[str, Any]]:
+        """Get full conversation history."""
+        return self._message_history.copy()
