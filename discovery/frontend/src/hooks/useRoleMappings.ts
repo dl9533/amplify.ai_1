@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from 'react'
+import { roleMappingsApi, ApiError } from '../services'
 
 export interface RoleMapping {
   id: string
@@ -13,98 +14,152 @@ export interface UseRoleMappingsReturn {
   mappings: RoleMapping[]
   isLoading: boolean
   error: string | null
-  confirmMapping: (id: string) => void
-  bulkConfirm: (threshold: number) => void
-  remapRole: (id: string, onetCode: string, onetTitle: string) => void
+  confirmMapping: (id: string) => Promise<void>
+  bulkConfirm: (threshold: number) => Promise<void>
+  remapRole: (id: string, onetCode: string, onetTitle: string) => Promise<void>
+  refresh: () => Promise<void>
 }
 
-const mockMappings: RoleMapping[] = [
-  {
-    id: '1',
-    roleName: 'Software Engineer',
-    onetCode: '15-1252.00',
-    onetTitle: 'Software Developers',
-    confidence: 95,
-    confirmed: false,
-  },
-  {
-    id: '2',
-    roleName: 'Data Analyst',
-    onetCode: '15-2051.00',
-    onetTitle: 'Data Scientists',
-    confidence: 87,
-    confirmed: false,
-  },
-  {
-    id: '3',
-    roleName: 'Project Manager',
-    onetCode: '11-9199.00',
-    onetTitle: 'Project Management Specialists',
-    confidence: 78,
-    confirmed: false,
-  },
-]
-
-export function useRoleMappings(_sessionId?: string): UseRoleMappingsReturn {
+export function useRoleMappings(sessionId?: string): UseRoleMappingsReturn {
   const [mappings, setMappings] = useState<RoleMapping[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    // Simulate initial loading state
-    const loadMappings = async () => {
-      try {
-        setIsLoading(true)
-        setError(null)
-        // Simulate API delay
-        await new Promise((resolve) => setTimeout(resolve, 100))
-        setMappings(mockMappings)
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load role mappings')
-      } finally {
-        setIsLoading(false)
-      }
+  const loadMappings = useCallback(async () => {
+    if (!sessionId) {
+      setMappings([])
+      setIsLoading(false)
+      return
     }
-    loadMappings()
-  }, [_sessionId])
 
-  const confirmMapping = useCallback((id: string) => {
     try {
+      setIsLoading(true)
+      setError(null)
+
+      const response = await roleMappingsApi.getBySession(sessionId)
+
+      // Map API response to frontend interface
+      const mappedData: RoleMapping[] = response.map((m) => ({
+        id: m.id,
+        roleName: m.source_role,
+        onetCode: m.onet_code,
+        onetTitle: m.onet_title,
+        confidence: Math.round(m.confidence_score * 100),
+        confirmed: m.is_confirmed,
+      }))
+
+      setMappings(mappedData)
+    } catch (err) {
+      const message =
+        err instanceof ApiError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : 'Failed to load role mappings'
+      setError(message)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [sessionId])
+
+  useEffect(() => {
+    loadMappings()
+  }, [loadMappings])
+
+  const confirmMapping = useCallback(async (id: string) => {
+    // Optimistic update
+    setMappings((prev) =>
+      prev.map((mapping) =>
+        mapping.id === id ? { ...mapping, confirmed: true } : mapping
+      )
+    )
+
+    try {
+      await roleMappingsApi.update(id, { is_confirmed: true })
+    } catch (err) {
+      // Revert on error
       setMappings((prev) =>
         prev.map((mapping) =>
-          mapping.id === id ? { ...mapping, confirmed: true } : mapping
+          mapping.id === id ? { ...mapping, confirmed: false } : mapping
         )
       )
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to confirm mapping')
+      const message =
+        err instanceof ApiError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : 'Failed to confirm mapping'
+      setError(message)
     }
   }, [])
 
-  const bulkConfirm = useCallback((threshold: number) => {
-    try {
+  const bulkConfirm = useCallback(
+    async (threshold: number) => {
+      if (!sessionId) return
+
+      // Store previous state for rollback
+      const previousMappings = [...mappings]
+
+      // Optimistic update
       setMappings((prev) =>
         prev.map((mapping) =>
           mapping.confidence >= threshold ? { ...mapping, confirmed: true } : mapping
         )
       )
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to bulk confirm mappings')
-    }
-  }, [])
 
-  const remapRole = useCallback((id: string, onetCode: string, onetTitle: string) => {
-    try {
-      setMappings((prev) =>
-        prev.map((mapping) =>
-          mapping.id === id
-            ? { ...mapping, onetCode, onetTitle, confidence: 100, confirmed: true }
-            : mapping
-        )
+      try {
+        // API expects threshold as decimal (0-1)
+        await roleMappingsApi.bulkConfirm(sessionId, threshold / 100)
+      } catch (err) {
+        // Revert on error
+        setMappings(previousMappings)
+        const message =
+          err instanceof ApiError
+            ? err.message
+            : err instanceof Error
+              ? err.message
+              : 'Failed to bulk confirm mappings'
+        setError(message)
+      }
+    },
+    [sessionId, mappings]
+  )
+
+  const remapRole = useCallback(async (id: string, onetCode: string, onetTitle: string) => {
+    // Store previous state for rollback
+    const previousMapping = mappings.find((m) => m.id === id)
+
+    // Optimistic update
+    setMappings((prev) =>
+      prev.map((mapping) =>
+        mapping.id === id
+          ? { ...mapping, onetCode, onetTitle, confidence: 100, confirmed: true }
+          : mapping
       )
+    )
+
+    try {
+      await roleMappingsApi.update(id, {
+        onet_code: onetCode,
+        onet_title: onetTitle,
+        is_confirmed: true,
+      })
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to remap role')
+      // Revert on error
+      if (previousMapping) {
+        setMappings((prev) =>
+          prev.map((mapping) => (mapping.id === id ? previousMapping : mapping))
+        )
+      }
+      const message =
+        err instanceof ApiError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : 'Failed to remap role'
+      setError(message)
     }
-  }, [])
+  }, [mappings])
 
   return {
     mappings,
@@ -113,5 +168,6 @@ export function useRoleMappings(_sessionId?: string): UseRoleMappingsReturn {
     confirmMapping,
     bulkConfirm,
     remapRole,
+    refresh: loadMappings,
   }
 }

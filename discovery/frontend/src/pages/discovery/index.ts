@@ -1,6 +1,6 @@
+export { SessionsDashboard } from './SessionsDashboard'
 export { UploadStep } from './UploadStep'
 export { MapRolesStep } from './MapRolesStep'
 export { ActivitiesStep } from './ActivitiesStep'
 export { AnalysisStep } from './AnalysisStep'
 export { RoadmapStep } from './RoadmapStep'
-export { DiscoverySessionList } from './DiscoverySessionList'

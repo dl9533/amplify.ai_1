@@ -1,4 +1,5 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
+import { chatApi, ApiError } from '../services'
 import type { ChatMessage } from '../components/features/discovery/ChatPanel'
 
 export interface UseDiscoveryChatOptions {
@@ -14,6 +15,7 @@ export interface UseDiscoveryChatReturn {
   sendMessage: (content: string) => Promise<void>
   clearMessages: () => void
   addMessage: (message: ChatMessage) => void
+  loadHistory: () => Promise<void>
 }
 
 let messageIdCounter = 0
@@ -36,13 +38,51 @@ export function useDiscoveryChat({
     setMessages((prev) => [...prev, message])
   }, [])
 
+  const loadHistory = useCallback(async () => {
+    if (!sessionId) return
+
+    try {
+      setIsLoading(true)
+      setError(null)
+
+      const history = await chatApi.getHistory(sessionId)
+
+      // Map API response to ChatMessage format
+      const loadedMessages: ChatMessage[] = history.map((item) => ({
+        id: generateMessageId(),
+        role: item.role,
+        content: item.content,
+      }))
+
+      setMessages(loadedMessages)
+    } catch (err) {
+      const errorObj =
+        err instanceof ApiError
+          ? new Error(err.message)
+          : err instanceof Error
+            ? err
+            : new Error('Failed to load chat history')
+      setError(errorObj)
+      onError?.(errorObj)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [sessionId, onError])
+
+  // Load history on mount if no initial messages
+  useEffect(() => {
+    if (initialMessages.length === 0 && sessionId) {
+      loadHistory()
+    }
+  }, [sessionId, initialMessages.length, loadHistory])
+
   const sendMessage = useCallback(
     async (content: string) => {
       if (!content.trim()) return
 
       setError(null)
 
-      // Add user message immediately
+      // Add user message immediately (optimistic update)
       const userMessage: ChatMessage = {
         id: generateMessageId(),
         role: 'user',
@@ -53,30 +93,22 @@ export function useDiscoveryChat({
       setIsLoading(true)
 
       try {
-        // API call to send message and get response
-        const response = await fetch(`/api/discovery/sessions/${sessionId}/messages`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ content: content.trim() }),
-        })
-
-        if (!response.ok) {
-          throw new Error(`Failed to send message: ${response.statusText}`)
-        }
-
-        const data = await response.json()
+        const response = await chatApi.sendMessage(sessionId, content.trim())
 
         // Add assistant response
         const assistantMessage: ChatMessage = {
-          id: data.id || generateMessageId(),
+          id: generateMessageId(),
           role: 'assistant',
-          content: data.content,
+          content: response.response,
         }
         addMessage(assistantMessage)
       } catch (err) {
-        const errorObj = err instanceof Error ? err : new Error('Failed to send message')
+        const errorObj =
+          err instanceof ApiError
+            ? new Error(err.message)
+            : err instanceof Error
+              ? err
+              : new Error('Failed to send message')
         setError(errorObj)
         onError?.(errorObj)
       } finally {
@@ -98,5 +130,6 @@ export function useDiscoveryChat({
     sendMessage,
     clearMessages,
     addMessage,
+    loadHistory,
   }
 }

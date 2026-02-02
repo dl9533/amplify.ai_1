@@ -1,107 +1,146 @@
 import { useState, useCallback, useEffect } from 'react'
+import { roadmapApi, handoffApi, ApiError } from '../services'
+import type { RoadmapPhase as ApiPhase, PriorityTier as ApiTier } from '../services'
 
 export type Phase = 'NOW' | 'NEXT' | 'LATER'
+export type PriorityTier = 'HIGH' | 'MEDIUM' | 'LOW'
 
-export interface RoadmapCandidate {
+export interface RoadmapItem {
   id: string
-  name: string
+  roleName: string
   phase: Phase
   priorityScore: number
-  exposureScore: number
+  priorityTier: PriorityTier
+  estimatedEffort: 'low' | 'medium' | 'high'
 }
 
-export interface UseRoadmapReturn {
-  candidates: RoadmapCandidate[]
-  isLoading: boolean
-  error: string | null
-  updatePhase: (id: string, newPhase: Phase) => void
-  handoff: () => Promise<void>
-  isHandingOff: boolean
-  handoffError: string | null
-}
-
-const mockCandidates: RoadmapCandidate[] = [
-  {
-    id: 'candidate-1',
-    name: 'Software Engineer',
-    phase: 'NOW',
-    priorityScore: 0.92,
-    exposureScore: 0.85,
-  },
-  {
-    id: 'candidate-2',
-    name: 'Data Analyst',
-    phase: 'NEXT',
-    priorityScore: 0.78,
-    exposureScore: 0.72,
-  },
-  {
-    id: 'candidate-3',
-    name: 'Product Manager',
-    phase: 'LATER',
-    priorityScore: 0.65,
-    exposureScore: 0.58,
-  },
-]
-
-// TODO: sessionId will be used for API calls to fetch roadmap data for a specific session
-export function useRoadmap(sessionId?: string): UseRoadmapReturn {
-  const [candidates, setCandidates] = useState<RoadmapCandidate[]>([])
+export function useRoadmap(sessionId: string) {
+  const [items, setItems] = useState<RoadmapItem[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isHandingOff, setIsHandingOff] = useState(false)
-  const [handoffError, setHandoffError] = useState<string | null>(null)
 
-  const fetchCandidates = useCallback(async () => {
+  const fetchItems = useCallback(async () => {
+    if (!sessionId) {
+      setItems([])
+      setIsLoading(false)
+      return
+    }
+
     try {
       setIsLoading(true)
       setError(null)
-      // Simulate API delay
-      // TODO: Replace with actual API call using sessionId
-      await new Promise((resolve) => setTimeout(resolve, 100))
-      setCandidates(mockCandidates)
+
+      const response = await roadmapApi.get(sessionId)
+
+      // Map API response to frontend interface
+      const mappedItems: RoadmapItem[] = response.items.map((item) => ({
+        id: item.id,
+        roleName: item.role_name,
+        phase: item.phase as Phase,
+        priorityScore: item.priority_score,
+        priorityTier: item.priority_tier as PriorityTier,
+        estimatedEffort: (item.estimated_effort || 'medium') as 'low' | 'medium' | 'high',
+      }))
+
+      setItems(mappedItems)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load roadmap candidates')
+      // If roadmap hasn't been generated yet, show empty list
+      if (err instanceof ApiError && err.status === 404) {
+        setItems([])
+        setError(null)
+      } else {
+        const message =
+          err instanceof ApiError
+            ? err.message
+            : err instanceof Error
+              ? err.message
+              : 'Failed to load roadmap'
+        setError(message)
+      }
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [sessionId])
 
   useEffect(() => {
-    fetchCandidates()
-  }, [fetchCandidates])
+    fetchItems()
+  }, [fetchItems])
 
-  const updatePhase = useCallback((id: string, newPhase: Phase) => {
-    setCandidates((prev) =>
-      prev.map((candidate) =>
-        candidate.id === id ? { ...candidate, phase: newPhase } : candidate
+  const updatePhase = useCallback(
+    async (id: string, newPhase: Phase) => {
+      // Store previous state for rollback
+      const previousItem = items.find((item) => item.id === id)
+
+      // Optimistic update
+      setItems((prev) =>
+        prev.map((item) =>
+          item.id === id ? { ...item, phase: newPhase } : item
+        )
       )
-    )
-  }, [])
 
-  const handoff = useCallback(async () => {
-    try {
-      setIsHandingOff(true)
-      setHandoffError(null)
-      // Simulate API delay for handoff
-      // TODO: Replace with actual API call to send to intake
-      await new Promise((resolve) => setTimeout(resolve, 500))
-      // Success - could navigate or update state here
-    } catch (err) {
-      setHandoffError(err instanceof Error ? err.message : 'Failed to handoff to intake')
-      throw err
-    } finally {
-      setIsHandingOff(false)
-    }
-  }, [])
+      try {
+        await roadmapApi.updatePhase(id, newPhase as ApiPhase)
+      } catch (err) {
+        // Revert on error
+        if (previousItem) {
+          setItems((prev) =>
+            prev.map((item) =>
+              item.id === id ? previousItem : item
+            )
+          )
+        }
+        const message =
+          err instanceof ApiError
+            ? err.message
+            : err instanceof Error
+              ? err.message
+              : 'Failed to update phase'
+        setError(message)
+      }
+    },
+    [items]
+  )
+
+  const handoff = useCallback(
+    async (candidateIds: string[], notes?: string) => {
+      if (!sessionId) return
+
+      try {
+        setIsHandingOff(true)
+        setError(null)
+
+        // First validate readiness
+        const validation = await handoffApi.validate(sessionId)
+
+        if (!validation.is_ready && validation.errors.length > 0) {
+          throw new Error(validation.errors.join('; '))
+        }
+
+        // Submit handoff
+        await handoffApi.submit(sessionId, candidateIds, notes)
+      } catch (err) {
+        const message =
+          err instanceof ApiError
+            ? err.message
+            : err instanceof Error
+              ? err.message
+              : 'Failed to handoff'
+        setError(message)
+        throw err
+      } finally {
+        setIsHandingOff(false)
+      }
+    },
+    [sessionId]
+  )
 
   return {
-    candidates,
+    items,
     isLoading,
     error,
     updatePhase,
     handoff,
     isHandingOff,
-    handoffError,
   }
 }

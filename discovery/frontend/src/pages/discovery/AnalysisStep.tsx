@@ -1,233 +1,302 @@
-import { useMemo, useCallback, useRef } from 'react'
+import { useState, useMemo } from 'react'
 import { useParams } from 'react-router-dom'
-import { useAnalysisResults, Dimension, PriorityTier, AnalysisResult } from '@/hooks/useAnalysisResults'
+import { AppShell } from '../../components/layout/AppShell'
+import { DiscoveryWizard, StepContent } from '../../components/layout/DiscoveryWizard'
+import { Button } from '../../components/ui/Button'
+import { TierBadge } from '../../components/ui/Badge'
+import { MiniBar } from '../../components/ui/ScoreBar'
+import { LoadingState, ErrorState, EmptyState } from '../../components/ui/EmptyState'
+import {
+  IconRefresh,
+  IconBarChart,
+  IconChevronUp,
+  IconChevronDown,
+} from '../../components/ui/Icons'
+import { useAnalysisResults, Dimension, PriorityTier, AnalysisResult } from '../../hooks/useAnalysisResults'
 
-// Utility function moved outside component for performance
-function formatScore(score: number): string {
-  return (score * 100).toFixed(0) + '%'
-}
-
-// Constants moved outside component to avoid recreating on each render
-const DIMENSIONS: { dimension: Dimension; label: string }[] = [
-  { dimension: 'ROLE', label: 'Role' },
-  { dimension: 'DEPARTMENT', label: 'Department' },
-  { dimension: 'GEOGRAPHY', label: 'Geography' },
+const DIMENSIONS: { key: Dimension; label: string }[] = [
+  { key: 'ROLE', label: 'By Role' },
+  { key: 'DEPARTMENT', label: 'By Department' },
+  { key: 'GEOGRAPHY', label: 'By Geography' },
+  { key: 'TASK', label: 'By Task' },
+  { key: 'LOB', label: 'By Line of Business' },
 ]
 
-// Generic error message to prevent XSS
-const GENERIC_ERROR_MESSAGE = 'An error occurred while loading analysis results. Please try again.'
+const TIERS: { key: PriorityTier | 'ALL'; label: string }[] = [
+  { key: 'ALL', label: 'All' },
+  { key: 'HIGH', label: 'High' },
+  { key: 'MEDIUM', label: 'Medium' },
+  { key: 'LOW', label: 'Low' },
+]
 
-interface DimensionTabProps {
-  dimension: Dimension
-  label: string
-  isSelected: boolean
-  tabIndex: number
-  panelId: string
-  onSelect: (dimension: Dimension) => void
-  onKeyDown: (event: React.KeyboardEvent, dimension: Dimension) => void
-}
-
-function DimensionTab({ dimension, label, isSelected, tabIndex, panelId, onSelect, onKeyDown }: DimensionTabProps) {
-  return (
-    <button
-      role="tab"
-      id={`tab-${dimension}`}
-      aria-selected={isSelected}
-      aria-controls={panelId}
-      aria-label={label}
-      tabIndex={tabIndex}
-      onClick={() => onSelect(dimension)}
-      onKeyDown={(e) => onKeyDown(e, dimension)}
-      className={`px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 transition-colors ${
-        isSelected
-          ? 'border-primary text-primary bg-primary/10'
-          : 'border-transparent text-foreground-muted hover:text-foreground hover:border-border'
-      }`}
-    >
-      {label}
-    </button>
-  )
-}
-
-interface PriorityBadgeProps {
-  tier: PriorityTier
-}
-
-function PriorityBadge({ tier }: PriorityBadgeProps) {
-  const colorClasses = {
-    HIGH: 'bg-destructive/10 text-destructive',
-    MEDIUM: 'bg-warning/10 text-warning',
-    LOW: 'bg-success/10 text-success',
-  }
-
-  return (
-    <span className={`px-2 py-1 text-xs font-semibold rounded ${colorClasses[tier]}`}>
-      {tier}
-    </span>
-  )
-}
-
-interface ResultCardProps {
-  result: AnalysisResult
-}
-
-function ResultCard({ result }: ResultCardProps) {
-  return (
-    <div className="card p-4">
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-lg font-medium text-foreground">{result.name}</h3>
-        <PriorityBadge tier={result.tier} />
-      </div>
-      <div className="grid grid-cols-3 gap-4 text-sm">
-        <div>
-          <span className="text-foreground-muted">Exposure:</span>
-          <span className="ml-1 font-medium text-foreground">{formatScore(result.exposure)}</span>
-        </div>
-        <div>
-          <span className="text-foreground-muted">Impact:</span>
-          <span className="ml-1 font-medium text-foreground">{formatScore(result.impact)}</span>
-        </div>
-        <div>
-          <span className="text-foreground-muted">Priority:</span>
-          <span className="ml-1 font-medium text-foreground">{formatScore(result.priority)}</span>
-        </div>
-      </div>
-    </div>
-  )
-}
+type SortKey = 'name' | 'exposure' | 'impact' | 'priority'
+type SortDir = 'asc' | 'desc'
 
 export function AnalysisStep() {
-  const { sessionId } = useParams<{ sessionId: string }>()
+  const { sessionId } = useParams()
+  const [activeDimension, setActiveDimension] = useState<Dimension>('ROLE')
+  const [activeTier, setActiveTier] = useState<PriorityTier | 'ALL'>('ALL')
+  const [sortKey, setSortKey] = useState<SortKey>('priority')
+  const [sortDir, setSortDir] = useState<SortDir>('desc')
+
   const {
-    filteredResults,
+    results,
     isLoading,
     error,
-    selectedDimension,
-    filterTier,
-    setSelectedDimension,
-    setFilterTier,
-  } = useAnalysisResults(sessionId)
+    triggerAnalysis,
+    isTriggering,
+  } = useAnalysisResults(
+    sessionId || '',
+    activeDimension,
+    activeTier === 'ALL' ? undefined : activeTier
+  )
 
-  const tablistRef = useRef<HTMLDivElement>(null)
+  // Sort results
+  const sortedResults = useMemo(() => {
+    if (!results) return []
 
-  // Memoize dimensions array (using constant defined outside component)
-  const dimensions = useMemo(() => DIMENSIONS, [])
+    return [...results].sort((a, b) => {
+      let comparison = 0
+      switch (sortKey) {
+        case 'name':
+          comparison = a.name.localeCompare(b.name)
+          break
+        case 'exposure':
+          comparison = a.exposure - b.exposure
+          break
+        case 'impact':
+          comparison = a.impact - b.impact
+          break
+        case 'priority':
+          comparison = a.priority - b.priority
+          break
+      }
+      return sortDir === 'asc' ? comparison : -comparison
+    })
+  }, [results, sortKey, sortDir])
 
-  const panelId = `tabpanel-${selectedDimension}`
-
-  // Handle keyboard navigation for tabs
-  const handleTabKeyDown = useCallback((event: React.KeyboardEvent, currentDimension: Dimension) => {
-    const currentIndex = dimensions.findIndex(d => d.dimension === currentDimension)
-    let newIndex: number | null = null
-
-    if (event.key === 'ArrowRight') {
-      event.preventDefault()
-      newIndex = (currentIndex + 1) % dimensions.length
-    } else if (event.key === 'ArrowLeft') {
-      event.preventDefault()
-      newIndex = (currentIndex - 1 + dimensions.length) % dimensions.length
+  // Summary stats
+  const stats = useMemo(() => {
+    if (!results || results.length === 0) {
+      return { total: 0, highCount: 0, avgExposure: 0, avgPriority: 0 }
     }
 
-    if (newIndex !== null) {
-      const newDimension = dimensions[newIndex].dimension
-      setSelectedDimension(newDimension)
-      // Focus the new tab
-      const newTab = tablistRef.current?.querySelector(`#tab-${newDimension}`) as HTMLButtonElement
-      newTab?.focus()
-    }
-  }, [dimensions, setSelectedDimension])
+    const highCount = results.filter((r) => r.tier === 'HIGH').length
+    const avgExposure = results.reduce((sum, r) => sum + r.exposure, 0) / results.length
+    const avgPriority = results.reduce((sum, r) => sum + r.priority, 0) / results.length
 
-  if (!sessionId) {
-    return (
-      <div className="flex items-center justify-center p-8">
-        <span className="text-destructive" role="alert">
-          Error: Session ID is required. Please start a new discovery session.
-        </span>
-      </div>
+    return {
+      total: results.length,
+      highCount,
+      avgExposure,
+      avgPriority,
+    }
+  }, [results])
+
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir(sortDir === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortKey(key)
+      setSortDir('desc')
+    }
+  }
+
+  const SortIcon = ({ column }: { column: SortKey }) => {
+    if (sortKey !== column) return null
+    return sortDir === 'asc' ? (
+      <IconChevronUp size={14} />
+    ) : (
+      <IconChevronDown size={14} />
     )
   }
 
-  if (error) {
-    return (
-      <div className="flex items-center justify-center p-8">
-        <span className="text-destructive" role="alert">
-          {GENERIC_ERROR_MESSAGE}
-        </span>
-      </div>
-    )
-  }
+  const canProceed = results && results.length > 0
 
   return (
-    <div className="max-w-4xl mx-auto p-6">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-foreground">Analysis Results</h1>
-        <p className="mt-2 text-foreground-muted">
-          Review AI opportunity analysis results across different dimensions.
-        </p>
-      </div>
-
-      {/* Dimension Tabs */}
-      <div ref={tablistRef} className="flex gap-1 mb-6 border-b border-border" role="tablist">
-        {dimensions.map(({ dimension, label }) => (
-          <DimensionTab
-            key={dimension}
-            dimension={dimension}
-            label={label}
-            isSelected={selectedDimension === dimension}
-            tabIndex={selectedDimension === dimension ? 0 : -1}
-            panelId={panelId}
-            onSelect={setSelectedDimension}
-            onKeyDown={handleTabKeyDown}
-          />
-        ))}
-      </div>
-
-      {/* Filter Controls */}
-      <div className="mb-6 flex items-center gap-4">
-        <label htmlFor="priority-filter" className="text-sm font-medium text-foreground">
-          Filter by priority:
-        </label>
-        <select
-          id="priority-filter"
-          aria-label="Filter by priority tier"
-          value={filterTier}
-          onChange={(e) => setFilterTier(e.target.value as PriorityTier | 'ALL')}
-          className="input w-40"
+    <AppShell>
+      <DiscoveryWizard currentStep={4} canProceed={canProceed}>
+        <StepContent
+          title="Analysis Results"
+          description="Review automation potential scores across different dimensions."
+          actions={
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={<IconRefresh size={16} />}
+              onClick={triggerAnalysis}
+              loading={isTriggering}
+            >
+              Re-analyze
+            </Button>
+          }
         >
-          <option value="ALL">All</option>
-          <option value="HIGH">HIGH</option>
-          <option value="MEDIUM">MEDIUM</option>
-          <option value="LOW">LOW</option>
-        </select>
-      </div>
+          {/* Summary stats */}
+          <div className="grid grid-cols-4 gap-4 mb-6">
+            <div className="surface p-4 text-center">
+              <p className="text-2xl font-display font-bold text-default">
+                {stats.total}
+              </p>
+              <p className="text-xs text-muted">Total Items</p>
+            </div>
+            <div className="surface p-4 text-center">
+              <p className="text-2xl font-display font-bold text-success">
+                {stats.highCount}
+              </p>
+              <p className="text-xs text-muted">High Priority</p>
+            </div>
+            <div className="surface p-4 text-center">
+              <p className="text-2xl font-display font-bold text-accent">
+                {Math.round(stats.avgExposure * 100)}%
+              </p>
+              <p className="text-xs text-muted">Avg Exposure</p>
+            </div>
+            <div className="surface p-4 text-center">
+              <p className="text-2xl font-display font-bold text-warning">
+                {Math.round(stats.avgPriority * 100)}%
+              </p>
+              <p className="text-xs text-muted">Avg Priority</p>
+            </div>
+          </div>
 
-      {/* Loading State */}
-      {isLoading && (
-        <div className="flex items-center justify-center p-8" role="status" aria-live="polite">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-          <span className="ml-3 text-foreground-muted">Analyzing...</span>
-        </div>
-      )}
+          {/* Dimension tabs */}
+          <div className="flex items-center gap-2 mb-4 overflow-x-auto pb-2">
+            {DIMENSIONS.map((dim) => (
+              <button
+                key={dim.key}
+                onClick={() => setActiveDimension(dim.key)}
+                className={activeDimension === dim.key ? 'tab-active' : 'tab'}
+              >
+                {dim.label}
+              </button>
+            ))}
+          </div>
 
-      {/* Results Panel */}
-      {!isLoading && (
-        <div
-          role="tabpanel"
-          id={panelId}
-          aria-labelledby={`tab-${selectedDimension}`}
-          className="space-y-4"
-        >
-          {filteredResults.map((result) => (
-            <ResultCard key={result.id} result={result} />
-          ))}
+          {/* Tier filter */}
+          <div className="flex items-center gap-2 mb-6">
+            <span className="text-sm text-muted">Filter:</span>
+            {TIERS.map((tier) => (
+              <button
+                key={tier.key}
+                onClick={() => setActiveTier(tier.key)}
+                className={`
+                  px-3 py-1 text-sm rounded-full border transition-all
+                  ${
+                    activeTier === tier.key
+                      ? 'bg-accent/15 border-accent/30 text-accent'
+                      : 'border-border text-muted hover:text-default hover:border-border-accent/30'
+                  }
+                `}
+              >
+                {tier.label}
+              </button>
+            ))}
+          </div>
 
-          {filteredResults.length === 0 && (
-            <div className="text-center py-8 text-foreground-muted">
-              No results found for the selected filters.
+          {/* Results table */}
+          {isLoading ? (
+            <LoadingState message="Loading analysis..." />
+          ) : error ? (
+            <ErrorState message={error} />
+          ) : sortedResults.length === 0 ? (
+            <EmptyState
+              icon={<IconBarChart size={28} />}
+              title="No results yet"
+              description="Run the analysis to see automation scores for your workforce."
+              action={
+                <Button
+                  variant="primary"
+                  size="sm"
+                  icon={<IconRefresh size={16} />}
+                  onClick={triggerAnalysis}
+                  loading={isTriggering}
+                >
+                  Run Analysis
+                </Button>
+              }
+            />
+          ) : (
+            <div className="surface overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-border bg-bg-muted/50">
+                      <th className="text-left p-4">
+                        <button
+                          onClick={() => handleSort('name')}
+                          className="flex items-center gap-1 text-xs font-medium text-muted uppercase tracking-wide hover:text-default"
+                        >
+                          Name
+                          <SortIcon column="name" />
+                        </button>
+                      </th>
+                      <th className="text-left p-4">
+                        <button
+                          onClick={() => handleSort('exposure')}
+                          className="flex items-center gap-1 text-xs font-medium text-muted uppercase tracking-wide hover:text-default"
+                        >
+                          AI Exposure
+                          <SortIcon column="exposure" />
+                        </button>
+                      </th>
+                      <th className="text-left p-4">
+                        <button
+                          onClick={() => handleSort('impact')}
+                          className="flex items-center gap-1 text-xs font-medium text-muted uppercase tracking-wide hover:text-default"
+                        >
+                          Impact
+                          <SortIcon column="impact" />
+                        </button>
+                      </th>
+                      <th className="text-left p-4">
+                        <button
+                          onClick={() => handleSort('priority')}
+                          className="flex items-center gap-1 text-xs font-medium text-muted uppercase tracking-wide hover:text-default"
+                        >
+                          Priority
+                          <SortIcon column="priority" />
+                        </button>
+                      </th>
+                      <th className="text-left p-4">
+                        <span className="text-xs font-medium text-muted uppercase tracking-wide">
+                          Tier
+                        </span>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sortedResults.map((result, index) => (
+                      <tr
+                        key={result.id}
+                        className="border-b border-border last:border-0 hover:bg-bg-muted/30 transition-colors animate-fade-in"
+                        style={{ animationDelay: `${Math.min(index, 15) * 30}ms` }}
+                      >
+                        <td className="p-4">
+                          <span className="font-medium text-default">
+                            {result.name}
+                          </span>
+                        </td>
+                        <td className="p-4">
+                          <MiniBar value={result.exposure} />
+                        </td>
+                        <td className="p-4">
+                          <MiniBar value={result.impact} />
+                        </td>
+                        <td className="p-4">
+                          <MiniBar value={result.priority} />
+                        </td>
+                        <td className="p-4">
+                          <TierBadge tier={result.tier} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
-        </div>
-      )}
-    </div>
+        </StepContent>
+      </DiscoveryWizard>
+    </AppShell>
   )
 }

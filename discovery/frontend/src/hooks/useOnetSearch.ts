@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { onetApi, ApiError } from '../services'
 
 export interface OnetOccupation {
   code: string
@@ -10,16 +11,8 @@ export interface UseOnetSearchReturn {
   setQuery: (query: string) => void
   results: OnetOccupation[]
   isLoading: boolean
+  error: string | null
 }
-
-// Mock data for search results
-const mockOccupations: OnetOccupation[] = [
-  { code: '15-1252.00', title: 'Software Developers' },
-  { code: '15-1253.00', title: 'Software Quality Assurance Analysts and Testers' },
-  { code: '15-1254.00', title: 'Web Developers' },
-  { code: '15-1255.00', title: 'Web and Digital Interface Designers' },
-  { code: '15-1211.00', title: 'Computer Systems Analysts' },
-]
 
 const DEBOUNCE_DELAY = 300
 
@@ -27,7 +20,8 @@ export function useOnetSearch(): UseOnetSearchReturn {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<OnetOccupation[]>([])
   const [isLoading, setIsLoading] = useState(false)
-  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     if (debounceTimerRef.current) {
@@ -37,21 +31,36 @@ export function useOnetSearch(): UseOnetSearchReturn {
     if (!query.trim()) {
       setResults([])
       setIsLoading(false)
+      setError(null)
       return
     }
 
     setIsLoading(true)
+    setError(null)
 
-    debounceTimerRef.current = setTimeout(() => {
-      // Mock search - filter occupations that match the query
-      const searchQuery = query.toLowerCase()
-      const filteredResults = mockOccupations.filter(
-        (occupation) =>
-          occupation.title.toLowerCase().includes(searchQuery) ||
-          occupation.code.toLowerCase().includes(searchQuery)
-      )
-      setResults(filteredResults)
-      setIsLoading(false)
+    debounceTimerRef.current = setTimeout(async () => {
+      try {
+        const response = await onetApi.search(query)
+
+        // Map API response to frontend interface
+        const searchResults: OnetOccupation[] = response.map((r) => ({
+          code: r.code,
+          title: r.title,
+        }))
+
+        setResults(searchResults)
+      } catch (err) {
+        const message =
+          err instanceof ApiError
+            ? err.message
+            : err instanceof Error
+              ? err.message
+              : 'Failed to search O*NET'
+        setError(message)
+        setResults([])
+      } finally {
+        setIsLoading(false)
+      }
     }, DEBOUNCE_DELAY)
 
     return () => {
@@ -66,5 +75,6 @@ export function useOnetSearch(): UseOnetSearchReturn {
     setQuery,
     results,
     isLoading,
+    error,
   }
 }

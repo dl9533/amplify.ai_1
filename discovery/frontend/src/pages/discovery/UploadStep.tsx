@@ -1,194 +1,261 @@
-import { useCallback, useRef, useState } from 'react'
+import { useState, useCallback } from 'react'
 import { useParams } from 'react-router-dom'
-import { useFileUpload, type UploadedFile } from '@/hooks/useFileUpload'
+import { AppShell } from '../../components/layout/AppShell'
+import { DiscoveryWizard, StepContent } from '../../components/layout/DiscoveryWizard'
+import { Button } from '../../components/ui/Button'
+import {
+  IconUpload,
+  IconFileSpreadsheet,
+  IconCheck,
+  IconX,
+  IconAlertCircle,
+} from '../../components/ui/Icons'
+import { useFileUpload } from '../../hooks/useFileUpload'
 
 export function UploadStep() {
-  // sessionId will be used for API integration when uploading files to the backend
-  const { sessionId: _sessionId } = useParams<{ sessionId: string }>()
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const [isDragOver, setIsDragOver] = useState(false)
+  const { sessionId } = useParams()
+  const {
+    file,
+    uploading,
+    uploadProgress,
+    uploadError,
+    uploadResult,
+    handleDrop,
+    handleFileSelect,
+    clearFile,
+  } = useFileUpload(sessionId || '')
 
-  const { uploadedFile, isUploading, error, handleFileDrop, handleFileSelect, clearFile } =
-    useFileUpload()
+  const [dragActive, setDragActive] = useState(false)
+  const [columnMappings, setColumnMappings] = useState<Record<string, string>>({})
 
-  const handleDragOver = useCallback((event: React.DragEvent<HTMLDivElement>) => {
-    event.preventDefault()
-    event.stopPropagation()
-    setIsDragOver(true)
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setDragActive(true)
   }, [])
 
-  const handleDragLeave = useCallback((event: React.DragEvent<HTMLDivElement>) => {
-    event.preventDefault()
-    event.stopPropagation()
-    setIsDragOver(false)
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setDragActive(false)
   }, [])
 
-  const handleDrop = useCallback(
-    (event: React.DragEvent<HTMLDivElement>) => {
-      event.preventDefault()
-      event.stopPropagation()
-      setIsDragOver(false)
+  const handleDropFiles = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault()
+      setDragActive(false)
+      const files = Array.from(e.dataTransfer.files)
+      if (files.length > 0) {
+        handleDrop(files[0])
+      }
+    },
+    [handleDrop]
+  )
 
-      const files = event.dataTransfer.files
+  const handleFileInputChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = e.target.files
       if (files && files.length > 0) {
-        handleFileDrop(files)
+        handleFileSelect(files[0])
       }
     },
-    [handleFileDrop]
+    [handleFileSelect]
   )
 
-  const handleBrowseClick = useCallback(() => {
-    fileInputRef.current?.click()
-  }, [])
+  // Detected columns from upload
+  const detectedColumns = uploadResult?.detected_schema || []
 
-  const handleDropZoneKeyDown = useCallback(
-    (event: React.KeyboardEvent<HTMLDivElement>) => {
-      if (event.key === 'Enter' || event.key === ' ') {
-        event.preventDefault()
-        fileInputRef.current?.click()
-      }
-    },
-    []
-  )
+  // Column mapping options
+  const mappingOptions = ['role', 'department', 'geography', 'headcount']
 
-  const isUploadComplete = uploadedFile !== null && !isUploading
+  const handleColumnMapping = (column: string, mapping: string) => {
+    setColumnMappings((prev) => {
+      // Remove existing mapping for this value
+      const cleaned = Object.fromEntries(
+        Object.entries(prev).filter(([_, v]) => v !== mapping)
+      )
+      return { ...cleaned, [column]: mapping }
+    })
+  }
+
+  const canProceed = !!uploadResult && !!columnMappings['role']
 
   return (
-    <div className="flex flex-col items-center justify-center p-8">
-      <h1 className="text-2xl font-bold mb-4 text-foreground">Upload Your Organization Data</h1>
-      <p className="text-foreground-muted mb-8">
-        Upload a CSV or XLSX file containing your organization&apos;s data for analysis.
-      </p>
-
-      {/* File Drop Zone */}
-      <div
-        data-testid="file-dropzone"
-        role="button"
-        tabIndex={0}
-        aria-label="File upload drop zone. Press Enter or Space to open file selector."
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-        onKeyDown={handleDropZoneKeyDown}
-        className={`
-          w-full max-w-lg p-12 border-2 border-dashed rounded-lg text-center cursor-pointer
-          transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background
-          ${isDragOver ? 'border-primary bg-primary/10' : 'border-border hover:border-border'}
-          ${error ? 'border-destructive bg-destructive/10' : ''}
-        `}
-      >
-        {isUploading ? (
-          <div className="flex flex-col items-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mb-4" />
-            <p className="text-foreground-muted">Processing file...</p>
-          </div>
-        ) : uploadedFile ? (
-          <div className="flex flex-col items-center">
-            <svg
-              className="h-12 w-12 text-success mb-4"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-              aria-hidden="true"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-              />
-            </svg>
-            <p className="font-medium text-foreground">{uploadedFile.name}</p>
-            <p className="text-sm text-foreground-muted mt-1">
-              {(uploadedFile.size / 1024).toFixed(1)} KB
-            </p>
-            <button
-              type="button"
-              onClick={clearFile}
-              className="mt-4 text-sm text-destructive hover:text-destructive/80"
-            >
-              Remove file
-            </button>
-          </div>
-        ) : (
-          <div className="flex flex-col items-center">
-            <svg
-              className="h-12 w-12 text-foreground-subtle mb-4"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-              aria-hidden="true"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
-              />
-            </svg>
-            <p className="text-foreground-muted mb-2">Drag and drop your file here, or</p>
-            <button
-              type="button"
-              onClick={handleBrowseClick}
-              className="btn-primary btn-md rounded-md"
-            >
-              Browse files
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".csv,.xlsx"
-              onChange={handleFileSelect}
-              className="hidden"
-              aria-label="Upload file"
-            />
-          </div>
-        )}
-      </div>
-
-      {/* Error Message */}
-      {error && (
-        <p className="mt-4 text-destructive" role="alert">
-          {error.message}
-        </p>
-      )}
-
-      {/* Column Preview */}
-      {uploadedFile && uploadedFile.columns.length > 0 && (
-        <div className="w-full max-w-lg mt-8">
-          <h2 className="text-lg font-semibold mb-4 text-foreground">Detected Columns</h2>
-          <div className="bg-background-muted rounded-lg p-4">
-            <ul className="grid grid-cols-2 gap-2">
-              {uploadedFile.columns.map((column, index) => (
-                <li
-                  key={`${column}-${index}`}
-                  className="flex items-center px-3 py-2 bg-background rounded border border-border"
-                >
-                  <span className="text-sm font-mono text-foreground">{column}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </div>
-      )}
-
-      {/* Continue Button */}
-      <div className="w-full max-w-lg mt-8 flex justify-end">
-        <button
-          type="button"
-          disabled={!isUploadComplete}
-          className={`
-            px-6 py-3 rounded-md font-medium
-            ${
-              isUploadComplete
-                ? 'btn-primary'
-                : 'bg-background-muted text-foreground-subtle cursor-not-allowed'
-            }
-          `}
+    <AppShell>
+      <DiscoveryWizard currentStep={1} canProceed={canProceed}>
+        <StepContent
+          title="Upload Workforce Data"
+          description="Import your organization's workforce data to identify automation opportunities."
         >
-          Continue
-        </button>
-      </div>
-    </div>
+          {/* File dropzone */}
+          {!uploadResult ? (
+            <div
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDropFiles}
+              className={`
+                relative border-2 border-dashed rounded-xl p-12
+                flex flex-col items-center justify-center
+                transition-all duration-200
+                ${dragActive ? 'border-accent bg-accent/5' : 'border-border hover:border-accent/50'}
+                ${uploading ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
+              `}
+            >
+              <input
+                type="file"
+                accept=".csv,.xlsx,.xls"
+                onChange={handleFileInputChange}
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                disabled={uploading}
+              />
+
+              {/* Upload icon */}
+              <div
+                className={`
+                  w-16 h-16 rounded-2xl flex items-center justify-center mb-4
+                  ${dragActive ? 'bg-accent/15 text-accent' : 'bg-bg-muted text-subtle'}
+                  transition-all duration-200
+                `}
+              >
+                <IconUpload size={28} />
+              </div>
+
+              {/* Upload text */}
+              <h3 className="font-display font-semibold text-default mb-1">
+                {dragActive ? 'Drop file here' : 'Drag and drop your file'}
+              </h3>
+              <p className="text-sm text-muted mb-4">
+                or <span className="text-accent underline">browse</span> to select
+              </p>
+
+              {/* File types */}
+              <div className="flex items-center gap-4 text-xs text-subtle">
+                <span className="flex items-center gap-1">
+                  <IconFileSpreadsheet size={14} />
+                  CSV
+                </span>
+                <span className="flex items-center gap-1">
+                  <IconFileSpreadsheet size={14} />
+                  Excel (.xlsx)
+                </span>
+                <span>Max 10MB</span>
+              </div>
+
+              {/* Upload progress */}
+              {uploading && (
+                <div className="absolute inset-0 flex items-center justify-center bg-base/80 rounded-xl">
+                  <div className="text-center">
+                    <div className="w-12 h-12 rounded-full border-2 border-accent border-t-transparent animate-spin mx-auto mb-3" />
+                    <p className="text-sm text-default">Uploading...</p>
+                    {uploadProgress > 0 && (
+                      <p className="text-xs text-muted mt-1">{uploadProgress}%</p>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            /* Upload success - show file info and column mapping */
+            <div className="space-y-6">
+              {/* File info card */}
+              <div className="surface p-5">
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-xl bg-success/10 flex items-center justify-center">
+                      <IconCheck size={24} className="text-success" />
+                    </div>
+                    <div>
+                      <h4 className="font-display font-medium text-default">
+                        {file?.name || 'Uploaded file'}
+                      </h4>
+                      <p className="text-sm text-muted">
+                        {uploadResult.row_count?.toLocaleString() || 0} rows detected
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon={<IconX size={16} />}
+                    onClick={clearFile}
+                  >
+                    Remove
+                  </Button>
+                </div>
+              </div>
+
+              {/* Column mapping */}
+              <div className="surface p-5">
+                <h4 className="font-display font-medium text-default mb-1">
+                  Map Your Columns
+                </h4>
+                <p className="text-sm text-muted mb-4">
+                  Tell us which columns contain the key information. Role column is required.
+                </p>
+
+                <div className="space-y-3">
+                  {detectedColumns.map((column) => (
+                    <div
+                      key={column}
+                      className="flex items-center gap-4 p-3 bg-bg-muted rounded-lg"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <span className="text-sm font-medium text-default truncate block">
+                          {column}
+                        </span>
+                      </div>
+                      <select
+                        value={columnMappings[column] || ''}
+                        onChange={(e) => handleColumnMapping(column, e.target.value)}
+                        className="
+                          px-3 py-1.5 text-sm
+                          bg-bg-surface text-default
+                          border border-border rounded-md
+                          focus:border-accent focus:ring-1 focus:ring-accent/30
+                        "
+                      >
+                        <option value="">Skip column</option>
+                        {mappingOptions.map((opt) => (
+                          <option
+                            key={opt}
+                            value={opt}
+                            disabled={
+                              Object.values(columnMappings).includes(opt) &&
+                              columnMappings[column] !== opt
+                            }
+                          >
+                            {opt.charAt(0).toUpperCase() + opt.slice(1)}
+                            {opt === 'role' ? ' (required)' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Mapping status */}
+                {!columnMappings['role'] && (
+                  <div className="mt-4 p-3 bg-warning/10 border border-warning/20 rounded-lg flex items-start gap-3">
+                    <IconAlertCircle size={18} className="text-warning shrink-0 mt-0.5" />
+                    <p className="text-sm text-warning">
+                      Please map at least the Role column to continue.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Error state */}
+          {uploadError && (
+            <div className="mt-4 p-4 bg-destructive/10 border border-destructive/20 rounded-lg flex items-start gap-3">
+              <IconAlertCircle size={18} className="text-destructive shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-medium text-destructive">Upload failed</p>
+                <p className="text-sm text-destructive/80 mt-0.5">{uploadError}</p>
+              </div>
+            </div>
+          )}
+        </StepContent>
+      </DiscoveryWizard>
+    </AppShell>
   )
 }

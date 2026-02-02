@@ -1,0 +1,411 @@
+/**
+ * Discovery module API functions.
+ * Typed API functions for all Discovery endpoints.
+ */
+import { api, ApiError } from './api'
+
+export { ApiError }
+
+// ============ Common Types ============
+
+export type SessionStatus = 'draft' | 'in_progress' | 'completed'
+export type PriorityTier = 'HIGH' | 'MEDIUM' | 'LOW'
+export type AnalysisDimension = 'ROLE' | 'DEPARTMENT' | 'GEOGRAPHY' | 'TASK' | 'LOB'
+export type RoadmapPhase = 'NOW' | 'NEXT' | 'LATER'
+export type EstimatedEffort = 'low' | 'medium' | 'high'
+
+// ============ Sessions API ============
+
+export interface SessionResponse {
+  id: string
+  status: SessionStatus
+  current_step: number
+  created_at: string
+  updated_at: string
+}
+
+export interface SessionListResponse {
+  items: SessionResponse[]
+  total: number
+  page: number
+  per_page: number
+}
+
+export const sessionsApi = {
+  /**
+   * List discovery sessions with pagination.
+   */
+  list: (page = 1, perPage = 20): Promise<SessionListResponse> =>
+    api.get(`/discovery/sessions?page=${page}&per_page=${perPage}`),
+
+  /**
+   * Get a single discovery session by ID.
+   */
+  get: (sessionId: string): Promise<SessionResponse> =>
+    api.get(`/discovery/sessions/${sessionId}`),
+
+  /**
+   * Create a new discovery session.
+   */
+  create: (organizationId: string): Promise<SessionResponse> =>
+    api.post('/discovery/sessions', { organization_id: organizationId }),
+
+  /**
+   * Delete a discovery session.
+   */
+  delete: (sessionId: string): Promise<void> =>
+    api.delete(`/discovery/sessions/${sessionId}`),
+
+  /**
+   * Update the current step of a session.
+   */
+  updateStep: (sessionId: string, step: number): Promise<SessionResponse> =>
+    api.patch(`/discovery/sessions/${sessionId}/step`, { step }),
+}
+
+// ============ Chat API ============
+
+export interface ChatMessage {
+  message: string
+}
+
+export interface QuickAction {
+  label: string
+  action: string
+}
+
+export interface ChatResponse {
+  response: string
+  quick_actions: QuickAction[]
+}
+
+export interface ChatHistoryItem {
+  role: 'user' | 'assistant'
+  content: string
+  timestamp: string
+}
+
+export const chatApi = {
+  /**
+   * Send a message to the discovery orchestrator.
+   */
+  sendMessage: (sessionId: string, message: string): Promise<ChatResponse> =>
+    api.post(`/discovery/sessions/${sessionId}/chat`, { message }),
+
+  /**
+   * Get chat history for a session.
+   */
+  getHistory: (sessionId: string): Promise<ChatHistoryItem[]> =>
+    api.get(`/discovery/sessions/${sessionId}/chat`),
+
+  /**
+   * Execute a quick action.
+   */
+  executeAction: (
+    sessionId: string,
+    action: string,
+    params?: Record<string, unknown>
+  ): Promise<{ response: string; data?: Record<string, unknown> }> =>
+    api.post(`/discovery/sessions/${sessionId}/chat/action`, { action, params }),
+}
+
+// ============ Role Mappings API ============
+
+export interface RoleMappingResponse {
+  id: string
+  source_role: string
+  onet_code: string
+  onet_title: string
+  confidence_score: number
+  is_confirmed: boolean
+}
+
+export interface RoleMappingUpdate {
+  onet_code?: string
+  onet_title?: string
+  is_confirmed?: boolean
+}
+
+export interface BulkConfirmResponse {
+  confirmed_count: number
+}
+
+export const roleMappingsApi = {
+  /**
+   * Get all role mappings for a session.
+   */
+  getBySession: (sessionId: string): Promise<RoleMappingResponse[]> =>
+    api.get(`/discovery/sessions/${sessionId}/role-mappings`),
+
+  /**
+   * Update a role mapping.
+   */
+  update: (mappingId: string, data: RoleMappingUpdate): Promise<RoleMappingResponse> =>
+    api.put(`/discovery/role-mappings/${mappingId}`, data),
+
+  /**
+   * Bulk confirm mappings above a confidence threshold.
+   * @param threshold - Confidence threshold (0-1)
+   */
+  bulkConfirm: (sessionId: string, threshold: number): Promise<BulkConfirmResponse> =>
+    api.post(`/discovery/sessions/${sessionId}/role-mappings/confirm`, { threshold }),
+}
+
+// ============ O*NET API ============
+
+export interface OnetSearchResult {
+  code: string
+  title: string
+  score: number
+}
+
+export interface OnetOccupation {
+  code: string
+  title: string
+  description?: string
+  gwas?: string[]
+}
+
+export const onetApi = {
+  /**
+   * Search O*NET occupations.
+   */
+  search: (query: string): Promise<OnetSearchResult[]> =>
+    api.get(`/discovery/onet/search?q=${encodeURIComponent(query)}`),
+
+  /**
+   * Get occupation details by O*NET code.
+   */
+  getOccupation: (code: string): Promise<OnetOccupation> =>
+    api.get(`/discovery/onet/${encodeURIComponent(code)}`),
+}
+
+// ============ Activities API ============
+
+export interface DWAResponse {
+  id: string
+  code: string
+  title: string
+  description?: string
+  selected: boolean
+  gwa_code: string
+}
+
+export interface GWAGroupResponse {
+  gwa_code: string
+  gwa_title: string
+  dwas: DWAResponse[]
+  ai_exposure_score?: number
+}
+
+export interface SelectionCountResponse {
+  total: number
+  selected: number
+  unselected: number
+  gwas_with_selections: number
+}
+
+export interface BulkSelectionResponse {
+  updated_count: number
+}
+
+export const activitiesApi = {
+  /**
+   * Get activities grouped by GWA for a session.
+   */
+  getBySession: (sessionId: string, includeUnselected = true): Promise<GWAGroupResponse[]> =>
+    api.get(
+      `/discovery/sessions/${sessionId}/activities?include_unselected=${includeUnselected}`
+    ),
+
+  /**
+   * Update selection status of a single activity.
+   */
+  updateSelection: (activityId: string, selected: boolean): Promise<DWAResponse> =>
+    api.put(`/discovery/activities/${activityId}`, { selected }),
+
+  /**
+   * Bulk select/deselect activities.
+   */
+  bulkSelect: (
+    sessionId: string,
+    activityIds: string[],
+    selected: boolean
+  ): Promise<BulkSelectionResponse> =>
+    api.post(`/discovery/sessions/${sessionId}/activities/select`, {
+      activity_ids: activityIds,
+      selected,
+    }),
+
+  /**
+   * Get selection count statistics.
+   */
+  getSelectionCount: (sessionId: string): Promise<SelectionCountResponse> =>
+    api.get(`/discovery/sessions/${sessionId}/activities/count`),
+}
+
+// ============ Analysis API ============
+
+export interface AnalysisResult {
+  id: string
+  name: string
+  ai_exposure_score: number
+  impact_score: number
+  complexity_score: number
+  priority_score: number
+  priority_tier: PriorityTier
+}
+
+export interface DimensionAnalysisResponse {
+  dimension: AnalysisDimension
+  results: AnalysisResult[]
+}
+
+export interface DimensionSummary {
+  count: number
+  avg_exposure: number
+}
+
+export type AllDimensionsResponse = Record<string, DimensionSummary>
+
+export interface TriggerAnalysisResponse {
+  status: string
+}
+
+export const analysisApi = {
+  /**
+   * Trigger scoring analysis for a session.
+   */
+  trigger: (sessionId: string): Promise<TriggerAnalysisResponse> =>
+    api.post(`/discovery/sessions/${sessionId}/analyze`),
+
+  /**
+   * Get analysis results for a specific dimension.
+   */
+  getByDimension: (
+    sessionId: string,
+    dimension: AnalysisDimension,
+    priorityTier?: PriorityTier
+  ): Promise<DimensionAnalysisResponse> => {
+    let url = `/discovery/sessions/${sessionId}/analysis/${dimension}`
+    if (priorityTier) {
+      url += `?priority_tier=${priorityTier}`
+    }
+    return api.get(url)
+  },
+
+  /**
+   * Get summary of all dimensions.
+   */
+  getAllDimensions: (sessionId: string): Promise<AllDimensionsResponse> =>
+    api.get(`/discovery/sessions/${sessionId}/analysis`),
+}
+
+// ============ Roadmap API ============
+
+export interface RoadmapItem {
+  id: string
+  role_name: string
+  priority_score: number
+  priority_tier: string
+  phase: RoadmapPhase
+  estimated_effort: EstimatedEffort
+  order?: number
+}
+
+export interface RoadmapItemsResponse {
+  items: RoadmapItem[]
+}
+
+export interface BulkPhaseUpdate {
+  item_id: string
+  phase: RoadmapPhase
+}
+
+export interface BulkUpdateResponse {
+  updated_count: number
+}
+
+export const roadmapApi = {
+  /**
+   * Get roadmap items for a session.
+   */
+  get: (sessionId: string, phase?: RoadmapPhase): Promise<RoadmapItemsResponse> => {
+    let url = `/discovery/sessions/${sessionId}/roadmap`
+    if (phase) {
+      url += `?phase=${phase}`
+    }
+    return api.get(url)
+  },
+
+  /**
+   * Update a roadmap item's phase.
+   */
+  updatePhase: (itemId: string, phase: RoadmapPhase): Promise<RoadmapItem> =>
+    api.put(`/discovery/roadmap/${itemId}`, { phase }),
+
+  /**
+   * Reorder roadmap items.
+   */
+  reorder: (sessionId: string, itemIds: string[]): Promise<{ success: boolean }> =>
+    api.post(`/discovery/sessions/${sessionId}/roadmap/reorder`, { item_ids: itemIds }),
+
+  /**
+   * Bulk update phases for multiple items.
+   */
+  bulkUpdate: (sessionId: string, updates: BulkPhaseUpdate[]): Promise<BulkUpdateResponse> =>
+    api.post(`/discovery/sessions/${sessionId}/roadmap/bulk-update`, { updates }),
+}
+
+// ============ Handoff API ============
+
+export interface HandoffRequest {
+  candidate_ids?: string[]
+  notes?: string
+}
+
+export interface HandoffResponse {
+  intake_request_id: string
+  status: string
+  candidates_count: number
+}
+
+export interface ValidationResult {
+  is_ready: boolean
+  warnings: string[]
+  errors: string[]
+}
+
+export interface HandoffStatus {
+  session_id: string
+  handed_off: boolean
+  intake_request_id?: string
+  handed_off_at?: string
+}
+
+export const handoffApi = {
+  /**
+   * Submit candidates to intake system.
+   */
+  submit: (
+    sessionId: string,
+    candidateIds?: string[],
+    notes?: string
+  ): Promise<HandoffResponse> =>
+    api.post(`/discovery/sessions/${sessionId}/handoff`, {
+      candidate_ids: candidateIds,
+      notes,
+    }),
+
+  /**
+   * Validate handoff readiness.
+   */
+  validate: (sessionId: string): Promise<ValidationResult> =>
+    api.post(`/discovery/sessions/${sessionId}/handoff/validate`),
+
+  /**
+   * Get current handoff status.
+   */
+  getStatus: (sessionId: string): Promise<HandoffStatus> =>
+    api.get(`/discovery/sessions/${sessionId}/handoff`),
+}

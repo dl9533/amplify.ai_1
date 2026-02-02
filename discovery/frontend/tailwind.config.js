@@ -1,99 +1,108 @@
 /** @type {import('tailwindcss').Config} */
-import defaultTheme from 'tailwindcss/defaultTheme'
-
 export default {
-  content: [
-    "./index.html",
-    "./src/**/*.{js,ts,jsx,tsx}",
-  ],
+  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   darkMode: 'class',
   theme: {
     extend: {
       fontFamily: {
-        sans: ['Inter', ...defaultTheme.fontFamily.sans],
-        mono: ['Geist Mono', 'JetBrains Mono', 'Fira Code', ...defaultTheme.fontFamily.mono],
+        display: ['Plus Jakarta Sans', 'system-ui', 'sans-serif'],
+        body: ['DM Sans', 'system-ui', 'sans-serif'],
       },
       colors: {
-        // Background layers (using CSS variables)
-        background: 'hsl(var(--background))',
-        'background-subtle': 'hsl(var(--background-subtle))',
-        'background-muted': 'hsl(var(--background-muted))',
-        'background-accent': 'hsl(var(--background-accent))',
-        // Foreground/text colors
-        foreground: 'hsl(var(--foreground))',
-        'foreground-muted': 'hsl(var(--foreground-muted))',
-        'foreground-subtle': 'hsl(var(--foreground-subtle))',
-        // Semantic colors
-        primary: {
-          DEFAULT: 'hsl(var(--primary))',
-          foreground: 'hsl(var(--primary-foreground))',
+        // Background layers
+        bg: {
+          base: 'hsl(var(--bg-base) / <alpha-value>)',
+          elevated: 'hsl(var(--bg-elevated) / <alpha-value>)',
+          surface: 'hsl(var(--bg-surface) / <alpha-value>)',
+          muted: 'hsl(var(--bg-muted) / <alpha-value>)',
+          subtle: 'hsl(var(--bg-subtle) / <alpha-value>)',
         },
-        destructive: {
-          DEFAULT: 'hsl(var(--destructive))',
-          foreground: 'hsl(var(--destructive-foreground))',
+        // Foreground
+        fg: {
+          default: 'hsl(var(--fg-default) / <alpha-value>)',
+          muted: 'hsl(var(--fg-muted) / <alpha-value>)',
+          subtle: 'hsl(var(--fg-subtle) / <alpha-value>)',
+          faint: 'hsl(var(--fg-faint) / <alpha-value>)',
         },
+        // Accent
+        accent: {
+          DEFAULT: 'hsl(var(--accent) / <alpha-value>)',
+          muted: 'hsl(var(--accent-muted) / <alpha-value>)',
+          subtle: 'hsl(var(--accent-subtle) / <alpha-value>)',
+        },
+        // Semantic
         success: {
-          DEFAULT: 'hsl(var(--success))',
-          foreground: 'hsl(var(--success-foreground))',
+          DEFAULT: 'hsl(var(--success) / <alpha-value>)',
+          muted: 'hsl(var(--success-muted) / <alpha-value>)',
         },
         warning: {
-          DEFAULT: 'hsl(var(--warning))',
-          foreground: 'hsl(var(--warning-foreground))',
+          DEFAULT: 'hsl(var(--warning) / <alpha-value>)',
+          muted: 'hsl(var(--warning-muted) / <alpha-value>)',
         },
-        // Component colors
-        border: 'hsl(var(--border))',
-        input: 'hsl(var(--input))',
-        ring: 'hsl(var(--ring))',
-        card: {
-          DEFAULT: 'hsl(var(--card))',
-          foreground: 'hsl(var(--card-foreground))',
+        destructive: {
+          DEFAULT: 'hsl(var(--destructive) / <alpha-value>)',
+          muted: 'hsl(var(--destructive-muted) / <alpha-value>)',
+        },
+        // Borders
+        border: {
+          DEFAULT: 'hsl(var(--border-default) / <alpha-value>)',
+          muted: 'hsl(var(--border-muted) / <alpha-value>)',
+          accent: 'hsl(var(--border-accent) / <alpha-value>)',
+        },
+        // Priority tiers
+        tier: {
+          high: 'hsl(var(--tier-high) / <alpha-value>)',
+          medium: 'hsl(var(--tier-medium) / <alpha-value>)',
+          low: 'hsl(var(--tier-low) / <alpha-value>)',
         },
       },
       borderRadius: {
-        lg: '8px',
-        md: '6px',
-        sm: '4px',
+        sm: 'var(--radius-sm)',
+        md: 'var(--radius-md)',
+        lg: 'var(--radius-lg)',
+        xl: 'var(--radius-xl)',
       },
-      spacing: {
-        // 4px base unit spacing scale
-        '0.5': '2px',
-        '1': '4px',
-        '2': '8px',
-        '3': '12px',
-        '4': '16px',
-        '5': '20px',
-        '6': '24px',
-        '8': '32px',
-        '10': '40px',
-        '12': '48px',
-        '16': '64px',
-        '24': '96px',
-      },
-      fontSize: {
-        xs: ['12px', { lineHeight: '1.5' }],
-        sm: ['14px', { lineHeight: '1.5' }],
-        base: ['16px', { lineHeight: '1.5' }],
-        lg: ['18px', { lineHeight: '1.5' }],
-        xl: ['20px', { lineHeight: '1.4' }],
-        '2xl': ['24px', { lineHeight: '1.3' }],
-        '3xl': ['30px', { lineHeight: '1.2' }],
-      },
-      transitionTimingFunction: {
-        'ease-out': 'cubic-bezier(0.33, 1, 0.68, 1)',
-        'ease-in': 'cubic-bezier(0.32, 0, 0.67, 0)',
-        'ease-in-out': 'cubic-bezier(0.65, 0, 0.35, 1)',
+      boxShadow: {
+        sm: 'var(--shadow-sm)',
+        md: 'var(--shadow-md)',
+        lg: 'var(--shadow-lg)',
+        glow: 'var(--shadow-glow)',
       },
       transitionDuration: {
-        '150': '150ms',
-        '200': '200ms',
-        '300': '300ms',
+        fast: '120ms',
+        base: '200ms',
+        slow: '350ms',
       },
-      maxWidth: {
-        'content': '1280px',
+      zIndex: {
+        base: '1',
+        dropdown: '100',
+        sticky: '200',
+        modal: '300',
+        toast: '400',
       },
-      width: {
-        'sidebar': '240px',
-        'chat-panel': '320px',
+      animation: {
+        'fade-in': 'fade-in 200ms ease-out forwards',
+        'slide-up': 'slide-up 350ms ease-out forwards',
+        'slide-down': 'slide-down 350ms ease-out forwards',
+        'scale-in': 'scale-in 350ms ease-out forwards',
+      },
+      keyframes: {
+        'fade-in': {
+          from: { opacity: '0' },
+          to: { opacity: '1' },
+        },
+        'slide-up': {
+          from: { opacity: '0', transform: 'translateY(8px)' },
+          to: { opacity: '1', transform: 'translateY(0)' },
+        },
+        'slide-down': {
+          from: { opacity: '0', transform: 'translateY(-8px)' },
+          to: { opacity: '1', transform: 'translateY(0)' },
+        },
+        'scale-in': {
+          from: { opacity: '0', transform: 'scale(0.95)' },
+          to: { opacity: '1', transform: 'scale(1)' },
+        },
       },
     },
   },
