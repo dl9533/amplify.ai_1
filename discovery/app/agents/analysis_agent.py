@@ -1,127 +1,118 @@
-"""Analysis Subagent for score calculation and insight generation."""
+# discovery/app/agents/analysis_agent.py
+"""Analysis subagent for Step 4: Analysis & Scoring."""
 from typing import Any, Optional
 
 from app.agents.base import BaseSubagent
+from app.services.analysis_service import AnalysisService
+from app.schemas.analysis import AnalysisDimension
 
 
 class AnalysisSubagent(BaseSubagent):
-    """Subagent for score calculation orchestration and insight generation.
-
-    This agent handles the analysis phase of the discovery process,
-    delegating score calculations to the ScoringService and generating
-    insights based on the results.
-
-    Attributes:
-        agent_type: The type identifier for this agent ('analysis').
-        _scoring_service: Service for score calculations.
-        _scoring_result: The result from the most recent scoring run.
-        _scores_calculated: Whether scores have been calculated.
-    """
+    """Handles analysis and scoring operations."""
 
     agent_type: str = "analysis"
 
-    def __init__(self, session: Any, memory_service: Any) -> None:
-        """Initialize the AnalysisSubagent.
-
-        Args:
-            session: Database session for persistence operations.
-            memory_service: Service for agent memory management.
-        """
+    def __init__(
+        self,
+        session: Any,
+        analysis_service: AnalysisService,
+        memory_service: Any = None,
+    ) -> None:
         super().__init__(session, memory_service)
-        self._scoring_service: Optional[Any] = None
-        self._scoring_result: Optional[Any] = None
-        self._scores_calculated: bool = False
-
-    async def calculate_scores(self) -> Any:
-        """Calculate scores by delegating to the ScoringService.
-
-        Returns:
-            The scoring result from ScoringService.
-
-        Raises:
-            ValueError: If no scoring service is configured.
-        """
-        if self._scoring_service is None:
-            raise ValueError("No scoring service configured")
-
-        result = await self._scoring_service.score_session()
-        self._scoring_result = result
-        self._scores_calculated = True
-        return result
-
-    async def generate_insights(self) -> list[str]:
-        """Generate insights based on scoring results.
-
-        Returns:
-            A list of insight strings describing key findings.
-        """
-        insights: list[str] = []
-
-        if self._scoring_result is None:
-            return insights
-
-        # Generate insights about top opportunities based on priority scores
-        role_scores = getattr(self._scoring_result, "role_scores", {})
-        if role_scores:
-            # Sort roles by priority
-            sorted_roles = sorted(
-                role_scores.items(),
-                key=lambda x: getattr(x[1], "priority", 0),
-                reverse=True,
-            )
-            if sorted_roles:
-                top_role, top_score = sorted_roles[0]
-                priority = getattr(top_score, "priority", 0)
-                insights.append(
-                    f"Top automation opportunity: {top_role} with priority score {priority:.2f}"
-                )
-
-        return insights
-
-    async def get_dimension_summary(self, dimension: str) -> list[Any]:
-        """Get a summary of scores filtered by dimension.
-
-        Args:
-            dimension: The dimension to filter by (e.g., 'DEPARTMENT').
-
-        Returns:
-            A list of aggregations for the specified dimension.
-        """
-        if self._scoring_result is None:
-            return []
-
-        aggregations = getattr(self._scoring_result, "dimension_aggregations", [])
-        return [
-            agg for agg in aggregations
-            if getattr(agg, "dimension", None) == dimension
-        ]
+        self.analysis_service = analysis_service
+        self._analysis_complete = False
 
     async def process(self, message: str) -> dict[str, Any]:
-        """Process an incoming message and return a response.
+        """Process user message for analysis step."""
+        message_lower = message.lower()
 
-        Implements a brainstorming-style interaction where the agent
-        presents analysis dimensions for exploration.
+        # Check if analysis has been run
+        summary = await self.analysis_service.get_all_dimensions(self.session.id)
 
-        Args:
-            message: The input message to process.
+        # Handle calculate/run analysis
+        if any(word in message_lower for word in ["calculate", "run", "analyze", "score"]):
+            result = await self.analysis_service.trigger_analysis(self.session.id)
+            if result and result.get("status") == "completed":
+                self._analysis_complete = True
+                count = result.get("count", 0)
+                return {
+                    "message": f"Analysis complete! Scored {count} roles. Explore results by dimension.",
+                    "quick_actions": ["View by role", "View by department", "Continue to roadmap"],
+                    "step_complete": False,
+                }
+            return {
+                "message": "Analysis failed. Please ensure you have confirmed role mappings.",
+                "quick_actions": ["Go back to mappings", "Retry analysis"],
+                "step_complete": False,
+            }
 
-        Returns:
-            A structured response dictionary with message and choices.
-        """
-        if self._scores_calculated:
-            return self.format_response(
-                message="Analysis complete. Which dimension would you like to explore?",
-                question="Select an analysis dimension:",
-                choices=[
-                    "By Role",
-                    "By Department",
-                    "By Geography",
-                    "By Task",
-                ],
-            )
+        # Handle continue/done
+        if any(word in message_lower for word in ["continue", "done", "next", "roadmap"]):
+            if summary or self._analysis_complete:
+                return {
+                    "message": "Analysis complete. Moving to roadmap generation.",
+                    "quick_actions": [],
+                    "step_complete": True,
+                }
+            return {
+                "message": "Please run the analysis first before continuing.",
+                "quick_actions": ["Run analysis"],
+                "step_complete": False,
+            }
 
-        return self.format_response(
-            message="Ready to analyze discovery session data.",
-            question="Would you like to calculate scores?",
-            choices=["Calculate scores"],
-        )
+        # Handle dimension views
+        dimension_map = {
+            "role": AnalysisDimension.ROLE,
+            "department": AnalysisDimension.DEPARTMENT,
+            "geography": AnalysisDimension.GEOGRAPHY,
+            "geo": AnalysisDimension.GEOGRAPHY,
+            "task": AnalysisDimension.TASK,
+        }
+
+        for key, dimension in dimension_map.items():
+            if key in message_lower:
+                results = await self.analysis_service.get_by_dimension(
+                    self.session.id, dimension
+                )
+                if results and results.get("results"):
+                    items = results["results"][:5]
+                    lines = []
+                    for item in items:
+                        score = int(item.get("ai_exposure_score", 0) * 100)
+                        tier = item.get("priority_tier", "?")
+                        lines.append(f"- {item['name']}: {score}% exposure ({tier})")
+                    summary_text = "\n".join(lines)
+                    if len(results["results"]) > 5:
+                        summary_text += f"\n... and {len(results['results']) - 5} more"
+                    return {
+                        "message": f"Analysis by {dimension.value}:\n\n{summary_text}",
+                        "quick_actions": ["View by role", "View by department", "Continue to roadmap"],
+                        "step_complete": False,
+                    }
+                return {
+                    "message": f"No results found for {dimension.value}. Run analysis first.",
+                    "quick_actions": ["Run analysis"],
+                    "step_complete": False,
+                }
+
+        # Default: Check if analysis exists
+        if summary:
+            self._analysis_complete = True
+            dim_summary = []
+            for dim, data in summary.items():
+                count = data.get("count", 0)
+                avg = int(data.get("avg_exposure", 0) * 100)
+                dim_summary.append(f"- {dim}: {count} items, {avg}% avg exposure")
+            summary_text = "\n".join(dim_summary)
+            return {
+                "message": f"Analysis Summary:\n\n{summary_text}",
+                "quick_actions": ["View by role", "View by department", "Continue to roadmap"],
+                "step_complete": False,
+            }
+
+        # No analysis yet
+        return {
+            "message": "Ready to run analysis. This will calculate AI exposure and priority scores for all mapped roles.",
+            "quick_actions": ["Run analysis"],
+            "step_complete": False,
+        }
