@@ -1,113 +1,101 @@
-"""Activity Subagent for DWA (Detailed Work Activity) selection."""
+# discovery/app/agents/activity_agent.py
+"""Activity subagent for Step 3: Activity Selection."""
 from typing import Any, Optional
-from uuid import UUID
 
 from app.agents.base import BaseSubagent
+from app.services.activity_service import ActivityService
 
 
 class ActivitySubagent(BaseSubagent):
-    """Subagent for DWA selection for mapped O*NET occupations.
-
-    This agent handles the DWA selection process using a brainstorming-style
-    interaction. It presents DWAs for O*NET occupations and allows users
-    to select relevant activities.
-
-    Attributes:
-        agent_type: The type identifier for this agent ('activity').
-        _selections: Dictionary of DWA selection states keyed by (role_mapping_id, dwa_id).
-        _dwa_repo: Repository for DWA data access.
-        _current_dwas: List of DWAs currently being processed.
-        _current_dwa_index: Index of the current DWA in brainstorming flow.
-    """
+    """Handles DWA (Detailed Work Activity) selection."""
 
     agent_type: str = "activity"
 
-    def __init__(self, session: Any, memory_service: Any) -> None:
-        """Initialize the ActivitySubagent.
-
-        Args:
-            session: Database session for persistence operations.
-            memory_service: Service for agent memory management.
-        """
+    def __init__(
+        self,
+        session: Any,
+        activity_service: ActivityService,
+        memory_service: Any = None,
+    ) -> None:
         super().__init__(session, memory_service)
-        self._selections: dict[tuple[str, str], bool] = {}
-        self._dwa_repo: Optional[Any] = None
-        self._current_dwas: list[Any] = []
-        self._current_dwa_index: int = 0
-
-    async def get_dwas_for_role(self, onet_code: str) -> list[Any]:
-        """Retrieve DWAs for a mapped O*NET occupation.
-
-        Args:
-            onet_code: The O*NET occupation code.
-
-        Returns:
-            A list of DWAs associated with the occupation.
-        """
-        if self._dwa_repo is None:
-            return []
-
-        dwas = await self._dwa_repo.get_by_occupation(onet_code)
-        self._current_dwas = dwas
-        return dwas
-
-    async def toggle_dwa(
-        self,
-        role_mapping_id: UUID,
-        dwa_id: str,
-        selected: bool,
-    ) -> None:
-        """Toggle the selection state of a DWA.
-
-        Args:
-            role_mapping_id: The unique ID of the role mapping.
-            dwa_id: The DWA identifier.
-            selected: Whether the DWA is selected.
-        """
-        self._selections[(str(role_mapping_id), dwa_id)] = selected
-
-    async def select_above_threshold(
-        self,
-        role_mapping_id: UUID,
-        threshold: float,
-    ) -> None:
-        """Bulk select DWAs with exposure above threshold.
-
-        Args:
-            role_mapping_id: The unique ID of the role mapping.
-            threshold: The minimum exposure threshold for selection.
-        """
-        for dwa in self._current_dwas:
-            if dwa.gwa_exposure >= threshold:
-                self._selections[(str(role_mapping_id), dwa.id)] = True
+        self.activity_service = activity_service
+        self._current_role_mapping_id: Optional[str] = None
 
     async def process(self, message: str) -> dict[str, Any]:
-        """Process an incoming message and return a response.
+        """Process user message for activity selection step."""
+        message_lower = message.lower()
 
-        Implements a brainstorming-style interaction where the agent
-        presents DWAs one at a time for relevance confirmation.
+        # Get current selections
+        selections = await self.activity_service.get_selections(self.session.id)
 
-        Args:
-            message: The input message to process.
-
-        Returns:
-            A structured response dictionary with message/question and choices.
-        """
-        # If we have DWAs to process, present the current one
-        if self._current_dwas and self._current_dwa_index < len(self._current_dwas):
-            current_dwa = self._current_dwas[self._current_dwa_index]
-
-            return self.format_response(
-                message=f"Is this activity relevant to the role?",
-                question=f"Activity: {current_dwa.name}",
-                choices=["Yes, relevant", "No, not relevant", "Skip"],
-                dwa_id=current_dwa.id,
-                dwa_name=current_dwa.name,
+        # Handle bulk select
+        if any(word in message_lower for word in ["select all", "bulk", "auto"]):
+            result = await self.activity_service.bulk_select(
+                self.session.id,
+                select_all=True,
             )
+            selected = result.get("selected_count", 0)
+            return {
+                "message": f"Auto-selected {selected} high-exposure activities (>60% AI exposure).",
+                "quick_actions": ["Review selections", "Continue to analysis"],
+                "step_complete": False,
+            }
 
-        # Default response when no DWAs are loaded
-        return self.format_response(
-            message="Ready to select DWAs for O*NET occupations.",
-            question="Would you like to start activity selection?",
-            choices=["Start selection"],
-        )
+        # Handle continue/done
+        if any(word in message_lower for word in ["continue", "done", "next", "analysis"]):
+            selected_count = sum(1 for s in selections if s.get("selected"))
+            if selected_count == 0 and selections:
+                return {
+                    "message": "No activities selected. Would you like to auto-select high-exposure activities?",
+                    "quick_actions": ["Auto-select", "Skip activities"],
+                    "step_complete": False,
+                }
+            return {
+                "message": f"Activity selection complete ({selected_count} selected). Moving to analysis.",
+                "quick_actions": [],
+                "step_complete": True,
+            }
+
+        # Handle deselect all
+        if "deselect" in message_lower or "clear" in message_lower:
+            result = await self.activity_service.bulk_select(
+                self.session.id,
+                select_all=False,
+            )
+            return {
+                "message": "All activities deselected.",
+                "quick_actions": ["Auto-select", "Continue to analysis"],
+                "step_complete": False,
+            }
+
+        # Default: Show activity summary
+        if not selections:
+            return {
+                "message": "No activities loaded yet. Activities will be loaded from O*NET based on your role mappings.",
+                "quick_actions": ["Load activities", "Go back to mappings"],
+                "step_complete": False,
+            }
+
+        selected_count = sum(1 for s in selections if s.get("selected"))
+        total_count = len(selections)
+
+        # Show a few example activities
+        activity_lines = []
+        for s in selections[:8]:
+            status = "+" if s.get("selected") else "o"
+            name = s.get("dwa_name", s.get("dwa_id", "?"))
+            activity_lines.append(f"{status} {name}")
+
+        summary = "\n".join(activity_lines)
+        if len(selections) > 8:
+            summary += f"\n... and {len(selections) - 8} more"
+
+        return {
+            "message": f"Activity Selections ({selected_count}/{total_count} selected):\n\n{summary}",
+            "quick_actions": [
+                "Auto-select high-exposure",
+                "Select all",
+                "Continue to analysis",
+            ],
+            "step_complete": False,
+        }
