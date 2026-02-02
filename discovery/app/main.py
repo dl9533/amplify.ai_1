@@ -2,6 +2,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.middleware.error_handler import add_exception_handlers
 from app.routers import (
     activities_router,
     analysis_router,
@@ -28,6 +29,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Register exception handlers
+add_exception_handlers(app)
 
 
 @app.get("/health")
