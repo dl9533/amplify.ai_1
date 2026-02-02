@@ -12,8 +12,8 @@ export interface QuickActionChipsProps {
 
 const variantClasses: Record<ActionChip['variant'] & string, string> = {
   primary: 'bg-primary text-primary-foreground hover:bg-primary/90',
-  secondary: 'bg-secondary text-secondary-foreground hover:bg-secondary/80',
-  ghost: 'hover:bg-accent hover:text-accent-foreground',
+  secondary: 'bg-background-muted text-foreground hover:bg-background-accent',
+  ghost: 'hover:bg-background-muted hover:text-foreground',
 }
 
 export function QuickActionChips({

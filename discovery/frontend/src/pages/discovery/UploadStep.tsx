@@ -55,8 +55,8 @@ export function UploadStep() {
 
   return (
     <div className="flex flex-col items-center justify-center p-8">
-      <h1 className="text-2xl font-bold mb-4">Upload Your Organization Data</h1>
-      <p className="text-gray-600 mb-8">
+      <h1 className="text-2xl font-bold mb-4 text-foreground">Upload Your Organization Data</h1>
+      <p className="text-foreground-muted mb-8">
         Upload a CSV or XLSX file containing your organization&apos;s data for analysis.
       </p>
 
@@ -72,20 +72,20 @@ export function UploadStep() {
         onKeyDown={handleDropZoneKeyDown}
         className={`
           w-full max-w-lg p-12 border-2 border-dashed rounded-lg text-center cursor-pointer
-          transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2
-          ${isDragOver ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-gray-400'}
-          ${error ? 'border-red-500 bg-red-50' : ''}
+          transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background
+          ${isDragOver ? 'border-primary bg-primary/10' : 'border-border hover:border-border'}
+          ${error ? 'border-destructive bg-destructive/10' : ''}
         `}
       >
         {isUploading ? (
           <div className="flex flex-col items-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mb-4" />
-            <p className="text-gray-600">Processing file...</p>
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mb-4" />
+            <p className="text-foreground-muted">Processing file...</p>
           </div>
         ) : uploadedFile ? (
           <div className="flex flex-col items-center">
             <svg
-              className="h-12 w-12 text-green-500 mb-4"
+              className="h-12 w-12 text-success mb-4"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -98,14 +98,14 @@ export function UploadStep() {
                 d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
               />
             </svg>
-            <p className="font-medium text-gray-900">{uploadedFile.name}</p>
-            <p className="text-sm text-gray-500 mt-1">
+            <p className="font-medium text-foreground">{uploadedFile.name}</p>
+            <p className="text-sm text-foreground-muted mt-1">
               {(uploadedFile.size / 1024).toFixed(1)} KB
             </p>
             <button
               type="button"
               onClick={clearFile}
-              className="mt-4 text-sm text-red-600 hover:text-red-700"
+              className="mt-4 text-sm text-destructive hover:text-destructive/80"
             >
               Remove file
             </button>
@@ -113,7 +113,7 @@ export function UploadStep() {
         ) : (
           <div className="flex flex-col items-center">
             <svg
-              className="h-12 w-12 text-gray-400 mb-4"
+              className="h-12 w-12 text-foreground-subtle mb-4"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -126,11 +126,11 @@ export function UploadStep() {
                 d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
               />
             </svg>
-            <p className="text-gray-600 mb-2">Drag and drop your file here, or</p>
+            <p className="text-foreground-muted mb-2">Drag and drop your file here, or</p>
             <button
               type="button"
               onClick={handleBrowseClick}
-              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+              className="btn-primary btn-md rounded-md"
             >
               Browse files
             </button>
@@ -148,7 +148,7 @@ export function UploadStep() {
 
       {/* Error Message */}
       {error && (
-        <p className="mt-4 text-red-600" role="alert">
+        <p className="mt-4 text-destructive" role="alert">
           {error.message}
         </p>
       )}
@@ -156,15 +156,15 @@ export function UploadStep() {
       {/* Column Preview */}
       {uploadedFile && uploadedFile.columns.length > 0 && (
         <div className="w-full max-w-lg mt-8">
-          <h2 className="text-lg font-semibold mb-4">Detected Columns</h2>
-          <div className="bg-gray-50 rounded-lg p-4">
+          <h2 className="text-lg font-semibold mb-4 text-foreground">Detected Columns</h2>
+          <div className="bg-background-muted rounded-lg p-4">
             <ul className="grid grid-cols-2 gap-2">
               {uploadedFile.columns.map((column, index) => (
                 <li
                   key={`${column}-${index}`}
-                  className="flex items-center px-3 py-2 bg-white rounded border border-gray-200"
+                  className="flex items-center px-3 py-2 bg-background rounded border border-border"
                 >
-                  <span className="text-sm font-mono">{column}</span>
+                  <span className="text-sm font-mono text-foreground">{column}</span>
                 </li>
               ))}
             </ul>
@@ -181,8 +181,8 @@ export function UploadStep() {
             px-6 py-3 rounded-md font-medium
             ${
               isUploadComplete
-                ? 'bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2'
-                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                ? 'btn-primary'
+                : 'bg-background-muted text-foreground-subtle cursor-not-allowed'
             }
           `}
         >

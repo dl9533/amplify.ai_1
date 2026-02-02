@@ -42,21 +42,21 @@ describe('KanbanCard', () => {
 
   describe('getPriorityColor utility', () => {
     it('returns green for high priority (>= 0.8)', () => {
-      expect(getPriorityColor(0.8)).toBe('bg-green-100 text-green-800')
-      expect(getPriorityColor(0.95)).toBe('bg-green-100 text-green-800')
-      expect(getPriorityColor(1.0)).toBe('bg-green-100 text-green-800')
+      expect(getPriorityColor(0.8)).toBe('bg-success/10 text-success')
+      expect(getPriorityColor(0.95)).toBe('bg-success/10 text-success')
+      expect(getPriorityColor(1.0)).toBe('bg-success/10 text-success')
     })
 
     it('returns yellow for medium priority (>= 0.6, < 0.8)', () => {
-      expect(getPriorityColor(0.6)).toBe('bg-yellow-100 text-yellow-800')
-      expect(getPriorityColor(0.7)).toBe('bg-yellow-100 text-yellow-800')
-      expect(getPriorityColor(0.79)).toBe('bg-yellow-100 text-yellow-800')
+      expect(getPriorityColor(0.6)).toBe('bg-warning/10 text-warning')
+      expect(getPriorityColor(0.7)).toBe('bg-warning/10 text-warning')
+      expect(getPriorityColor(0.79)).toBe('bg-warning/10 text-warning')
     })
 
     it('returns gray for low priority (< 0.6)', () => {
-      expect(getPriorityColor(0.59)).toBe('bg-gray-100 text-gray-800')
-      expect(getPriorityColor(0.3)).toBe('bg-gray-100 text-gray-800')
-      expect(getPriorityColor(0)).toBe('bg-gray-100 text-gray-800')
+      expect(getPriorityColor(0.59)).toBe('bg-background-muted text-foreground-muted')
+      expect(getPriorityColor(0.3)).toBe('bg-background-muted text-foreground-muted')
+      expect(getPriorityColor(0)).toBe('bg-background-muted text-foreground-muted')
     })
   })
 

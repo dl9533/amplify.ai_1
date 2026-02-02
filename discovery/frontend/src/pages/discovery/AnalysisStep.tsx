@@ -40,8 +40,8 @@ function DimensionTab({ dimension, label, isSelected, tabIndex, panelId, onSelec
       onKeyDown={(e) => onKeyDown(e, dimension)}
       className={`px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 transition-colors ${
         isSelected
-          ? 'border-blue-600 text-blue-600 bg-blue-50'
-          : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+          ? 'border-primary text-primary bg-primary/10'
+          : 'border-transparent text-foreground-muted hover:text-foreground hover:border-border'
       }`}
     >
       {label}
@@ -55,9 +55,9 @@ interface PriorityBadgeProps {
 
 function PriorityBadge({ tier }: PriorityBadgeProps) {
   const colorClasses = {
-    HIGH: 'bg-red-100 text-red-800',
-    MEDIUM: 'bg-yellow-100 text-yellow-800',
-    LOW: 'bg-green-100 text-green-800',
+    HIGH: 'bg-destructive/10 text-destructive',
+    MEDIUM: 'bg-warning/10 text-warning',
+    LOW: 'bg-success/10 text-success',
   }
 
   return (
@@ -73,23 +73,23 @@ interface ResultCardProps {
 
 function ResultCard({ result }: ResultCardProps) {
   return (
-    <div className="bg-white border rounded-lg p-4 shadow-sm">
+    <div className="card p-4">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-lg font-medium text-gray-900">{result.name}</h3>
+        <h3 className="text-lg font-medium text-foreground">{result.name}</h3>
         <PriorityBadge tier={result.tier} />
       </div>
       <div className="grid grid-cols-3 gap-4 text-sm">
         <div>
-          <span className="text-gray-500">Exposure:</span>
-          <span className="ml-1 font-medium text-gray-900">{formatScore(result.exposure)}</span>
+          <span className="text-foreground-muted">Exposure:</span>
+          <span className="ml-1 font-medium text-foreground">{formatScore(result.exposure)}</span>
         </div>
         <div>
-          <span className="text-gray-500">Impact:</span>
-          <span className="ml-1 font-medium text-gray-900">{formatScore(result.impact)}</span>
+          <span className="text-foreground-muted">Impact:</span>
+          <span className="ml-1 font-medium text-foreground">{formatScore(result.impact)}</span>
         </div>
         <div>
-          <span className="text-gray-500">Priority:</span>
-          <span className="ml-1 font-medium text-gray-900">{formatScore(result.priority)}</span>
+          <span className="text-foreground-muted">Priority:</span>
+          <span className="ml-1 font-medium text-foreground">{formatScore(result.priority)}</span>
         </div>
       </div>
     </div>
@@ -140,7 +140,7 @@ export function AnalysisStep() {
   if (!sessionId) {
     return (
       <div className="flex items-center justify-center p-8">
-        <span className="text-red-500" role="alert">
+        <span className="text-destructive" role="alert">
           Error: Session ID is required. Please start a new discovery session.
         </span>
       </div>
@@ -150,7 +150,7 @@ export function AnalysisStep() {
   if (error) {
     return (
       <div className="flex items-center justify-center p-8">
-        <span className="text-red-500" role="alert">
+        <span className="text-destructive" role="alert">
           {GENERIC_ERROR_MESSAGE}
         </span>
       </div>
@@ -160,14 +160,14 @@ export function AnalysisStep() {
   return (
     <div className="max-w-4xl mx-auto p-6">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Analysis Results</h1>
-        <p className="mt-2 text-gray-600">
+        <h1 className="text-2xl font-bold text-foreground">Analysis Results</h1>
+        <p className="mt-2 text-foreground-muted">
           Review AI opportunity analysis results across different dimensions.
         </p>
       </div>
 
       {/* Dimension Tabs */}
-      <div ref={tablistRef} className="flex gap-1 mb-6 border-b border-gray-200" role="tablist">
+      <div ref={tablistRef} className="flex gap-1 mb-6 border-b border-border" role="tablist">
         {dimensions.map(({ dimension, label }) => (
           <DimensionTab
             key={dimension}
@@ -184,7 +184,7 @@ export function AnalysisStep() {
 
       {/* Filter Controls */}
       <div className="mb-6 flex items-center gap-4">
-        <label htmlFor="priority-filter" className="text-sm font-medium text-gray-700">
+        <label htmlFor="priority-filter" className="text-sm font-medium text-foreground">
           Filter by priority:
         </label>
         <select
@@ -192,7 +192,7 @@ export function AnalysisStep() {
           aria-label="Filter by priority tier"
           value={filterTier}
           onChange={(e) => setFilterTier(e.target.value as PriorityTier | 'ALL')}
-          className="block w-40 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+          className="input w-40"
         >
           <option value="ALL">All</option>
           <option value="HIGH">HIGH</option>
@@ -204,8 +204,8 @@ export function AnalysisStep() {
       {/* Loading State */}
       {isLoading && (
         <div className="flex items-center justify-center p-8" role="status" aria-live="polite">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-          <span className="ml-3 text-gray-500">Analyzing...</span>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+          <span className="ml-3 text-foreground-muted">Analyzing...</span>
         </div>
       )}
 
@@ -222,7 +222,7 @@ export function AnalysisStep() {
           ))}
 
           {filteredResults.length === 0 && (
-            <div className="text-center py-8 text-gray-500">
+            <div className="text-center py-8 text-foreground-muted">
               No results found for the selected filters.
             </div>
           )}

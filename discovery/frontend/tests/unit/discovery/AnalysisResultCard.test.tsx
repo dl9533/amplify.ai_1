@@ -67,7 +67,7 @@ describe('AnalysisResultCard', () => {
   })
 
   describe('badge color mapping', () => {
-    it('displays red badge for HIGH priority', () => {
+    it('displays destructive badge for HIGH priority', () => {
       const result: AnalysisResult = {
         id: '5',
         name: 'High Priority',
@@ -77,10 +77,10 @@ describe('AnalysisResultCard', () => {
       render(<AnalysisResultCard result={result} />)
 
       const badge = screen.getByText('HIGH')
-      expect(badge).toHaveClass('bg-red-100', 'text-red-800')
+      expect(badge).toHaveClass('bg-destructive/10', 'text-destructive')
     })
 
-    it('displays yellow badge for MEDIUM priority', () => {
+    it('displays warning badge for MEDIUM priority', () => {
       const result: AnalysisResult = {
         id: '6',
         name: 'Medium Priority',
@@ -90,10 +90,10 @@ describe('AnalysisResultCard', () => {
       render(<AnalysisResultCard result={result} />)
 
       const badge = screen.getByText('MEDIUM')
-      expect(badge).toHaveClass('bg-yellow-100', 'text-yellow-800')
+      expect(badge).toHaveClass('bg-warning/10', 'text-warning')
     })
 
-    it('displays green badge for LOW priority', () => {
+    it('displays success badge for LOW priority', () => {
       const result: AnalysisResult = {
         id: '7',
         name: 'Low Priority',
@@ -103,7 +103,7 @@ describe('AnalysisResultCard', () => {
       render(<AnalysisResultCard result={result} />)
 
       const badge = screen.getByText('LOW')
-      expect(badge).toHaveClass('bg-green-100', 'text-green-800')
+      expect(badge).toHaveClass('bg-success/10', 'text-success')
     })
   })
 

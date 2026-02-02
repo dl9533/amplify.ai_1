@@ -42,7 +42,7 @@ class Settings(BaseSettings):
 
     # O*NET API configuration
     onet_api_key: SecretStr = SecretStr("")
-    onet_api_base_url: str = "https://services.onetcenter.org/ws/"
+    onet_api_base_url: str = "https://api-v2.onetcenter.org/"
 
     # Anthropic configuration
     anthropic_api_key: SecretStr = SecretStr("")
@@ -53,6 +53,27 @@ class Settings(BaseSettings):
     api_port: int = 8000
     debug: bool = False
     log_level: str = "INFO"
+
+    # CORS configuration
+    cors_allowed_origins: str = "http://localhost:3000"
+    cors_allow_credentials: bool = True
+    cors_allowed_methods: str = "GET,POST,PUT,DELETE,OPTIONS"
+    cors_allowed_headers: str = "Authorization,Content-Type,X-Request-ID"
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        """Parse CORS allowed origins from comma-separated string."""
+        return [origin.strip() for origin in self.cors_allowed_origins.split(",")]
+
+    @property
+    def cors_methods_list(self) -> list[str]:
+        """Parse CORS allowed methods from comma-separated string."""
+        return [method.strip() for method in self.cors_allowed_methods.split(",")]
+
+    @property
+    def cors_headers_list(self) -> list[str]:
+        """Parse CORS allowed headers from comma-separated string."""
+        return [header.strip() for header in self.cors_allowed_headers.split(",")]
 
     @computed_field(repr=False)  # type: ignore[prop-decorator]
     @property

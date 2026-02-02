@@ -14,30 +14,30 @@ export function DiscoveryLayout({
   sessionTitle,
 }: DiscoveryLayoutProps): React.ReactElement {
   return (
-    <div className="grid grid-cols-[1fr_320px] min-h-screen">
+    <div className="grid grid-cols-[1fr_320px] min-h-screen bg-background">
       {/* Main Content Area */}
       <div className="flex flex-col">
         {/* Header with optional session title */}
         {sessionTitle && (
-          <header className="border-b border-gray-200 px-6 py-4">
-            <h1 className="text-xl font-semibold text-gray-900">{sessionTitle}</h1>
+          <header className="border-b border-border px-6 py-4">
+            <h1 className="text-xl font-semibold text-foreground">{sessionTitle}</h1>
           </header>
         )}
 
         {/* Main content */}
-        <main className="flex-1 p-6">{children}</main>
+        <main className="flex-1 p-6 max-w-content mx-auto w-full">{children}</main>
       </div>
 
       {/* Sidebar */}
-      <aside className="border-l border-gray-200 bg-gray-50 flex flex-col">
+      <aside className="border-l border-border bg-background-subtle flex flex-col">
         {/* Step Indicator */}
         <nav
           role="navigation"
           aria-label="Discovery steps"
-          className="border-b border-gray-200 px-4 py-4"
+          className="border-b border-border px-4 py-4"
         >
-          <div className="text-sm text-gray-600">
-            <span className="font-medium text-gray-900">Step {currentStep}</span>
+          <div className="text-sm text-foreground-muted">
+            <span className="font-medium text-foreground">Step {currentStep}</span>
             <span> of {totalSteps}</span>
           </div>
           <div className="mt-2">
@@ -45,8 +45,8 @@ export function DiscoveryLayout({
               {Array.from({ length: totalSteps }, (_, i) => (
                 <div
                   key={i}
-                  className={`h-1 flex-1 rounded-full ${
-                    i < currentStep ? 'bg-blue-600' : 'bg-gray-300'
+                  className={`h-1 flex-1 rounded-full transition-colors duration-150 ${
+                    i < currentStep ? 'bg-primary' : 'bg-background-accent'
                   }`}
                 />
               ))}
@@ -60,9 +60,9 @@ export function DiscoveryLayout({
           aria-label="Discovery chat"
           className="flex-1 flex flex-col p-4"
         >
-          <div className="text-sm font-medium text-gray-700 mb-2">Chat</div>
-          <div className="flex-1 bg-white rounded-lg border border-gray-200 p-3">
-            <p className="text-sm text-gray-500">
+          <div className="text-sm font-medium text-foreground-muted mb-2">Chat</div>
+          <div className="flex-1 bg-background-muted rounded-lg border border-border p-3">
+            <p className="text-sm text-foreground-subtle">
               Ask questions or get help with your discovery session.
             </p>
           </div>

@@ -59,7 +59,7 @@ export function AnalysisTabs({
 
   return (
     <div className="flex flex-col">
-      <div role="tablist" aria-label="Analysis dimensions" className="flex border-b border-gray-200">
+      <div role="tablist" aria-label="Analysis dimensions" className="flex border-b border-border">
         {dimensions.map((dimension) => {
           const isActive = dimension === currentDimension
           const count = results[dimension]?.length ?? 0
@@ -82,10 +82,10 @@ export function AnalysisTabs({
               tabIndex={isActive ? 0 : -1}
               onClick={() => onDimensionChange(dimension)}
               onKeyDown={(e) => handleKeyDown(e, dimension)}
-              className={`px-4 py-2 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+              className={`px-4 py-2 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background ${
                 isActive
-                  ? 'border-b-2 border-blue-600 text-blue-600'
-                  : 'text-gray-500 hover:text-gray-700'
+                  ? 'border-b-2 border-primary text-primary'
+                  : 'text-foreground-muted hover:text-foreground'
               }`}
             >
               {label}
@@ -101,8 +101,8 @@ export function AnalysisTabs({
         className="mt-4"
       >
         {sortedResults.length === 0 ? (
-          <div className="rounded-lg bg-gray-50 p-8 text-center">
-            <p className="text-gray-500">
+          <div className="rounded-lg bg-background-muted p-8 text-center">
+            <p className="text-foreground-muted">
               No results found for {formatDimensionLabel(currentDimension)}.
             </p>
           </div>

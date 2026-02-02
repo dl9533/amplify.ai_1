@@ -157,10 +157,10 @@ export function KanbanTimeline({
           <div
             key={phase}
             data-testid={`column-${phase}`}
-            className={`flex flex-col bg-gray-50 rounded-lg border transition-all ${
+            className={`flex flex-col bg-background-muted rounded-lg border transition-all ${
               isDropTarget
-                ? 'ring-2 ring-blue-500 border-blue-300 bg-blue-50'
-                : 'border-gray-200'
+                ? 'ring-2 ring-primary border-primary bg-primary/10'
+                : 'border-border'
             }`}
             onDragOver={handleDragOver}
             onDragEnter={(e) => handleDragEnter(e, phase)}
@@ -171,11 +171,11 @@ export function KanbanTimeline({
             aria-dropeffect={draggedItemId ? 'move' : 'none'}
           >
             {/* Column Header */}
-            <div className="p-3 border-b border-gray-200">
-              <h3 className="font-semibold text-gray-900">
+            <div className="p-3 border-b border-border">
+              <h3 className="font-semibold text-foreground">
                 {phase} ({count})
               </h3>
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-foreground-muted mt-1">
                 {PHASE_DESCRIPTIONS[phase]}
               </p>
             </div>
@@ -198,7 +198,7 @@ export function KanbanTimeline({
                 ))
               ) : (
                 <div
-                  className="flex items-center justify-center h-full text-gray-400 text-sm italic"
+                  className="flex items-center justify-center h-full text-foreground-subtle text-sm italic"
                   role="status"
                   aria-label="Empty column"
                 >

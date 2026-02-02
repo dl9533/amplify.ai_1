@@ -41,7 +41,7 @@ describe('ColumnMappingPreview', () => {
     const table = screen.getByRole('table')
     const headers = within(table).getAllByRole('columnheader')
     // Job Title is mapped to role, so it should be highlighted
-    expect(headers[1]).toHaveClass('bg-primary-50')
+    expect(headers[1]).toHaveClass('bg-primary/10')
   })
 
   it('allows changing column mapping', () => {

@@ -16,9 +16,9 @@ export interface KanbanCardProps {
 
 /** Utility function to get priority color classes based on score */
 export function getPriorityColor(score: number): string {
-  if (score >= 0.8) return 'bg-green-100 text-green-800'
-  if (score >= 0.6) return 'bg-yellow-100 text-yellow-800'
-  return 'bg-gray-100 text-gray-800'
+  if (score >= 0.8) return 'bg-success/10 text-success'
+  if (score >= 0.6) return 'bg-warning/10 text-warning'
+  return 'bg-background-muted text-foreground-muted'
 }
 
 export const KanbanCard = memo(function KanbanCard({
@@ -55,15 +55,15 @@ export const KanbanCard = memo(function KanbanCard({
       onDragStart={handleDragStart}
       onKeyDown={handleKeyDown}
       tabIndex={0}
-      className="bg-white border border-gray-200 rounded-lg p-3 shadow-sm cursor-grab active:cursor-grabbing hover:shadow-md transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500"
+      className="card p-3 cursor-grab active:cursor-grabbing hover:bg-background-muted transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
       role="listitem"
       aria-label={`${item.name} with priority score ${(item.priorityScore * 100).toFixed(0)}%. Use arrow keys to move between phases.`}
       aria-grabbed={isGrabbed}
     >
-      <div className="font-medium text-gray-900 mb-2">{item.name}</div>
+      <div className="font-medium text-foreground mb-2">{item.name}</div>
       <div className="flex items-center justify-between">
         <span
-          className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${getPriorityColor(item.priorityScore)}`}
+          className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium tabular-nums ${getPriorityColor(item.priorityScore)}`}
         >
           {(item.priorityScore * 100).toFixed(0)}% priority
         </span>

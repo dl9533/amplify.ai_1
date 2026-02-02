@@ -29,26 +29,26 @@ export function StepIndicator({
           key={step.id}
           data-status={step.status}
           className={`
-            flex items-center gap-2 px-3 py-2 rounded-md
-            ${step.status === 'completed' ? 'text-green-700 bg-green-50' : ''}
-            ${step.status === 'current' ? 'text-blue-700 bg-blue-100 font-semibold' : ''}
-            ${step.status === 'upcoming' ? 'text-gray-500 opacity-50' : ''}
+            flex items-center gap-2 px-3 py-2 rounded-md transition-colors duration-150
+            ${step.status === 'completed' ? 'text-success bg-success/10' : ''}
+            ${step.status === 'current' ? 'text-primary bg-primary/10 font-semibold' : ''}
+            ${step.status === 'upcoming' ? 'text-foreground-subtle opacity-50' : ''}
           `}
         >
           {step.status === 'completed' && (
-            <span className="text-green-600 font-bold" aria-hidden="true">
+            <span className="text-success font-bold" aria-hidden="true">
               ✓
             </span>
           )}
           {step.status === 'current' && (
             <span
-              className="w-2 h-2 rounded-full bg-blue-600"
+              className="w-2 h-2 rounded-full bg-primary"
               aria-hidden="true"
             />
           )}
           {step.status === 'upcoming' && (
             <span
-              className="w-2 h-2 rounded-full bg-gray-300"
+              className="w-2 h-2 rounded-full bg-background-accent"
               aria-hidden="true"
             />
           )}

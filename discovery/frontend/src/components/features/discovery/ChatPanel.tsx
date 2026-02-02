@@ -70,8 +70,8 @@ export function ChatPanel({
             className={`
               p-3 rounded-lg text-sm
               ${message.role === 'user'
-                ? 'bg-blue-100 text-blue-900 ml-6'
-                : 'bg-gray-100 text-gray-900 mr-6'}
+                ? 'bg-primary/10 text-foreground ml-6'
+                : 'bg-background-muted text-foreground mr-6'}
             `}
           >
             {message.content}
@@ -83,7 +83,7 @@ export function ChatPanel({
           <div
             role="status"
             aria-label="Loading response"
-            className="flex items-center gap-2 p-3 text-sm text-gray-500"
+            className="flex items-center gap-2 p-3 text-sm text-foreground-subtle"
           >
             <span className="animate-pulse" style={{ animationDelay: '0ms' }}>●</span>
             <span className="animate-pulse" style={{ animationDelay: '150ms' }}>●</span>
@@ -95,14 +95,14 @@ export function ChatPanel({
 
       {/* Quick Actions */}
       {quickActions.length > 0 && (
-        <div className="flex flex-wrap gap-2 px-3 py-2 border-t border-gray-200">
+        <div className="flex flex-wrap gap-2 px-3 py-2 border-t border-border">
           {quickActions.map((action) => (
             <button
               key={action.action}
               type="button"
               onClick={() => handleQuickAction(action)}
               aria-label={`Quick action: ${action.label}`}
-              className="px-3 py-1 text-xs font-medium text-blue-700 bg-blue-50 rounded-full hover:bg-blue-100 transition-colors"
+              className="px-3 py-1 text-xs font-medium text-primary bg-primary/10 rounded-full hover:bg-primary/20 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             >
               {action.label}
             </button>
@@ -113,7 +113,7 @@ export function ChatPanel({
       {/* Input Form */}
       <form
         onSubmit={handleSubmit}
-        className="flex gap-2 p-3 border-t border-gray-200"
+        className="flex gap-2 p-3 border-t border-border"
       >
         <input
           type="text"
@@ -121,14 +121,14 @@ export function ChatPanel({
           onChange={(e) => setInputValue(e.target.value)}
           aria-label="Type a message"
           placeholder="Type a message..."
-          className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          className="input flex-1"
           disabled={isLoading}
         />
         <button
           type="submit"
           aria-label="Send message"
           disabled={isLoading || !inputValue.trim()}
-          className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="btn-primary btn-md rounded-lg"
         >
           Send
         </button>

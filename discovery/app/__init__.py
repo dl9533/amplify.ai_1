@@ -139,6 +139,30 @@ from app.schemas import (
     UploadResponse,
 )
 
+# Exceptions
+from app.exceptions import (
+    AnalysisException,
+    DiscoveryException,
+    FileParseException,
+    HandoffException,
+    LLMAuthError,
+    LLMConnectionError,
+    LLMError,
+    LLMRateLimitError,
+    OnetApiError,
+    OnetAuthError,
+    OnetNotFoundError,
+    OnetRateLimitError,
+    SessionNotFoundException,
+    ValidationException,
+)
+
+# Middleware
+from app.middleware import (
+    AutoSaveMiddleware,
+    add_exception_handlers,
+)
+
 __all__ = [
     # Services
     "ActivityService",
@@ -249,4 +273,22 @@ __all__ = [
     # Upload schemas
     "ColumnMappingUpdate",
     "UploadResponse",
+    # Exceptions
+    "AnalysisException",
+    "DiscoveryException",
+    "FileParseException",
+    "HandoffException",
+    "LLMAuthError",
+    "LLMConnectionError",
+    "LLMError",
+    "LLMRateLimitError",
+    "OnetApiError",
+    "OnetAuthError",
+    "OnetNotFoundError",
+    "OnetRateLimitError",
+    "SessionNotFoundException",
+    "ValidationException",
+    # Middleware
+    "AutoSaveMiddleware",
+    "add_exception_handlers",
 ]

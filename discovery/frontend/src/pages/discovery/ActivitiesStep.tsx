@@ -18,20 +18,20 @@ function GwaAccordion({
   onToggleDwa,
 }: GwaAccordionProps) {
   return (
-    <div className="border rounded-lg bg-white overflow-hidden">
+    <div className="border border-border rounded-lg bg-background overflow-hidden">
       <button
         onClick={onToggleExpand}
-        className="w-full flex items-center justify-between p-4 text-left hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-inset"
+        className="w-full flex items-center justify-between p-4 text-left hover:bg-background-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
         aria-expanded={isExpanded}
       >
         <div className="flex-1">
-          <h3 className="font-medium text-gray-900">{gwa.title}</h3>
-          <p className="text-sm text-gray-500">{gwa.dwas.length} activities</p>
+          <h3 className="font-medium text-foreground">{gwa.title}</h3>
+          <p className="text-sm text-foreground-muted">{gwa.dwas.length} activities</p>
         </div>
         <div className="flex items-center gap-4">
-          <span className="text-sm font-medium text-blue-600">{gwa.aiExposure}%</span>
+          <span className="text-sm font-medium text-primary">{gwa.aiExposure}%</span>
           <svg
-            className={`w-5 h-5 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+            className={`w-5 h-5 text-foreground-subtle transition-transform ${isExpanded ? 'rotate-180' : ''}`}
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
@@ -42,21 +42,21 @@ function GwaAccordion({
       </button>
 
       {isExpanded && (
-        <div className="border-t bg-gray-50 p-4 space-y-2">
+        <div className="border-t border-border bg-background-muted p-4 space-y-2">
           {gwa.dwas.map((dwa) => (
             <label
               key={dwa.id}
-              className="flex items-center gap-3 p-2 rounded hover:bg-gray-100 cursor-pointer"
+              className="flex items-center gap-3 p-2 rounded hover:bg-background-accent cursor-pointer"
             >
               <input
                 type="checkbox"
                 checked={selectedDwaIds.has(dwa.id)}
                 onChange={() => onToggleDwa(dwa.id)}
-                className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                className="h-4 w-4 text-primary border-border rounded focus:ring-ring"
                 aria-label={dwa.title}
               />
-              <span className="flex-1 text-sm text-gray-700">{dwa.title}</span>
-              <span className="text-xs font-medium text-gray-500">{dwa.aiExposure}% AI exposure</span>
+              <span className="flex-1 text-sm text-foreground">{dwa.title}</span>
+              <span className="text-xs font-medium text-foreground-muted">{dwa.aiExposure}% AI exposure</span>
             </label>
           ))}
         </div>
@@ -94,7 +94,7 @@ export function ActivitiesStep() {
   if (!sessionId) {
     return (
       <div className="flex items-center justify-center p-8">
-        <span className="text-red-500" role="alert">
+        <span className="text-destructive" role="alert">
           Error: Session ID is required. Please start a new discovery session.
         </span>
       </div>
@@ -104,7 +104,7 @@ export function ActivitiesStep() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center p-8">
-        <span className="text-gray-500">Loading activities...</span>
+        <span className="text-foreground-muted">Loading activities...</span>
       </div>
     )
   }
@@ -112,7 +112,7 @@ export function ActivitiesStep() {
   if (error) {
     return (
       <div className="flex items-center justify-center p-8">
-        <span className="text-red-500" role="alert">
+        <span className="text-destructive" role="alert">
           Error: {error}
         </span>
       </div>
@@ -122,17 +122,17 @@ export function ActivitiesStep() {
   return (
     <div className="max-w-4xl mx-auto p-6">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Select Activities</h1>
-        <p className="mt-2 text-gray-600">
+        <h1 className="text-2xl font-bold text-foreground">Select Activities</h1>
+        <p className="mt-2 text-foreground-muted">
           Review work activities and select those you want to explore for AI opportunities.
         </p>
       </div>
 
       <div className="mb-4 flex items-center justify-between">
-        <span className="text-sm text-gray-600">{selectionCount} activities selected</span>
+        <span className="text-sm text-foreground-muted">{selectionCount} activities selected</span>
         <button
           onClick={() => selectHighExposure()}
-          className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="btn-primary btn-md rounded-lg"
         >
           Select high exposure
         </button>
@@ -152,7 +152,7 @@ export function ActivitiesStep() {
       </div>
 
       {gwaGroups.length === 0 && (
-        <div className="text-center py-8 text-gray-500">
+        <div className="text-center py-8 text-foreground-muted">
           No activities found. Please complete the role mapping step first.
         </div>
       )}

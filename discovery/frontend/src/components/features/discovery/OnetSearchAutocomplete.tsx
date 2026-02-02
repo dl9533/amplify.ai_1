@@ -65,7 +65,7 @@ export function OnetSearchAutocomplete({
         aria-autocomplete="list"
         aria-label={placeholder || 'Search O*NET occupations'}
         aria-activedescendant={activeDescendant}
-        className="w-full rounded-md border border-gray-300 px-4 py-2 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+        className="input w-full"
         placeholder={placeholder}
         value={query}
         onChange={(e) => {
@@ -82,7 +82,7 @@ export function OnetSearchAutocomplete({
           className="absolute right-3 top-1/2 -translate-y-1/2"
         >
           <svg
-            className="h-5 w-5 animate-spin text-gray-400"
+            className="h-5 w-5 animate-spin text-foreground-subtle"
             xmlns="http://www.w3.org/2000/svg"
             fill="none"
             viewBox="0 0 24 24"
@@ -109,10 +109,10 @@ export function OnetSearchAutocomplete({
         <ul
           id="onet-search-listbox"
           role="listbox"
-          className="absolute z-10 mt-1 max-h-60 w-full overflow-auto rounded-md border border-gray-200 bg-white shadow-lg"
+          className="absolute z-10 mt-1 max-h-60 w-full overflow-auto rounded-md border border-border bg-background shadow-lg"
         >
           {results.length === 0 ? (
-            <li className="px-4 py-2 text-gray-500">No results found</li>
+            <li className="px-4 py-2 text-foreground-muted">No results found</li>
           ) : (
             results.map((occupation, index) => (
               <li
@@ -121,12 +121,12 @@ export function OnetSearchAutocomplete({
                 role="option"
                 aria-selected={activeIndex === index}
                 className={`cursor-pointer px-4 py-2 ${
-                  activeIndex === index ? 'bg-blue-100' : 'hover:bg-blue-50'
+                  activeIndex === index ? 'bg-primary/20' : 'hover:bg-primary/10'
                 }`}
                 onClick={() => handleSelect(occupation)}
               >
-                <div className="font-medium">{occupation.title}</div>
-                <div className="text-sm text-gray-500">{occupation.code}</div>
+                <div className="font-medium text-foreground">{occupation.title}</div>
+                <div className="text-sm text-foreground-muted">{occupation.code}</div>
               </li>
             ))
           )}

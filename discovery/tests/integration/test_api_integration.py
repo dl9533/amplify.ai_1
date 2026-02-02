@@ -145,10 +145,10 @@ async def test_onet_api_get_tasks():
     assert isinstance(tasks, list)
     assert len(tasks) > 0, f"Expected tasks for code {occupation_code}"
 
-    # Verify response structure
+    # Verify response structure (v2 API uses 'title' instead of 'statement')
     first_task = tasks[0]
     assert "id" in first_task, "Task should have 'id' field"
-    assert "statement" in first_task, "Task should have 'statement' field"
+    assert "title" in first_task, "Task should have 'title' field"
 
 
 @pytest.mark.integration

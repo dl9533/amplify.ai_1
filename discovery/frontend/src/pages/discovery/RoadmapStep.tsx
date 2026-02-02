@@ -43,11 +43,11 @@ function CandidateCard({ candidate, onDragStart, onMoveToPhase }: CandidateCardP
       draggable="true"
       onDragStart={(e) => onDragStart(e, candidate.id)}
       onKeyDown={handleKeyDown}
-      className="bg-white border rounded-lg p-4 shadow-sm cursor-grab hover:shadow-md transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500"
+      className="card p-4 cursor-grab hover:shadow-md transition-shadow focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       aria-label={`${candidate.name} card in ${candidate.phase} phase. Use arrow keys to move between phases.`}
     >
-      <h4 className="text-base font-medium text-gray-900 mb-2">{candidate.name}</h4>
-      <div className="text-sm text-gray-600 space-y-1">
+      <h4 className="text-base font-medium text-foreground mb-2">{candidate.name}</h4>
+      <div className="text-sm text-foreground-muted space-y-1">
         <div>Priority: {candidate.priorityScore.toFixed(2)}</div>
         <div>Exposure: {candidate.exposureScore.toFixed(2)}</div>
       </div>
@@ -58,7 +58,7 @@ function CandidateCard({ candidate, onDragStart, onMoveToPhase }: CandidateCardP
             key={phase}
             type="button"
             onClick={() => onMoveToPhase(candidate.id, phase)}
-            className="px-2 py-1 text-xs font-medium text-blue-600 bg-blue-50 rounded hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="px-2 py-1 text-xs font-medium text-primary bg-primary/10 rounded hover:bg-primary/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             aria-label={`Move ${candidate.name} to ${phase}`}
           >
             Move to {phase}
@@ -80,9 +80,9 @@ interface KanbanColumnProps {
 
 function KanbanColumn({ phase, candidates, onDragStart, onDragOver, onDrop, onMoveToPhase }: KanbanColumnProps) {
   const phaseColors: Record<Phase, string> = {
-    NOW: 'border-green-500 bg-green-50',
-    NEXT: 'border-blue-500 bg-blue-50',
-    LATER: 'border-gray-500 bg-gray-50',
+    NOW: 'border-success bg-success/10',
+    NEXT: 'border-primary bg-primary/10',
+    LATER: 'border-border bg-background-muted',
   }
 
   return (
@@ -92,7 +92,7 @@ function KanbanColumn({ phase, candidates, onDragStart, onDragOver, onDrop, onMo
       onDrop={(e) => onDrop(e, phase)}
       aria-label={`${phase} column`}
     >
-      <h3 className="text-lg font-bold text-gray-900 mb-4">{phase}</h3>
+      <h3 className="text-lg font-bold text-foreground mb-4">{phase}</h3>
       <div className="space-y-3">
         {candidates.map((candidate) => (
           <CandidateCard
@@ -103,7 +103,7 @@ function KanbanColumn({ phase, candidates, onDragStart, onDragOver, onDrop, onMo
           />
         ))}
         {candidates.length === 0 && (
-          <div className="text-center py-8 text-gray-400 italic">
+          <div className="text-center py-8 text-foreground-subtle italic">
             No candidates in this phase
           </div>
         )}
@@ -176,17 +176,17 @@ function HandoffModal({ isOpen, onConfirm, onCancel, isHandingOff }: HandoffModa
 
   return (
     <div
-      className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
       role="dialog"
       aria-modal="true"
       aria-labelledby="handoff-modal-title"
       ref={modalRef}
     >
-      <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
-        <h2 id="handoff-modal-title" className="text-xl font-bold text-gray-900 mb-4">
+      <div className="card p-6 max-w-md w-full mx-4 shadow-xl">
+        <h2 id="handoff-modal-title" className="text-xl font-bold text-foreground mb-4">
           Confirm Handoff
         </h2>
-        <p className="text-gray-600 mb-6">
+        <p className="text-foreground-muted mb-6">
           Are you sure you want to send these candidates to the intake process? This action will
           initiate the AI agent creation workflow for all prioritized roles.
         </p>
@@ -196,7 +196,7 @@ function HandoffModal({ isOpen, onConfirm, onCancel, isHandingOff }: HandoffModa
             type="button"
             onClick={onCancel}
             disabled={isHandingOff}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="btn-secondary btn-md rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
             aria-label="Cancel handoff"
           >
             Cancel
@@ -206,7 +206,7 @@ function HandoffModal({ isOpen, onConfirm, onCancel, isHandingOff }: HandoffModa
             type="button"
             onClick={onConfirm}
             disabled={isHandingOff}
-            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="btn-primary btn-md rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
             aria-label="Confirm handoff"
           >
             {isHandingOff ? 'Sending...' : 'Confirm'}
@@ -316,7 +316,7 @@ export function RoadmapStep() {
   if (!sessionId) {
     return (
       <div className="flex items-center justify-center p-8">
-        <span className="text-red-500" role="alert">
+        <span className="text-destructive" role="alert">
           Error: Session ID is required. Please start a new discovery session.
         </span>
       </div>
@@ -326,7 +326,7 @@ export function RoadmapStep() {
   if (error) {
     return (
       <div className="flex items-center justify-center p-8">
-        <span className="text-red-500" role="alert">
+        <span className="text-destructive" role="alert">
           {GENERIC_ERROR_MESSAGE}
         </span>
       </div>
@@ -341,16 +341,16 @@ export function RoadmapStep() {
       </div>
 
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Implementation Roadmap</h1>
-        <p className="mt-2 text-gray-600">
+        <h1 className="text-2xl font-bold text-foreground">Implementation Roadmap</h1>
+        <p className="mt-2 text-foreground-muted">
           Organize AI candidates into implementation phases. Drag cards between columns to adjust priorities.
         </p>
       </div>
 
       {/* Handoff Error Display */}
       {handoffError && (
-        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-md" role="alert">
-          <span className="text-red-700">{handoffError}</span>
+        <div className="mb-6 p-4 bg-destructive/10 border border-destructive/20 rounded-md" role="alert">
+          <span className="text-destructive">{handoffError}</span>
         </div>
       )}
 
@@ -359,7 +359,7 @@ export function RoadmapStep() {
         <button
           type="button"
           onClick={handleExport}
-          className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+          className="btn-secondary btn-md rounded-md"
           aria-label="Export roadmap"
         >
           Export
@@ -367,7 +367,7 @@ export function RoadmapStep() {
         <button
           type="button"
           onClick={handleSendToIntake}
-          className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700"
+          className="btn-primary btn-md rounded-md"
           aria-label="Send to Intake"
         >
           Send to Intake
@@ -377,8 +377,8 @@ export function RoadmapStep() {
       {/* Loading State */}
       {isLoading && (
         <div className="flex items-center justify-center p-8" role="status" aria-live="polite">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-          <span className="ml-3 text-gray-500">Loading roadmap...</span>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+          <span className="ml-3 text-foreground-muted">Loading roadmap...</span>
         </div>
       )}
 

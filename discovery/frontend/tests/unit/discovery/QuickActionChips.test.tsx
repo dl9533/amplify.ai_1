@@ -51,7 +51,7 @@ describe('QuickActionChips', () => {
     render(<QuickActionChips chips={chips} onAction={vi.fn()} />)
 
     const button = screen.getByRole('button', { name: 'Default' })
-    expect(button).toHaveClass('bg-secondary')
+    expect(button).toHaveClass('bg-background-muted')
   })
 
   it('has accessible button roles', () => {

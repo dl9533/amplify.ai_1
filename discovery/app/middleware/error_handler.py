@@ -5,13 +5,20 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from app.exceptions import (
+    AnalysisException,
     DiscoveryException,
+    FileParseException,
+    HandoffException,
+    LLMAuthError,
+    LLMConnectionError,
+    LLMError,
+    LLMRateLimitError,
+    OnetApiError,
+    OnetAuthError,
+    OnetNotFoundError,
+    OnetRateLimitError,
     SessionNotFoundException,
     ValidationException,
-    FileParseException,
-    OnetApiError,
-    OnetRateLimitError,
-    AnalysisException,
 )
 
 logger = logging.getLogger(__name__)
@@ -25,7 +32,7 @@ def add_exception_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=404,
             content={
-                "detail": exc.message,
+                "detail": f"Session not found: {exc.session_id}",
                 "type": "session_not_found",
                 "session_id": exc.session_id,
             },
@@ -53,19 +60,62 @@ def add_exception_handlers(app: FastAPI) -> None:
             },
         )
 
+    @app.exception_handler(AnalysisException)
+    async def analysis_error_handler(request: Request, exc: AnalysisException):
+        logger.error(f"Analysis error: {exc.message}", extra={"details": exc.details})
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": "Analysis processing failed. Please try again.",
+                "type": "analysis_error",
+            },
+        )
+
+    @app.exception_handler(HandoffException)
+    async def handoff_error_handler(request: Request, exc: HandoffException):
+        logger.error(f"Handoff error: {exc.message}", extra={"details": exc.details})
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": "Handoff to Build phase failed. Please try again.",
+                "type": "handoff_error",
+            },
+        )
+
     @app.exception_handler(OnetRateLimitError)
-    async def rate_limit_handler(request: Request, exc: OnetRateLimitError):
+    async def onet_rate_limit_handler(request: Request, exc: OnetRateLimitError):
         headers = {}
         if exc.retry_after:
             headers["Retry-After"] = str(exc.retry_after)
         return JSONResponse(
             status_code=429,
             content={
-                "detail": exc.message,
+                "detail": "Rate limit exceeded. Please try again later.",
                 "type": "rate_limit",
                 "retry_after": exc.retry_after,
             },
             headers=headers,
+        )
+
+    @app.exception_handler(OnetAuthError)
+    async def onet_auth_error_handler(request: Request, exc: OnetAuthError):
+        logger.error(f"O*NET authentication error: {exc.message}")
+        return JSONResponse(
+            status_code=503,
+            content={
+                "detail": "External service temporarily unavailable.",
+                "type": "service_unavailable",
+            },
+        )
+
+    @app.exception_handler(OnetNotFoundError)
+    async def onet_not_found_handler(request: Request, exc: OnetNotFoundError):
+        return JSONResponse(
+            status_code=404,
+            content={
+                "detail": f"O*NET resource not found: {exc.resource}" if exc.resource else "O*NET resource not found",
+                "type": "onet_not_found",
+            },
         )
 
     @app.exception_handler(OnetApiError)
@@ -79,13 +129,62 @@ def add_exception_handlers(app: FastAPI) -> None:
             },
         )
 
+    @app.exception_handler(LLMRateLimitError)
+    async def llm_rate_limit_handler(request: Request, exc: LLMRateLimitError):
+        headers = {}
+        if exc.retry_after:
+            headers["Retry-After"] = str(int(exc.retry_after))
+        return JSONResponse(
+            status_code=429,
+            content={
+                "detail": "AI service rate limit exceeded. Please try again later.",
+                "type": "llm_rate_limit",
+                "retry_after": exc.retry_after,
+            },
+            headers=headers,
+        )
+
+    @app.exception_handler(LLMAuthError)
+    async def llm_auth_error_handler(request: Request, exc: LLMAuthError):
+        logger.error(f"LLM authentication error: {exc.message}")
+        return JSONResponse(
+            status_code=503,
+            content={
+                "detail": "AI service temporarily unavailable.",
+                "type": "service_unavailable",
+            },
+        )
+
+    @app.exception_handler(LLMConnectionError)
+    async def llm_connection_error_handler(request: Request, exc: LLMConnectionError):
+        logger.error(f"LLM connection error: {exc.message}")
+        return JSONResponse(
+            status_code=503,
+            content={
+                "detail": "AI service temporarily unavailable.",
+                "type": "service_unavailable",
+            },
+        )
+
+    @app.exception_handler(LLMError)
+    async def llm_error_handler(request: Request, exc: LLMError):
+        logger.error(f"LLM error: {exc.message}")
+        return JSONResponse(
+            status_code=502,
+            content={
+                "detail": "AI service error. Please try again.",
+                "type": "llm_error",
+            },
+        )
+
     @app.exception_handler(DiscoveryException)
     async def discovery_error_handler(request: Request, exc: DiscoveryException):
-        logger.error(f"Discovery error: {exc.message}")
+        # Log the full error details server-side, but return generic message to client
+        logger.error(f"Discovery error: {exc.message}", extra={"details": exc.details})
         return JSONResponse(
             status_code=500,
             content={
-                "detail": exc.message,
+                "detail": "An error occurred processing your request.",
                 "type": "discovery_error",
             },
         )

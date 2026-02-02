@@ -9,26 +9,26 @@ interface RoleMappingRowProps {
 
 function RoleMappingRow({ mapping, onConfirm }: RoleMappingRowProps) {
   return (
-    <div className="flex items-center justify-between p-4 border rounded-lg bg-white">
+    <div className="flex items-center justify-between p-4 border border-border rounded-lg bg-background">
       <div className="flex-1">
-        <h3 className="font-medium text-gray-900">{mapping.roleName}</h3>
-        <p className="text-sm text-gray-500">
+        <h3 className="font-medium text-foreground">{mapping.roleName}</h3>
+        <p className="text-sm text-foreground-muted">
           {mapping.onetTitle} ({mapping.onetCode})
         </p>
       </div>
       <div className="flex items-center gap-4">
-        <span className="text-sm font-medium text-gray-700">{mapping.confidence}%</span>
+        <span className="text-sm font-medium text-foreground">{mapping.confidence}%</span>
         {mapping.confirmed ? (
           <span
             data-testid="confirmed-badge"
-            className="px-3 py-1 text-sm font-medium text-green-700 bg-green-100 rounded-full"
+            className="px-3 py-1 text-sm font-medium text-success bg-success/10 rounded-full"
           >
             Confirmed
           </span>
         ) : (
           <button
             onClick={() => onConfirm(mapping.id)}
-            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="btn-primary btn-md rounded-lg"
           >
             Confirm
           </button>
@@ -66,7 +66,7 @@ export function MapRolesStep() {
   if (!sessionId) {
     return (
       <div className="flex items-center justify-center p-8">
-        <span className="text-red-500" role="alert">
+        <span className="text-destructive" role="alert">
           Error: Session ID is required. Please start a new discovery session.
         </span>
       </div>
@@ -76,7 +76,7 @@ export function MapRolesStep() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center p-8">
-        <span className="text-gray-500">Loading role mappings...</span>
+        <span className="text-foreground-muted">Loading role mappings...</span>
       </div>
     )
   }
@@ -84,7 +84,7 @@ export function MapRolesStep() {
   if (error) {
     return (
       <div className="flex items-center justify-center p-8">
-        <span className="text-red-500" role="alert">
+        <span className="text-destructive" role="alert">
           Error: {error}
         </span>
       </div>
@@ -99,8 +99,8 @@ export function MapRolesStep() {
       </div>
 
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Map Your Roles</h1>
-        <p className="mt-2 text-gray-600">
+        <h1 className="text-2xl font-bold text-foreground">Map Your Roles</h1>
+        <p className="mt-2 text-foreground-muted">
           Review and confirm the O*NET occupation mappings for your roles.
         </p>
       </div>
@@ -118,12 +118,12 @@ export function MapRolesStep() {
             placeholder="Search O*NET occupations..."
             value={searchValue}
             onChange={handleSearchChange}
-            className="px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="input"
           />
         </div>
         <button
           onClick={() => handleBulkConfirm(80)}
-          className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-500"
+          className="btn-secondary btn-md rounded-lg"
         >
           Confirm all above 80%
         </button>
@@ -140,7 +140,7 @@ export function MapRolesStep() {
       </div>
 
       {mappings.length === 0 && (
-        <div className="text-center py-8 text-gray-500">
+        <div className="text-center py-8 text-foreground-muted">
           No role mappings found. Upload a file to get started.
         </div>
       )}

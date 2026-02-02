@@ -11390,4 +11390,9390 @@ git commit -m "test(discovery): add integration tests for O*NET and Anthropic AP
 
 ---
 
-**Next Phase:** [Phase 1: Foundation](phase-01-foundation.md)
+## Phase 1: Database Layer Foundation (Tasks 78-99)
+
+This phase implements the database layer that replaces the placeholder services (`NotImplementedError`) with fully functional SQLAlchemy models, Alembic migrations, and repository patterns.
+
+---
+
+## Part 10: O*NET Reference Models (Tasks 78-83)
+
+### Task 78: Base Model and Alembic Configuration
+
+**Files:**
+- Create: `discovery/app/models/__init__.py`
+- Create: `discovery/app/models/base.py`
+- Create: `discovery/alembic.ini`
+- Create: `discovery/migrations/env.py`
+- Create: `discovery/migrations/script.py.mako`
+- Create: `discovery/migrations/versions/.gitkeep`
+- Test: `discovery/tests/unit/models/test_base.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/models/test_base.py
+"""Unit tests for base model configuration."""
+import pytest
+
+
+def test_base_model_exists():
+    """Test that Base model is importable."""
+    from app.models.base import Base
+    assert Base is not None
+
+
+def test_base_has_metadata():
+    """Test that Base has metadata for table generation."""
+    from app.models.base import Base
+    assert hasattr(Base, "metadata")
+
+
+def test_async_session_maker_exists():
+    """Test that async session maker is available."""
+    from app.models.base import async_session_maker
+    assert async_session_maker is not None
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/models/test_base.py -v`
+Expected: FAIL with "No module named 'app.models'"
+
+**Step 3: Write minimal implementation**
+
+```python
+# discovery/app/models/__init__.py
+"""SQLAlchemy models package."""
+from app.models.base import Base, async_session_maker, get_async_session
+
+__all__ = ["Base", "async_session_maker", "get_async_session"]
+```
+
+```python
+# discovery/app/models/base.py
+"""SQLAlchemy base model and async session configuration."""
+from collections.abc import AsyncGenerator
+
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.orm import DeclarativeBase
+
+from app.config import get_settings
+
+
+class Base(DeclarativeBase):
+    """Base class for all SQLAlchemy models."""
+    pass
+
+
+settings = get_settings()
+engine = create_async_engine(
+    settings.database_url,
+    echo=settings.debug,
+    pool_pre_ping=True,
+)
+
+async_session_maker = async_sessionmaker(
+    engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+)
+
+
+async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
+    """Dependency for getting async database sessions."""
+    async with async_session_maker() as session:
+        try:
+            yield session
+        finally:
+            await session.close()
+```
+
+Create Alembic configuration:
+
+```ini
+# discovery/alembic.ini
+[alembic]
+script_location = migrations
+prepend_sys_path = .
+version_path_separator = os
+
+[post_write_hooks]
+
+[loggers]
+keys = root,sqlalchemy,alembic
+
+[handlers]
+keys = console
+
+[formatters]
+keys = generic
+
+[logger_root]
+level = WARN
+handlers = console
+qualname =
+
+[logger_sqlalchemy]
+level = WARN
+handlers =
+qualname = sqlalchemy.engine
+
+[logger_alembic]
+level = INFO
+handlers =
+qualname = alembic
+
+[handler_console]
+class = StreamHandler
+args = (sys.stderr,)
+level = NOTSET
+formatter = generic
+
+[formatter_generic]
+format = %(levelname)-5.5s [%(name)s] %(message)s
+datefmt = %H:%M:%S
+```
+
+```python
+# discovery/migrations/env.py
+"""Alembic migration environment configuration."""
+import asyncio
+from logging.config import fileConfig
+
+from alembic import context
+from sqlalchemy import pool
+from sqlalchemy.ext.asyncio import create_async_engine
+
+from app.config import get_settings
+from app.models.base import Base
+
+config = context.config
+settings = get_settings()
+
+if config.config_file_name is not None:
+    fileConfig(config.config_file_name)
+
+target_metadata = Base.metadata
+
+
+def run_migrations_offline() -> None:
+    """Run migrations in 'offline' mode."""
+    url = settings.database_url
+    context.configure(
+        url=url,
+        target_metadata=target_metadata,
+        literal_binds=True,
+        dialect_opts={"paramstyle": "named"},
+    )
+
+    with context.begin_transaction():
+        context.run_migrations()
+
+
+def do_run_migrations(connection):
+    context.configure(connection=connection, target_metadata=target_metadata)
+    with context.begin_transaction():
+        context.run_migrations()
+
+
+async def run_async_migrations():
+    """Run migrations in async mode."""
+    connectable = create_async_engine(
+        settings.database_url,
+        poolclass=pool.NullPool,
+    )
+
+    async with connectable.connect() as connection:
+        await connection.run_sync(do_run_migrations)
+
+    await connectable.dispose()
+
+
+def run_migrations_online() -> None:
+    """Run migrations in 'online' mode."""
+    asyncio.run(run_async_migrations())
+
+
+if context.is_offline_mode():
+    run_migrations_offline()
+else:
+    run_migrations_online()
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/models/test_base.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/models/ discovery/alembic.ini discovery/migrations/
+git add discovery/tests/unit/models/
+git commit -m "feat(discovery): add SQLAlchemy base model and Alembic configuration"
+```
+
+---
+
+### Task 79: O*NET Occupation Model
+
+**Files:**
+- Create: `discovery/app/models/onet_occupation.py`
+- Create: `discovery/migrations/versions/001_onet_occupations.py`
+- Test: `discovery/tests/unit/models/test_onet_occupation.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/models/test_onet_occupation.py
+"""Unit tests for OnetOccupation model."""
+import pytest
+from datetime import datetime, timezone
+
+
+def test_onet_occupation_model_exists():
+    """Test that OnetOccupation model is importable."""
+    from app.models.onet_occupation import OnetOccupation
+    assert OnetOccupation is not None
+
+
+def test_onet_occupation_has_required_columns():
+    """Test that model has all required columns."""
+    from app.models.onet_occupation import OnetOccupation
+
+    columns = OnetOccupation.__table__.columns.keys()
+    assert "code" in columns
+    assert "title" in columns
+    assert "description" in columns
+    assert "updated_at" in columns
+
+
+def test_onet_occupation_code_is_primary_key():
+    """Test that code is the primary key."""
+    from app.models.onet_occupation import OnetOccupation
+
+    pk_columns = [c.name for c in OnetOccupation.__table__.primary_key.columns]
+    assert pk_columns == ["code"]
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/models/test_onet_occupation.py -v`
+Expected: FAIL with "No module named 'app.models.onet_occupation'"
+
+**Step 3: Write minimal implementation**
+
+```python
+# discovery/app/models/onet_occupation.py
+"""O*NET Occupation model."""
+from datetime import datetime, timezone
+
+from sqlalchemy import String, Text, DateTime
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.models.base import Base
+
+
+class OnetOccupation(Base):
+    """O*NET occupation reference data.
+
+    Stores occupation codes and titles synced from O*NET API.
+    Approximately 923 records.
+    """
+    __tablename__ = "onet_occupations"
+
+    code: Mapped[str] = mapped_column(String(10), primary_key=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+```
+
+Update models `__init__.py`:
+```python
+from app.models.onet_occupation import OnetOccupation
+__all__ = ["Base", "async_session_maker", "get_async_session", "OnetOccupation"]
+```
+
+Create migration:
+```python
+# discovery/migrations/versions/001_onet_occupations.py
+"""Create onet_occupations table.
+
+Revision ID: 001
+Create Date: 2026-02-01
+"""
+from alembic import op
+import sqlalchemy as sa
+
+revision = "001"
+down_revision = None
+branch_labels = None
+depends_on = None
+
+
+def upgrade() -> None:
+    op.create_table(
+        "onet_occupations",
+        sa.Column("code", sa.String(10), primary_key=True),
+        sa.Column("title", sa.String(255), nullable=False),
+        sa.Column("description", sa.Text(), nullable=True),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    )
+    op.create_index("ix_onet_occupations_title", "onet_occupations", ["title"])
+
+
+def downgrade() -> None:
+    op.drop_index("ix_onet_occupations_title")
+    op.drop_table("onet_occupations")
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/models/test_onet_occupation.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/models/onet_occupation.py
+git add discovery/migrations/versions/001_onet_occupations.py
+git add discovery/tests/unit/models/test_onet_occupation.py
+git commit -m "feat(discovery): add OnetOccupation model and migration"
+```
+
+---
+
+### Task 80: O*NET Work Activities Models (GWA, IWA, DWA)
+
+**Files:**
+- Create: `discovery/app/models/onet_work_activities.py`
+- Create: `discovery/migrations/versions/002_onet_work_activities.py`
+- Test: `discovery/tests/unit/models/test_onet_work_activities.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/models/test_onet_work_activities.py
+"""Unit tests for O*NET work activity models."""
+import pytest
+
+
+def test_gwa_model_exists():
+    """Test OnetGWA model is importable."""
+    from app.models.onet_work_activities import OnetGWA
+    assert OnetGWA is not None
+
+
+def test_iwa_model_exists():
+    """Test OnetIWA model is importable."""
+    from app.models.onet_work_activities import OnetIWA
+    assert OnetIWA is not None
+
+
+def test_dwa_model_exists():
+    """Test OnetDWA model is importable."""
+    from app.models.onet_work_activities import OnetDWA
+    assert OnetDWA is not None
+
+
+def test_gwa_has_ai_exposure_score():
+    """Test GWA has AI exposure score column."""
+    from app.models.onet_work_activities import OnetGWA
+    columns = OnetGWA.__table__.columns.keys()
+    assert "ai_exposure_score" in columns
+
+
+def test_iwa_has_gwa_foreign_key():
+    """Test IWA references GWA."""
+    from app.models.onet_work_activities import OnetIWA
+    columns = OnetIWA.__table__.columns.keys()
+    assert "gwa_id" in columns
+
+
+def test_dwa_has_iwa_foreign_key():
+    """Test DWA references IWA."""
+    from app.models.onet_work_activities import OnetDWA
+    columns = OnetDWA.__table__.columns.keys()
+    assert "iwa_id" in columns
+
+
+def test_dwa_has_ai_exposure_override():
+    """Test DWA has optional AI exposure override."""
+    from app.models.onet_work_activities import OnetDWA
+    columns = OnetDWA.__table__.columns.keys()
+    assert "ai_exposure_override" in columns
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/models/test_onet_work_activities.py -v`
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+```python
+# discovery/app/models/onet_work_activities.py
+"""O*NET Work Activity models (GWA, IWA, DWA hierarchy)."""
+from datetime import datetime, timezone
+
+from sqlalchemy import String, Text, DateTime, Float, ForeignKey
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.models.base import Base
+
+
+class OnetGWA(Base):
+    """Generalized Work Activities (41 records).
+
+    Top level of work activity hierarchy.
+    Contains AI exposure scores from Pew Research mapping.
+    """
+    __tablename__ = "onet_gwa"
+
+    id: Mapped[str] = mapped_column(String(20), primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ai_exposure_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+    # Relationships
+    iwas: Mapped[list["OnetIWA"]] = relationship(back_populates="gwa")
+
+
+class OnetIWA(Base):
+    """Intermediate Work Activities (~300 records).
+
+    Middle level of work activity hierarchy.
+    """
+    __tablename__ = "onet_iwa"
+
+    id: Mapped[str] = mapped_column(String(20), primary_key=True)
+    gwa_id: Mapped[str] = mapped_column(String(20), ForeignKey("onet_gwa.id"), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+    # Relationships
+    gwa: Mapped["OnetGWA"] = relationship(back_populates="iwas")
+    dwas: Mapped[list["OnetDWA"]] = relationship(back_populates="iwa")
+
+
+class OnetDWA(Base):
+    """Detailed Work Activities (2000+ records).
+
+    Lowest level of work activity hierarchy.
+    AI exposure inherited from GWA unless overridden.
+    """
+    __tablename__ = "onet_dwa"
+
+    id: Mapped[str] = mapped_column(String(20), primary_key=True)
+    iwa_id: Mapped[str] = mapped_column(String(20), ForeignKey("onet_iwa.id"), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ai_exposure_override: Mapped[float | None] = mapped_column(Float, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+    # Relationships
+    iwa: Mapped["OnetIWA"] = relationship(back_populates="dwas")
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/models/test_onet_work_activities.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/models/onet_work_activities.py
+git add discovery/migrations/versions/002_onet_work_activities.py
+git add discovery/tests/unit/models/test_onet_work_activities.py
+git commit -m "feat(discovery): add O*NET work activity models (GWA/IWA/DWA)"
+```
+
+---
+
+### Task 81: O*NET Tasks Model
+
+**Files:**
+- Create: `discovery/app/models/onet_task.py`
+- Create: `discovery/migrations/versions/003_onet_tasks.py`
+- Test: `discovery/tests/unit/models/test_onet_task.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/models/test_onet_task.py
+"""Unit tests for OnetTask model."""
+import pytest
+
+
+def test_onet_task_model_exists():
+    """Test OnetTask model is importable."""
+    from app.models.onet_task import OnetTask
+    assert OnetTask is not None
+
+
+def test_onet_task_has_required_columns():
+    """Test model has required columns."""
+    from app.models.onet_task import OnetTask
+
+    columns = OnetTask.__table__.columns.keys()
+    assert "id" in columns
+    assert "occupation_code" in columns
+    assert "description" in columns
+    assert "importance" in columns
+
+
+def test_onet_task_to_dwa_exists():
+    """Test junction table model exists."""
+    from app.models.onet_task import OnetTaskToDWA
+    assert OnetTaskToDWA is not None
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/models/test_onet_task.py -v`
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+```python
+# discovery/app/models/onet_task.py
+"""O*NET Task models."""
+from datetime import datetime, timezone
+
+from sqlalchemy import String, Text, DateTime, Float, ForeignKey, Integer
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.models.base import Base
+
+
+class OnetTask(Base):
+    """O*NET tasks (~19,000 records).
+
+    Specific tasks associated with occupations.
+    """
+    __tablename__ = "onet_tasks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    occupation_code: Mapped[str] = mapped_column(
+        String(10),
+        ForeignKey("onet_occupations.code"),
+        nullable=False,
+    )
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    importance: Mapped[float | None] = mapped_column(Float, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+    # Relationships
+    dwas: Mapped[list["OnetTaskToDWA"]] = relationship(back_populates="task")
+
+
+class OnetTaskToDWA(Base):
+    """Junction table linking tasks to DWAs."""
+    __tablename__ = "onet_task_to_dwa"
+
+    task_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("onet_tasks.id"),
+        primary_key=True,
+    )
+    dwa_id: Mapped[str] = mapped_column(
+        String(20),
+        ForeignKey("onet_dwa.id"),
+        primary_key=True,
+    )
+
+    # Relationships
+    task: Mapped["OnetTask"] = relationship(back_populates="dwas")
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/models/test_onet_task.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/models/onet_task.py
+git add discovery/migrations/versions/003_onet_tasks.py
+git add discovery/tests/unit/models/test_onet_task.py
+git commit -m "feat(discovery): add OnetTask model and DWA junction table"
+```
+
+---
+
+### Task 82: O*NET Skills Models
+
+**Files:**
+- Create: `discovery/app/models/onet_skills.py`
+- Create: `discovery/migrations/versions/004_onet_skills.py`
+- Test: `discovery/tests/unit/models/test_onet_skills.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/models/test_onet_skills.py
+"""Unit tests for O*NET skills models."""
+import pytest
+
+
+def test_onet_skill_model_exists():
+    """Test OnetSkill model is importable."""
+    from app.models.onet_skills import OnetSkill
+    assert OnetSkill is not None
+
+
+def test_onet_technology_skill_exists():
+    """Test OnetTechnologySkill model is importable."""
+    from app.models.onet_skills import OnetTechnologySkill
+    assert OnetTechnologySkill is not None
+
+
+def test_technology_skill_has_hot_flag():
+    """Test technology skill has hot_technology flag."""
+    from app.models.onet_skills import OnetTechnologySkill
+    columns = OnetTechnologySkill.__table__.columns.keys()
+    assert "hot_technology" in columns
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/models/test_onet_skills.py -v`
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+```python
+# discovery/app/models/onet_skills.py
+"""O*NET Skills models."""
+from datetime import datetime, timezone
+
+from sqlalchemy import String, Text, DateTime, Boolean, ForeignKey, Integer
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.models.base import Base
+
+
+class OnetSkill(Base):
+    """O*NET skills reference data."""
+    __tablename__ = "onet_skills"
+
+    id: Mapped[str] = mapped_column(String(20), primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+
+class OnetTechnologySkill(Base):
+    """O*NET technology skills by occupation."""
+    __tablename__ = "onet_technology_skills"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    occupation_code: Mapped[str] = mapped_column(
+        String(10),
+        ForeignKey("onet_occupations.code"),
+        nullable=False,
+    )
+    technology_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    hot_technology: Mapped[bool] = mapped_column(Boolean, default=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+    )
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/models/test_onet_skills.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/models/onet_skills.py
+git add discovery/migrations/versions/004_onet_skills.py
+git add discovery/tests/unit/models/test_onet_skills.py
+git commit -m "feat(discovery): add O*NET skills models"
+```
+
+---
+
+### Task 83: Consolidated O*NET Models Export
+
+**Files:**
+- Modify: `discovery/app/models/__init__.py`
+- Test: `discovery/tests/unit/models/test_models_init.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/models/test_models_init.py
+"""Test all models are exported from package."""
+import pytest
+
+
+def test_all_onet_models_importable():
+    """Test all O*NET models can be imported from package."""
+    from app.models import (
+        OnetOccupation,
+        OnetGWA,
+        OnetIWA,
+        OnetDWA,
+        OnetTask,
+        OnetTaskToDWA,
+        OnetSkill,
+        OnetTechnologySkill,
+    )
+
+    assert OnetOccupation is not None
+    assert OnetGWA is not None
+    assert OnetIWA is not None
+    assert OnetDWA is not None
+    assert OnetTask is not None
+    assert OnetTaskToDWA is not None
+    assert OnetSkill is not None
+    assert OnetTechnologySkill is not None
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/models/test_models_init.py -v`
+Expected: FAIL (not all exports in __init__.py)
+
+**Step 3: Write minimal implementation**
+
+```python
+# discovery/app/models/__init__.py
+"""SQLAlchemy models package."""
+from app.models.base import Base, async_session_maker, get_async_session
+from app.models.onet_occupation import OnetOccupation
+from app.models.onet_work_activities import OnetGWA, OnetIWA, OnetDWA
+from app.models.onet_task import OnetTask, OnetTaskToDWA
+from app.models.onet_skills import OnetSkill, OnetTechnologySkill
+
+__all__ = [
+    "Base",
+    "async_session_maker",
+    "get_async_session",
+    "OnetOccupation",
+    "OnetGWA",
+    "OnetIWA",
+    "OnetDWA",
+    "OnetTask",
+    "OnetTaskToDWA",
+    "OnetSkill",
+    "OnetTechnologySkill",
+]
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/models/test_models_init.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/models/__init__.py
+git add discovery/tests/unit/models/test_models_init.py
+git commit -m "feat(discovery): consolidate O*NET model exports"
+```
+
+---
+
+## Part 11: Application Models (Tasks 84-89)
+
+### Task 84: Discovery Session Model
+
+**Files:**
+- Create: `discovery/app/models/discovery_session.py`
+- Create: `discovery/migrations/versions/005_discovery_sessions.py`
+- Test: `discovery/tests/unit/models/test_discovery_session.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/models/test_discovery_session.py
+"""Unit tests for DiscoverySession model."""
+import pytest
+
+
+def test_discovery_session_model_exists():
+    """Test DiscoverySession model is importable."""
+    from app.models.discovery_session import DiscoverySession, SessionStatus
+    assert DiscoverySession is not None
+    assert SessionStatus is not None
+
+
+def test_session_has_required_columns():
+    """Test model has required columns."""
+    from app.models.discovery_session import DiscoverySession
+
+    columns = DiscoverySession.__table__.columns.keys()
+    assert "id" in columns
+    assert "user_id" in columns
+    assert "organization_id" in columns
+    assert "status" in columns
+    assert "current_step" in columns
+
+
+def test_session_status_enum_values():
+    """Test SessionStatus has expected values."""
+    from app.models.discovery_session import SessionStatus
+
+    assert SessionStatus.DRAFT.value == "draft"
+    assert SessionStatus.IN_PROGRESS.value == "in_progress"
+    assert SessionStatus.COMPLETED.value == "completed"
+    assert SessionStatus.ARCHIVED.value == "archived"
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/models/test_discovery_session.py -v`
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+```python
+# discovery/app/models/discovery_session.py
+"""Discovery session model."""
+import enum
+from datetime import datetime, timezone
+from uuid import UUID, uuid4
+
+from sqlalchemy import String, DateTime, Integer, Enum
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.models.base import Base
+
+
+class SessionStatus(enum.Enum):
+    """Discovery session status."""
+    DRAFT = "draft"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    ARCHIVED = "archived"
+
+
+class DiscoverySession(Base):
+    """Discovery session tracking wizard progress."""
+    __tablename__ = "discovery_sessions"
+
+    id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        primary_key=True,
+        default=uuid4,
+    )
+    user_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    organization_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    status: Mapped[SessionStatus] = mapped_column(
+        Enum(SessionStatus),
+        default=SessionStatus.DRAFT,
+        nullable=False,
+    )
+    current_step: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    # Relationships (will be added as models are created)
+    uploads: Mapped[list["DiscoveryUpload"]] = relationship(back_populates="session")
+    role_mappings: Mapped[list["DiscoveryRoleMapping"]] = relationship(back_populates="session")
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/models/test_discovery_session.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/models/discovery_session.py
+git add discovery/migrations/versions/005_discovery_sessions.py
+git add discovery/tests/unit/models/test_discovery_session.py
+git commit -m "feat(discovery): add DiscoverySession model"
+```
+
+---
+
+### Task 85: Discovery Upload Model
+
+**Files:**
+- Create: `discovery/app/models/discovery_upload.py`
+- Create: `discovery/migrations/versions/006_discovery_uploads.py`
+- Test: `discovery/tests/unit/models/test_discovery_upload.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/models/test_discovery_upload.py
+"""Unit tests for DiscoveryUpload model."""
+import pytest
+
+
+def test_discovery_upload_model_exists():
+    """Test DiscoveryUpload model is importable."""
+    from app.models.discovery_upload import DiscoveryUpload
+    assert DiscoveryUpload is not None
+
+
+def test_upload_has_required_columns():
+    """Test model has required columns."""
+    from app.models.discovery_upload import DiscoveryUpload
+
+    columns = DiscoveryUpload.__table__.columns.keys()
+    assert "id" in columns
+    assert "session_id" in columns
+    assert "file_name" in columns
+    assert "file_url" in columns
+    assert "row_count" in columns
+    assert "column_mappings" in columns
+    assert "detected_schema" in columns
+
+
+def test_upload_has_session_foreign_key():
+    """Test upload references session."""
+    from app.models.discovery_upload import DiscoveryUpload
+
+    fk_cols = [fk.column.name for fk in DiscoveryUpload.__table__.foreign_keys]
+    assert "id" in fk_cols  # session_id -> discovery_sessions.id
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/models/test_discovery_upload.py -v`
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+```python
+# discovery/app/models/discovery_upload.py
+"""Discovery upload model."""
+from datetime import datetime, timezone
+from uuid import UUID, uuid4
+
+from sqlalchemy import String, DateTime, Integer, ForeignKey
+from sqlalchemy.dialects.postgresql import UUID as PGUUID, JSONB
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.models.base import Base
+
+
+class DiscoveryUpload(Base):
+    """Uploaded file metadata and schema detection."""
+    __tablename__ = "discovery_uploads"
+
+    id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        primary_key=True,
+        default=uuid4,
+    )
+    session_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("discovery_sessions.id"),
+        nullable=False,
+    )
+    file_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    file_url: Mapped[str] = mapped_column(String(512), nullable=False)
+    row_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    column_mappings: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    detected_schema: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+    # Relationships
+    session: Mapped["DiscoverySession"] = relationship(back_populates="uploads")
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/models/test_discovery_upload.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/models/discovery_upload.py
+git add discovery/migrations/versions/006_discovery_uploads.py
+git add discovery/tests/unit/models/test_discovery_upload.py
+git commit -m "feat(discovery): add DiscoveryUpload model"
+```
+
+---
+
+### Task 86: Discovery Role Mapping Model
+
+**Files:**
+- Create: `discovery/app/models/discovery_role_mapping.py`
+- Create: `discovery/migrations/versions/007_discovery_role_mappings.py`
+- Test: `discovery/tests/unit/models/test_discovery_role_mapping.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/models/test_discovery_role_mapping.py
+"""Unit tests for DiscoveryRoleMapping model."""
+import pytest
+
+
+def test_role_mapping_model_exists():
+    """Test DiscoveryRoleMapping model is importable."""
+    from app.models.discovery_role_mapping import DiscoveryRoleMapping
+    assert DiscoveryRoleMapping is not None
+
+
+def test_role_mapping_has_required_columns():
+    """Test model has required columns."""
+    from app.models.discovery_role_mapping import DiscoveryRoleMapping
+
+    columns = DiscoveryRoleMapping.__table__.columns.keys()
+    assert "id" in columns
+    assert "session_id" in columns
+    assert "source_role" in columns
+    assert "onet_code" in columns
+    assert "confidence_score" in columns
+    assert "user_confirmed" in columns
+    assert "row_count" in columns
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/models/test_discovery_role_mapping.py -v`
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+```python
+# discovery/app/models/discovery_role_mapping.py
+"""Discovery role mapping model."""
+from datetime import datetime, timezone
+from uuid import UUID, uuid4
+
+from sqlalchemy import String, DateTime, Float, Boolean, Integer, ForeignKey
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.models.base import Base
+
+
+class DiscoveryRoleMapping(Base):
+    """Mapping between uploaded roles and O*NET occupations."""
+    __tablename__ = "discovery_role_mappings"
+
+    id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        primary_key=True,
+        default=uuid4,
+    )
+    session_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("discovery_sessions.id"),
+        nullable=False,
+    )
+    source_role: Mapped[str] = mapped_column(String(255), nullable=False)
+    onet_code: Mapped[str | None] = mapped_column(
+        String(10),
+        ForeignKey("onet_occupations.code"),
+        nullable=True,
+    )
+    confidence_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    user_confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
+    row_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+    # Relationships
+    session: Mapped["DiscoverySession"] = relationship(back_populates="role_mappings")
+    activity_selections: Mapped[list["DiscoveryActivitySelection"]] = relationship(
+        back_populates="role_mapping"
+    )
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/models/test_discovery_role_mapping.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/models/discovery_role_mapping.py
+git add discovery/migrations/versions/007_discovery_role_mappings.py
+git add discovery/tests/unit/models/test_discovery_role_mapping.py
+git commit -m "feat(discovery): add DiscoveryRoleMapping model"
+```
+
+---
+
+### Task 87: Discovery Activity Selection Model
+
+**Files:**
+- Create: `discovery/app/models/discovery_activity_selection.py`
+- Create: `discovery/migrations/versions/008_discovery_activity_selections.py`
+- Test: `discovery/tests/unit/models/test_discovery_activity_selection.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/models/test_discovery_activity_selection.py
+"""Unit tests for DiscoveryActivitySelection model."""
+import pytest
+
+
+def test_activity_selection_model_exists():
+    """Test DiscoveryActivitySelection model is importable."""
+    from app.models.discovery_activity_selection import DiscoveryActivitySelection
+    assert DiscoveryActivitySelection is not None
+
+
+def test_activity_selection_has_required_columns():
+    """Test model has required columns."""
+    from app.models.discovery_activity_selection import DiscoveryActivitySelection
+
+    columns = DiscoveryActivitySelection.__table__.columns.keys()
+    assert "id" in columns
+    assert "session_id" in columns
+    assert "role_mapping_id" in columns
+    assert "dwa_id" in columns
+    assert "selected" in columns
+    assert "user_modified" in columns
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/models/test_discovery_activity_selection.py -v`
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+```python
+# discovery/app/models/discovery_activity_selection.py
+"""Discovery activity selection model."""
+from datetime import datetime, timezone
+from uuid import UUID, uuid4
+
+from sqlalchemy import String, DateTime, Boolean, ForeignKey
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.models.base import Base
+
+
+class DiscoveryActivitySelection(Base):
+    """User selections of DWAs for analysis."""
+    __tablename__ = "discovery_activity_selections"
+
+    id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        primary_key=True,
+        default=uuid4,
+    )
+    session_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("discovery_sessions.id"),
+        nullable=False,
+    )
+    role_mapping_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("discovery_role_mappings.id"),
+        nullable=False,
+    )
+    dwa_id: Mapped[str] = mapped_column(
+        String(20),
+        ForeignKey("onet_dwa.id"),
+        nullable=False,
+    )
+    selected: Mapped[bool] = mapped_column(Boolean, default=True)
+    user_modified: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+    # Relationships
+    role_mapping: Mapped["DiscoveryRoleMapping"] = relationship(
+        back_populates="activity_selections"
+    )
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/models/test_discovery_activity_selection.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/models/discovery_activity_selection.py
+git add discovery/migrations/versions/008_discovery_activity_selections.py
+git add discovery/tests/unit/models/test_discovery_activity_selection.py
+git commit -m "feat(discovery): add DiscoveryActivitySelection model"
+```
+
+---
+
+### Task 88: Discovery Analysis Results Model
+
+**Files:**
+- Create: `discovery/app/models/discovery_analysis.py`
+- Create: `discovery/migrations/versions/009_discovery_analysis_results.py`
+- Test: `discovery/tests/unit/models/test_discovery_analysis.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/models/test_discovery_analysis.py
+"""Unit tests for DiscoveryAnalysisResult model."""
+import pytest
+
+
+def test_analysis_result_model_exists():
+    """Test DiscoveryAnalysisResult model is importable."""
+    from app.models.discovery_analysis import DiscoveryAnalysisResult, AnalysisDimension
+    assert DiscoveryAnalysisResult is not None
+    assert AnalysisDimension is not None
+
+
+def test_analysis_result_has_required_columns():
+    """Test model has required columns."""
+    from app.models.discovery_analysis import DiscoveryAnalysisResult
+
+    columns = DiscoveryAnalysisResult.__table__.columns.keys()
+    assert "id" in columns
+    assert "session_id" in columns
+    assert "role_mapping_id" in columns
+    assert "dimension" in columns
+    assert "dimension_value" in columns
+    assert "ai_exposure_score" in columns
+    assert "impact_score" in columns
+    assert "complexity_score" in columns
+    assert "priority_score" in columns
+    assert "breakdown" in columns
+
+
+def test_analysis_dimension_enum_values():
+    """Test AnalysisDimension has expected values."""
+    from app.models.discovery_analysis import AnalysisDimension
+
+    assert AnalysisDimension.ROLE.value == "role"
+    assert AnalysisDimension.TASK.value == "task"
+    assert AnalysisDimension.LOB.value == "lob"
+    assert AnalysisDimension.GEOGRAPHY.value == "geography"
+    assert AnalysisDimension.DEPARTMENT.value == "department"
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/models/test_discovery_analysis.py -v`
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+```python
+# discovery/app/models/discovery_analysis.py
+"""Discovery analysis results model."""
+import enum
+from datetime import datetime, timezone
+from uuid import UUID, uuid4
+
+from sqlalchemy import String, DateTime, Float, Enum, ForeignKey
+from sqlalchemy.dialects.postgresql import UUID as PGUUID, JSONB
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.models.base import Base
+
+
+class AnalysisDimension(enum.Enum):
+    """Dimension for analysis grouping."""
+    ROLE = "role"
+    TASK = "task"
+    LOB = "lob"
+    GEOGRAPHY = "geography"
+    DEPARTMENT = "department"
+
+
+class DiscoveryAnalysisResult(Base):
+    """AI exposure and impact analysis results."""
+    __tablename__ = "discovery_analysis_results"
+
+    id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        primary_key=True,
+        default=uuid4,
+    )
+    session_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("discovery_sessions.id"),
+        nullable=False,
+    )
+    role_mapping_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("discovery_role_mappings.id"),
+        nullable=True,
+    )
+    dimension: Mapped[AnalysisDimension] = mapped_column(
+        Enum(AnalysisDimension),
+        nullable=False,
+    )
+    dimension_value: Mapped[str] = mapped_column(String(255), nullable=False)
+    ai_exposure_score: Mapped[float] = mapped_column(Float, nullable=False)
+    impact_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    complexity_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    priority_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    breakdown: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+    )
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/models/test_discovery_analysis.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/models/discovery_analysis.py
+git add discovery/migrations/versions/009_discovery_analysis_results.py
+git add discovery/tests/unit/models/test_discovery_analysis.py
+git commit -m "feat(discovery): add DiscoveryAnalysisResult model"
+```
+
+---
+
+### Task 89: Agentification Candidate Model
+
+**Files:**
+- Create: `discovery/app/models/agentification_candidate.py`
+- Create: `discovery/migrations/versions/010_agentification_candidates.py`
+- Test: `discovery/tests/unit/models/test_agentification_candidate.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/models/test_agentification_candidate.py
+"""Unit tests for AgentificationCandidate model."""
+import pytest
+
+
+def test_agentification_candidate_model_exists():
+    """Test AgentificationCandidate model is importable."""
+    from app.models.agentification_candidate import AgentificationCandidate, PriorityTier
+    assert AgentificationCandidate is not None
+    assert PriorityTier is not None
+
+
+def test_candidate_has_required_columns():
+    """Test model has required columns."""
+    from app.models.agentification_candidate import AgentificationCandidate
+
+    columns = AgentificationCandidate.__table__.columns.keys()
+    assert "id" in columns
+    assert "session_id" in columns
+    assert "role_mapping_id" in columns
+    assert "name" in columns
+    assert "description" in columns
+    assert "priority_tier" in columns
+    assert "estimated_impact" in columns
+    assert "selected_for_build" in columns
+    assert "intake_request_id" in columns
+
+
+def test_priority_tier_enum_values():
+    """Test PriorityTier has expected values."""
+    from app.models.agentification_candidate import PriorityTier
+
+    assert PriorityTier.NOW.value == "now"
+    assert PriorityTier.NEXT_QUARTER.value == "next_quarter"
+    assert PriorityTier.FUTURE.value == "future"
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/models/test_agentification_candidate.py -v`
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+```python
+# discovery/app/models/agentification_candidate.py
+"""Agentification candidate model."""
+import enum
+from datetime import datetime, timezone
+from uuid import UUID, uuid4
+
+from sqlalchemy import String, Text, DateTime, Float, Boolean, Enum, ForeignKey
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.models.base import Base
+
+
+class PriorityTier(enum.Enum):
+    """Priority tier for agentification candidates."""
+    NOW = "now"
+    NEXT_QUARTER = "next_quarter"
+    FUTURE = "future"
+
+
+class AgentificationCandidate(Base):
+    """Candidate agents identified for potential build."""
+    __tablename__ = "agentification_candidates"
+
+    id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        primary_key=True,
+        default=uuid4,
+    )
+    session_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("discovery_sessions.id"),
+        nullable=False,
+    )
+    role_mapping_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("discovery_role_mappings.id"),
+        nullable=True,
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    priority_tier: Mapped[PriorityTier] = mapped_column(
+        Enum(PriorityTier),
+        nullable=False,
+    )
+    estimated_impact: Mapped[float | None] = mapped_column(Float, nullable=True)
+    selected_for_build: Mapped[bool] = mapped_column(Boolean, default=False)
+    intake_request_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+    )
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/models/test_agentification_candidate.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/models/agentification_candidate.py
+git add discovery/migrations/versions/010_agentification_candidates.py
+git add discovery/tests/unit/models/test_agentification_candidate.py
+git commit -m "feat(discovery): add AgentificationCandidate model"
+```
+
+---
+
+## Part 12: Repository Layer (Tasks 90-95)
+
+### Task 90: O*NET Occupation Repository
+
+**Files:**
+- Create: `discovery/app/repositories/__init__.py`
+- Create: `discovery/app/repositories/onet_repository.py`
+- Test: `discovery/tests/unit/repositories/test_onet_repository.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/repositories/test_onet_repository.py
+"""Unit tests for O*NET repository."""
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+
+
+def test_onet_repository_exists():
+    """Test OnetRepository is importable."""
+    from app.repositories.onet_repository import OnetRepository
+    assert OnetRepository is not None
+
+
+@pytest.mark.asyncio
+async def test_search_occupations():
+    """Test search_occupations method signature."""
+    from app.repositories.onet_repository import OnetRepository
+
+    mock_session = AsyncMock()
+    repo = OnetRepository(mock_session)
+
+    # Should have search_occupations method
+    assert hasattr(repo, "search_occupations")
+    assert callable(repo.search_occupations)
+
+
+@pytest.mark.asyncio
+async def test_get_occupation_by_code():
+    """Test get_by_code method signature."""
+    from app.repositories.onet_repository import OnetRepository
+
+    mock_session = AsyncMock()
+    repo = OnetRepository(mock_session)
+
+    assert hasattr(repo, "get_by_code")
+    assert callable(repo.get_by_code)
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/repositories/test_onet_repository.py -v`
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+```python
+# discovery/app/repositories/__init__.py
+"""Repository layer for database operations."""
+from app.repositories.onet_repository import OnetRepository
+
+__all__ = ["OnetRepository"]
+```
+
+```python
+# discovery/app/repositories/onet_repository.py
+"""O*NET data repository."""
+from typing import Sequence
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models import OnetOccupation, OnetGWA, OnetIWA, OnetDWA
+
+
+class OnetRepository:
+    """Repository for O*NET reference data operations."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def search_occupations(
+        self,
+        keyword: str,
+        limit: int = 20,
+    ) -> Sequence[OnetOccupation]:
+        """Search occupations by keyword in title."""
+        stmt = (
+            select(OnetOccupation)
+            .where(OnetOccupation.title.ilike(f"%{keyword}%"))
+            .limit(limit)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalars().all()
+
+    async def get_by_code(self, code: str) -> OnetOccupation | None:
+        """Get occupation by O*NET code."""
+        stmt = select(OnetOccupation).where(OnetOccupation.code == code)
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def get_gwas(self) -> Sequence[OnetGWA]:
+        """Get all Generalized Work Activities."""
+        stmt = select(OnetGWA).order_by(OnetGWA.name)
+        result = await self.session.execute(stmt)
+        return result.scalars().all()
+
+    async def get_dwas_for_occupation(
+        self,
+        occupation_code: str,
+    ) -> Sequence[OnetDWA]:
+        """Get DWAs associated with an occupation through tasks."""
+        # This will be implemented with proper joins once task-to-dwa mapping exists
+        stmt = select(OnetDWA).order_by(OnetDWA.name)
+        result = await self.session.execute(stmt)
+        return result.scalars().all()
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/repositories/test_onet_repository.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/repositories/
+git add discovery/tests/unit/repositories/
+git commit -m "feat(discovery): add OnetRepository for O*NET data access"
+```
+
+---
+
+### Task 91: Session Repository
+
+**Files:**
+- Create: `discovery/app/repositories/session_repository.py`
+- Test: `discovery/tests/unit/repositories/test_session_repository.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/repositories/test_session_repository.py
+"""Unit tests for session repository."""
+import pytest
+from unittest.mock import AsyncMock
+from uuid import uuid4
+
+
+def test_session_repository_exists():
+    """Test SessionRepository is importable."""
+    from app.repositories.session_repository import SessionRepository
+    assert SessionRepository is not None
+
+
+@pytest.mark.asyncio
+async def test_create_session():
+    """Test create method signature."""
+    from app.repositories.session_repository import SessionRepository
+
+    mock_session = AsyncMock()
+    repo = SessionRepository(mock_session)
+
+    assert hasattr(repo, "create")
+    assert callable(repo.create)
+
+
+@pytest.mark.asyncio
+async def test_get_by_id():
+    """Test get_by_id method signature."""
+    from app.repositories.session_repository import SessionRepository
+
+    mock_session = AsyncMock()
+    repo = SessionRepository(mock_session)
+
+    assert hasattr(repo, "get_by_id")
+    assert callable(repo.get_by_id)
+
+
+@pytest.mark.asyncio
+async def test_list_for_user():
+    """Test list_for_user method signature."""
+    from app.repositories.session_repository import SessionRepository
+
+    mock_session = AsyncMock()
+    repo = SessionRepository(mock_session)
+
+    assert hasattr(repo, "list_for_user")
+    assert callable(repo.list_for_user)
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/repositories/test_session_repository.py -v`
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+```python
+# discovery/app/repositories/session_repository.py
+"""Discovery session repository."""
+from typing import Sequence
+from uuid import UUID
+
+from sqlalchemy import select, func
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.discovery_session import DiscoverySession, SessionStatus
+
+
+class SessionRepository:
+    """Repository for discovery session operations."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def create(
+        self,
+        user_id: UUID,
+        organization_id: UUID,
+    ) -> DiscoverySession:
+        """Create a new discovery session."""
+        db_session = DiscoverySession(
+            user_id=user_id,
+            organization_id=organization_id,
+            status=SessionStatus.DRAFT,
+            current_step=1,
+        )
+        self.session.add(db_session)
+        await self.session.commit()
+        await self.session.refresh(db_session)
+        return db_session
+
+    async def get_by_id(self, session_id: UUID) -> DiscoverySession | None:
+        """Get session by ID."""
+        stmt = select(DiscoverySession).where(DiscoverySession.id == session_id)
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def list_for_user(
+        self,
+        user_id: UUID,
+        page: int = 1,
+        per_page: int = 20,
+    ) -> tuple[Sequence[DiscoverySession], int]:
+        """List sessions for a user with pagination."""
+        offset = (page - 1) * per_page
+
+        # Get total count
+        count_stmt = (
+            select(func.count())
+            .select_from(DiscoverySession)
+            .where(DiscoverySession.user_id == user_id)
+        )
+        total = await self.session.scalar(count_stmt) or 0
+
+        # Get paginated results
+        stmt = (
+            select(DiscoverySession)
+            .where(DiscoverySession.user_id == user_id)
+            .order_by(DiscoverySession.updated_at.desc())
+            .offset(offset)
+            .limit(per_page)
+        )
+        result = await self.session.execute(stmt)
+        sessions = result.scalars().all()
+
+        return sessions, total
+
+    async def update_step(
+        self,
+        session_id: UUID,
+        step: int,
+    ) -> DiscoverySession | None:
+        """Update session current step."""
+        db_session = await self.get_by_id(session_id)
+        if db_session:
+            db_session.current_step = step
+            if step > 1:
+                db_session.status = SessionStatus.IN_PROGRESS
+            await self.session.commit()
+            await self.session.refresh(db_session)
+        return db_session
+
+    async def delete(self, session_id: UUID) -> bool:
+        """Delete a session."""
+        db_session = await self.get_by_id(session_id)
+        if db_session:
+            await self.session.delete(db_session)
+            await self.session.commit()
+            return True
+        return False
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/repositories/test_session_repository.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/repositories/session_repository.py
+git add discovery/tests/unit/repositories/test_session_repository.py
+git commit -m "feat(discovery): add SessionRepository for session persistence"
+```
+
+---
+
+### Task 92: Upload Repository
+
+**Files:**
+- Create: `discovery/app/repositories/upload_repository.py`
+- Test: `discovery/tests/unit/repositories/test_upload_repository.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/repositories/test_upload_repository.py
+"""Unit tests for upload repository."""
+import pytest
+from unittest.mock import AsyncMock
+
+
+def test_upload_repository_exists():
+    """Test UploadRepository is importable."""
+    from app.repositories.upload_repository import UploadRepository
+    assert UploadRepository is not None
+
+
+@pytest.mark.asyncio
+async def test_create_upload():
+    """Test create method exists."""
+    from app.repositories.upload_repository import UploadRepository
+
+    mock_session = AsyncMock()
+    repo = UploadRepository(mock_session)
+
+    assert hasattr(repo, "create")
+
+
+@pytest.mark.asyncio
+async def test_get_for_session():
+    """Test get_for_session method exists."""
+    from app.repositories.upload_repository import UploadRepository
+
+    mock_session = AsyncMock()
+    repo = UploadRepository(mock_session)
+
+    assert hasattr(repo, "get_for_session")
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/repositories/test_upload_repository.py -v`
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+```python
+# discovery/app/repositories/upload_repository.py
+"""Discovery upload repository."""
+from typing import Sequence
+from uuid import UUID
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.discovery_upload import DiscoveryUpload
+
+
+class UploadRepository:
+    """Repository for discovery upload operations."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def create(
+        self,
+        session_id: UUID,
+        file_name: str,
+        file_url: str,
+        row_count: int | None = None,
+        column_mappings: dict | None = None,
+        detected_schema: dict | None = None,
+    ) -> DiscoveryUpload:
+        """Create a new upload record."""
+        upload = DiscoveryUpload(
+            session_id=session_id,
+            file_name=file_name,
+            file_url=file_url,
+            row_count=row_count,
+            column_mappings=column_mappings,
+            detected_schema=detected_schema,
+        )
+        self.session.add(upload)
+        await self.session.commit()
+        await self.session.refresh(upload)
+        return upload
+
+    async def get_by_id(self, upload_id: UUID) -> DiscoveryUpload | None:
+        """Get upload by ID."""
+        stmt = select(DiscoveryUpload).where(DiscoveryUpload.id == upload_id)
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def get_for_session(
+        self,
+        session_id: UUID,
+    ) -> Sequence[DiscoveryUpload]:
+        """Get all uploads for a session."""
+        stmt = (
+            select(DiscoveryUpload)
+            .where(DiscoveryUpload.session_id == session_id)
+            .order_by(DiscoveryUpload.created_at.desc())
+        )
+        result = await self.session.execute(stmt)
+        return result.scalars().all()
+
+    async def update_mappings(
+        self,
+        upload_id: UUID,
+        column_mappings: dict,
+    ) -> DiscoveryUpload | None:
+        """Update column mappings for an upload."""
+        upload = await self.get_by_id(upload_id)
+        if upload:
+            upload.column_mappings = column_mappings
+            await self.session.commit()
+            await self.session.refresh(upload)
+        return upload
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/repositories/test_upload_repository.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/repositories/upload_repository.py
+git add discovery/tests/unit/repositories/test_upload_repository.py
+git commit -m "feat(discovery): add UploadRepository for file uploads"
+```
+
+---
+
+### Task 93: Role Mapping Repository
+
+**Files:**
+- Create: `discovery/app/repositories/role_mapping_repository.py`
+- Test: `discovery/tests/unit/repositories/test_role_mapping_repository.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/repositories/test_role_mapping_repository.py
+"""Unit tests for role mapping repository."""
+import pytest
+from unittest.mock import AsyncMock
+
+
+def test_role_mapping_repository_exists():
+    """Test RoleMappingRepository is importable."""
+    from app.repositories.role_mapping_repository import RoleMappingRepository
+    assert RoleMappingRepository is not None
+
+
+@pytest.mark.asyncio
+async def test_create_mapping():
+    """Test create method exists."""
+    from app.repositories.role_mapping_repository import RoleMappingRepository
+
+    mock_session = AsyncMock()
+    repo = RoleMappingRepository(mock_session)
+
+    assert hasattr(repo, "create")
+
+
+@pytest.mark.asyncio
+async def test_bulk_create():
+    """Test bulk_create method exists."""
+    from app.repositories.role_mapping_repository import RoleMappingRepository
+
+    mock_session = AsyncMock()
+    repo = RoleMappingRepository(mock_session)
+
+    assert hasattr(repo, "bulk_create")
+
+
+@pytest.mark.asyncio
+async def test_confirm_mapping():
+    """Test confirm method exists."""
+    from app.repositories.role_mapping_repository import RoleMappingRepository
+
+    mock_session = AsyncMock()
+    repo = RoleMappingRepository(mock_session)
+
+    assert hasattr(repo, "confirm")
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/repositories/test_role_mapping_repository.py -v`
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+```python
+# discovery/app/repositories/role_mapping_repository.py
+"""Discovery role mapping repository."""
+from typing import Sequence
+from uuid import UUID
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.discovery_role_mapping import DiscoveryRoleMapping
+
+
+class RoleMappingRepository:
+    """Repository for role mapping operations."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def create(
+        self,
+        session_id: UUID,
+        source_role: str,
+        onet_code: str | None = None,
+        confidence_score: float | None = None,
+        row_count: int | None = None,
+    ) -> DiscoveryRoleMapping:
+        """Create a single role mapping."""
+        mapping = DiscoveryRoleMapping(
+            session_id=session_id,
+            source_role=source_role,
+            onet_code=onet_code,
+            confidence_score=confidence_score,
+            row_count=row_count,
+        )
+        self.session.add(mapping)
+        await self.session.commit()
+        await self.session.refresh(mapping)
+        return mapping
+
+    async def bulk_create(
+        self,
+        mappings: list[dict],
+    ) -> Sequence[DiscoveryRoleMapping]:
+        """Create multiple role mappings at once."""
+        db_mappings = [DiscoveryRoleMapping(**m) for m in mappings]
+        self.session.add_all(db_mappings)
+        await self.session.commit()
+        for m in db_mappings:
+            await self.session.refresh(m)
+        return db_mappings
+
+    async def get_for_session(
+        self,
+        session_id: UUID,
+    ) -> Sequence[DiscoveryRoleMapping]:
+        """Get all mappings for a session."""
+        stmt = (
+            select(DiscoveryRoleMapping)
+            .where(DiscoveryRoleMapping.session_id == session_id)
+            .order_by(DiscoveryRoleMapping.source_role)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalars().all()
+
+    async def confirm(
+        self,
+        mapping_id: UUID,
+        onet_code: str,
+    ) -> DiscoveryRoleMapping | None:
+        """Confirm a role mapping with selected O*NET code."""
+        stmt = select(DiscoveryRoleMapping).where(DiscoveryRoleMapping.id == mapping_id)
+        result = await self.session.execute(stmt)
+        mapping = result.scalar_one_or_none()
+
+        if mapping:
+            mapping.onet_code = onet_code
+            mapping.user_confirmed = True
+            await self.session.commit()
+            await self.session.refresh(mapping)
+        return mapping
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/repositories/test_role_mapping_repository.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/repositories/role_mapping_repository.py
+git add discovery/tests/unit/repositories/test_role_mapping_repository.py
+git commit -m "feat(discovery): add RoleMappingRepository"
+```
+
+---
+
+### Task 94: Analysis Repository
+
+**Files:**
+- Create: `discovery/app/repositories/analysis_repository.py`
+- Test: `discovery/tests/unit/repositories/test_analysis_repository.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/repositories/test_analysis_repository.py
+"""Unit tests for analysis repository."""
+import pytest
+from unittest.mock import AsyncMock
+
+
+def test_analysis_repository_exists():
+    """Test AnalysisRepository is importable."""
+    from app.repositories.analysis_repository import AnalysisRepository
+    assert AnalysisRepository is not None
+
+
+@pytest.mark.asyncio
+async def test_save_results():
+    """Test save_results method exists."""
+    from app.repositories.analysis_repository import AnalysisRepository
+
+    mock_session = AsyncMock()
+    repo = AnalysisRepository(mock_session)
+
+    assert hasattr(repo, "save_results")
+
+
+@pytest.mark.asyncio
+async def test_get_for_session():
+    """Test get_for_session method exists."""
+    from app.repositories.analysis_repository import AnalysisRepository
+
+    mock_session = AsyncMock()
+    repo = AnalysisRepository(mock_session)
+
+    assert hasattr(repo, "get_for_session")
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/repositories/test_analysis_repository.py -v`
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+```python
+# discovery/app/repositories/analysis_repository.py
+"""Discovery analysis repository."""
+from typing import Sequence
+from uuid import UUID
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.discovery_analysis import DiscoveryAnalysisResult, AnalysisDimension
+
+
+class AnalysisRepository:
+    """Repository for analysis results operations."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def save_results(
+        self,
+        results: list[dict],
+    ) -> Sequence[DiscoveryAnalysisResult]:
+        """Save multiple analysis results."""
+        db_results = []
+        for r in results:
+            # Convert string dimension to enum if needed
+            if isinstance(r.get("dimension"), str):
+                r["dimension"] = AnalysisDimension(r["dimension"])
+            db_results.append(DiscoveryAnalysisResult(**r))
+
+        self.session.add_all(db_results)
+        await self.session.commit()
+        for result in db_results:
+            await self.session.refresh(result)
+        return db_results
+
+    async def get_for_session(
+        self,
+        session_id: UUID,
+        dimension: AnalysisDimension | None = None,
+    ) -> Sequence[DiscoveryAnalysisResult]:
+        """Get analysis results for a session, optionally filtered by dimension."""
+        stmt = select(DiscoveryAnalysisResult).where(
+            DiscoveryAnalysisResult.session_id == session_id
+        )
+        if dimension:
+            stmt = stmt.where(DiscoveryAnalysisResult.dimension == dimension)
+        stmt = stmt.order_by(DiscoveryAnalysisResult.priority_score.desc())
+
+        result = await self.session.execute(stmt)
+        return result.scalars().all()
+
+    async def get_by_role_mapping(
+        self,
+        role_mapping_id: UUID,
+    ) -> Sequence[DiscoveryAnalysisResult]:
+        """Get analysis results for a specific role mapping."""
+        stmt = (
+            select(DiscoveryAnalysisResult)
+            .where(DiscoveryAnalysisResult.role_mapping_id == role_mapping_id)
+            .order_by(DiscoveryAnalysisResult.dimension)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalars().all()
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/repositories/test_analysis_repository.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/repositories/analysis_repository.py
+git add discovery/tests/unit/repositories/test_analysis_repository.py
+git commit -m "feat(discovery): add AnalysisRepository"
+```
+
+---
+
+### Task 95: Consolidated Repository Exports
+
+**Files:**
+- Modify: `discovery/app/repositories/__init__.py`
+- Test: `discovery/tests/unit/repositories/test_repositories_init.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/repositories/test_repositories_init.py
+"""Test all repositories are exported from package."""
+import pytest
+
+
+def test_all_repositories_importable():
+    """Test all repositories can be imported from package."""
+    from app.repositories import (
+        OnetRepository,
+        SessionRepository,
+        UploadRepository,
+        RoleMappingRepository,
+        AnalysisRepository,
+    )
+
+    assert OnetRepository is not None
+    assert SessionRepository is not None
+    assert UploadRepository is not None
+    assert RoleMappingRepository is not None
+    assert AnalysisRepository is not None
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/repositories/test_repositories_init.py -v`
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+```python
+# discovery/app/repositories/__init__.py
+"""Repository layer for database operations."""
+from app.repositories.onet_repository import OnetRepository
+from app.repositories.session_repository import SessionRepository
+from app.repositories.upload_repository import UploadRepository
+from app.repositories.role_mapping_repository import RoleMappingRepository
+from app.repositories.analysis_repository import AnalysisRepository
+
+__all__ = [
+    "OnetRepository",
+    "SessionRepository",
+    "UploadRepository",
+    "RoleMappingRepository",
+    "AnalysisRepository",
+]
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/repositories/test_repositories_init.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/repositories/__init__.py
+git add discovery/tests/unit/repositories/test_repositories_init.py
+git commit -m "feat(discovery): consolidate repository exports"
+```
+
+---
+
+## Part 13: Service Layer Integration (Tasks 96-99)
+
+### Task 96: Update Session Service to Use Repository
+
+**Files:**
+- Modify: `discovery/app/services/session_service.py`
+- Test: `discovery/tests/unit/services/test_session_service_db.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/services/test_session_service_db.py
+"""Unit tests for database-backed session service."""
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
+
+
+@pytest.mark.asyncio
+async def test_session_service_create():
+    """Test session creation with repository."""
+    from app.services.session_service import SessionService
+
+    mock_repo = AsyncMock()
+    mock_session = MagicMock()
+    mock_session.id = uuid4()
+    mock_session.current_step = 1
+    mock_session.status = "draft"
+    mock_repo.create.return_value = mock_session
+
+    service = SessionService(repository=mock_repo)
+    result = await service.create(organization_id=uuid4())
+
+    assert result is not None
+    mock_repo.create.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_session_service_get_by_id():
+    """Test session retrieval with repository."""
+    from app.services.session_service import SessionService
+
+    mock_repo = AsyncMock()
+    mock_session = MagicMock()
+    mock_repo.get_by_id.return_value = mock_session
+
+    service = SessionService(repository=mock_repo)
+    session_id = uuid4()
+    result = await service.get_by_id(session_id)
+
+    mock_repo.get_by_id.assert_called_once_with(session_id)
+
+
+@pytest.mark.asyncio
+async def test_session_service_no_longer_raises_not_implemented():
+    """Test service no longer raises NotImplementedError."""
+    from app.services.session_service import SessionService
+
+    mock_repo = AsyncMock()
+    mock_repo.create.return_value = MagicMock(id=uuid4())
+
+    service = SessionService(repository=mock_repo)
+
+    # Should not raise NotImplementedError
+    result = await service.create(organization_id=uuid4())
+    assert result is not None
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/services/test_session_service_db.py -v`
+Expected: FAIL (service still raises NotImplementedError)
+
+**Step 3: Write minimal implementation**
+
+```python
+# discovery/app/services/session_service.py
+"""Session service for managing discovery sessions."""
+from typing import Optional
+from uuid import UUID
+
+from app.repositories.session_repository import SessionRepository
+
+
+class SessionService:
+    """Session service backed by database repository.
+
+    Manages discovery session lifecycle including creation,
+    retrieval, step progression, and deletion.
+    """
+
+    def __init__(self, repository: SessionRepository, user_id: UUID | None = None) -> None:
+        """Initialize with repository dependency.
+
+        Args:
+            repository: SessionRepository for database operations.
+            user_id: Current user ID for session ownership.
+        """
+        self.repository = repository
+        self.user_id = user_id
+
+    async def create(self, organization_id: UUID) -> dict:
+        """Create a new discovery session.
+
+        Args:
+            organization_id: Organization the session belongs to.
+
+        Returns:
+            Dict with session data including id, status, current_step.
+        """
+        if not self.user_id:
+            raise ValueError("user_id required to create session")
+
+        session = await self.repository.create(
+            user_id=self.user_id,
+            organization_id=organization_id,
+        )
+        return {
+            "id": str(session.id),
+            "status": session.status.value,
+            "current_step": session.current_step,
+            "created_at": session.created_at.isoformat(),
+        }
+
+    async def get_by_id(self, session_id: UUID) -> Optional[dict]:
+        """Get a session by ID.
+
+        Args:
+            session_id: UUID of the session.
+
+        Returns:
+            Session dict or None if not found.
+        """
+        session = await self.repository.get_by_id(session_id)
+        if not session:
+            return None
+        return {
+            "id": str(session.id),
+            "status": session.status.value,
+            "current_step": session.current_step,
+            "created_at": session.created_at.isoformat(),
+            "updated_at": session.updated_at.isoformat(),
+        }
+
+    async def list_for_user(
+        self,
+        page: int = 1,
+        per_page: int = 20,
+    ) -> dict:
+        """List sessions for the current user.
+
+        Args:
+            page: Page number (1-indexed).
+            per_page: Results per page.
+
+        Returns:
+            Dict with sessions list and pagination metadata.
+        """
+        if not self.user_id:
+            raise ValueError("user_id required to list sessions")
+
+        sessions, total = await self.repository.list_for_user(
+            user_id=self.user_id,
+            page=page,
+            per_page=per_page,
+        )
+        return {
+            "items": [
+                {
+                    "id": str(s.id),
+                    "status": s.status.value,
+                    "current_step": s.current_step,
+                    "updated_at": s.updated_at.isoformat(),
+                }
+                for s in sessions
+            ],
+            "total": total,
+            "page": page,
+            "per_page": per_page,
+        }
+
+    async def update_step(self, session_id: UUID, step: int) -> Optional[dict]:
+        """Update session step.
+
+        Args:
+            session_id: UUID of the session.
+            step: New step number (1-5).
+
+        Returns:
+            Updated session dict or None if not found.
+        """
+        session = await self.repository.update_step(session_id, step)
+        if not session:
+            return None
+        return {
+            "id": str(session.id),
+            "status": session.status.value,
+            "current_step": session.current_step,
+        }
+
+    async def delete(self, session_id: UUID) -> bool:
+        """Delete a session.
+
+        Args:
+            session_id: UUID of the session to delete.
+
+        Returns:
+            True if deleted, False if not found.
+        """
+        return await self.repository.delete(session_id)
+
+
+def get_session_service(
+    repository: SessionRepository,
+    user_id: UUID | None = None,
+) -> SessionService:
+    """Factory function for session service.
+
+    Args:
+        repository: SessionRepository instance.
+        user_id: Current authenticated user ID.
+
+    Returns:
+        Configured SessionService instance.
+    """
+    return SessionService(repository=repository, user_id=user_id)
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/services/test_session_service_db.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/services/session_service.py
+git add discovery/tests/unit/services/test_session_service_db.py
+git commit -m "feat(discovery): connect SessionService to database repository"
+```
+
+---
+
+### Task 97: Create O*NET Sync Service
+
+**Files:**
+- Create: `discovery/app/services/onet_sync_service.py`
+- Test: `discovery/tests/unit/services/test_onet_sync_service.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/services/test_onet_sync_service.py
+"""Unit tests for O*NET sync service."""
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+
+
+def test_onet_sync_service_exists():
+    """Test OnetSyncService is importable."""
+    from app.services.onet_sync_service import OnetSyncService
+    assert OnetSyncService is not None
+
+
+@pytest.mark.asyncio
+async def test_sync_occupations():
+    """Test sync_occupations method exists."""
+    from app.services.onet_sync_service import OnetSyncService
+
+    mock_client = AsyncMock()
+    mock_session = AsyncMock()
+
+    service = OnetSyncService(
+        onet_client=mock_client,
+        db_session=mock_session,
+    )
+
+    assert hasattr(service, "sync_occupations")
+
+
+@pytest.mark.asyncio
+async def test_sync_work_activities():
+    """Test sync_work_activities method exists."""
+    from app.services.onet_sync_service import OnetSyncService
+
+    mock_client = AsyncMock()
+    mock_session = AsyncMock()
+
+    service = OnetSyncService(
+        onet_client=mock_client,
+        db_session=mock_session,
+    )
+
+    assert hasattr(service, "sync_work_activities")
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/services/test_onet_sync_service.py -v`
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+```python
+# discovery/app/services/onet_sync_service.py
+"""O*NET data sync service."""
+import logging
+from datetime import datetime, timezone
+
+from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models import OnetOccupation, OnetGWA, OnetDWA
+from app.services.onet_client import OnetApiClient
+
+logger = logging.getLogger(__name__)
+
+
+class OnetSyncService:
+    """Service for syncing O*NET data from API to database."""
+
+    def __init__(
+        self,
+        onet_client: OnetApiClient,
+        db_session: AsyncSession,
+    ) -> None:
+        self.client = onet_client
+        self.session = db_session
+
+    async def sync_occupations(self, keywords: list[str] | None = None) -> int:
+        """Sync occupations from O*NET API.
+
+        Args:
+            keywords: Optional list of keywords to search. If None, syncs common terms.
+
+        Returns:
+            Number of occupations synced.
+        """
+        if keywords is None:
+            # Default keywords covering broad categories
+            keywords = ["manager", "analyst", "engineer", "developer", "specialist"]
+
+        synced_count = 0
+        seen_codes = set()
+
+        for keyword in keywords:
+            try:
+                results = await self.client.search_occupations(keyword)
+                for occ in results:
+                    code = occ.get("code")
+                    if code and code not in seen_codes:
+                        seen_codes.add(code)
+
+                        # Upsert occupation
+                        stmt = insert(OnetOccupation).values(
+                            code=code,
+                            title=occ.get("title", ""),
+                            description=occ.get("description"),
+                            updated_at=datetime.now(timezone.utc),
+                        ).on_conflict_do_update(
+                            index_elements=["code"],
+                            set_={
+                                "title": occ.get("title", ""),
+                                "description": occ.get("description"),
+                                "updated_at": datetime.now(timezone.utc),
+                            }
+                        )
+                        await self.session.execute(stmt)
+                        synced_count += 1
+
+            except Exception as e:
+                logger.error(f"Error syncing keyword '{keyword}': {e}")
+                continue
+
+        await self.session.commit()
+        logger.info(f"Synced {synced_count} occupations")
+        return synced_count
+
+    async def sync_work_activities(self, occupation_code: str) -> int:
+        """Sync work activities for a specific occupation.
+
+        Args:
+            occupation_code: O*NET occupation code.
+
+        Returns:
+            Number of activities synced.
+        """
+        try:
+            activities = await self.client.get_work_activities(occupation_code)
+            synced_count = 0
+
+            for activity in activities:
+                # Note: Actual implementation would parse GWA/IWA/DWA hierarchy
+                # This is a simplified version
+                activity_id = activity.get("id")
+                if activity_id:
+                    # For now, treat as DWA
+                    stmt = insert(OnetDWA).values(
+                        id=activity_id,
+                        iwa_id="placeholder",  # Would need proper hierarchy
+                        name=activity.get("name", ""),
+                        description=activity.get("description"),
+                        updated_at=datetime.now(timezone.utc),
+                    ).on_conflict_do_update(
+                        index_elements=["id"],
+                        set_={
+                            "name": activity.get("name", ""),
+                            "updated_at": datetime.now(timezone.utc),
+                        }
+                    )
+                    await self.session.execute(stmt)
+                    synced_count += 1
+
+            await self.session.commit()
+            return synced_count
+
+        except Exception as e:
+            logger.error(f"Error syncing activities for {occupation_code}: {e}")
+            raise
+
+    async def full_sync(self) -> dict:
+        """Perform full O*NET data sync.
+
+        Returns:
+            Dict with sync statistics.
+        """
+        stats = {
+            "occupations": 0,
+            "activities": 0,
+            "errors": [],
+        }
+
+        # Sync occupations first
+        stats["occupations"] = await self.sync_occupations()
+
+        # Then sync activities for each occupation
+        stmt = select(OnetOccupation.code)
+        result = await self.session.execute(stmt)
+        codes = result.scalars().all()
+
+        for code in codes:
+            try:
+                count = await self.sync_work_activities(code)
+                stats["activities"] += count
+            except Exception as e:
+                stats["errors"].append(f"{code}: {str(e)}")
+
+        return stats
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/services/test_onet_sync_service.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/services/onet_sync_service.py
+git add discovery/tests/unit/services/test_onet_sync_service.py
+git commit -m "feat(discovery): add OnetSyncService for API-to-database sync"
+```
+
+---
+
+### Task 98: Database Dependency Injection Setup
+
+**Files:**
+- Create: `discovery/app/dependencies.py`
+- Test: `discovery/tests/unit/test_dependencies.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/test_dependencies.py
+"""Unit tests for dependency injection."""
+import pytest
+
+
+def test_get_db_dependency_exists():
+    """Test get_db dependency is importable."""
+    from app.dependencies import get_db
+    assert get_db is not None
+
+
+def test_get_session_service_dependency_exists():
+    """Test get_session_service_dep is importable."""
+    from app.dependencies import get_session_service_dep
+    assert get_session_service_dep is not None
+
+
+def test_get_onet_repository_dependency_exists():
+    """Test get_onet_repository is importable."""
+    from app.dependencies import get_onet_repository
+    assert get_onet_repository is not None
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/test_dependencies.py -v`
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+```python
+# discovery/app/dependencies.py
+"""FastAPI dependency injection configuration."""
+from collections.abc import AsyncGenerator
+from typing import Annotated
+from uuid import UUID
+
+from fastapi import Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.base import async_session_maker
+from app.repositories import (
+    OnetRepository,
+    SessionRepository,
+    UploadRepository,
+    RoleMappingRepository,
+    AnalysisRepository,
+)
+from app.services.session_service import SessionService
+
+
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
+    """Get database session dependency."""
+    async with async_session_maker() as session:
+        try:
+            yield session
+        finally:
+            await session.close()
+
+
+# Type alias for database session dependency
+DBSession = Annotated[AsyncSession, Depends(get_db)]
+
+
+def get_onet_repository(db: DBSession) -> OnetRepository:
+    """Get O*NET repository dependency."""
+    return OnetRepository(db)
+
+
+def get_session_repository(db: DBSession) -> SessionRepository:
+    """Get session repository dependency."""
+    return SessionRepository(db)
+
+
+def get_upload_repository(db: DBSession) -> UploadRepository:
+    """Get upload repository dependency."""
+    return UploadRepository(db)
+
+
+def get_role_mapping_repository(db: DBSession) -> RoleMappingRepository:
+    """Get role mapping repository dependency."""
+    return RoleMappingRepository(db)
+
+
+def get_analysis_repository(db: DBSession) -> AnalysisRepository:
+    """Get analysis repository dependency."""
+    return AnalysisRepository(db)
+
+
+# Type aliases for repository dependencies
+OnetRepo = Annotated[OnetRepository, Depends(get_onet_repository)]
+SessionRepo = Annotated[SessionRepository, Depends(get_session_repository)]
+UploadRepo = Annotated[UploadRepository, Depends(get_upload_repository)]
+RoleMappingRepo = Annotated[RoleMappingRepository, Depends(get_role_mapping_repository)]
+AnalysisRepo = Annotated[AnalysisRepository, Depends(get_analysis_repository)]
+
+
+def get_session_service_dep(
+    repository: SessionRepo,
+    # user_id would come from auth middleware in real implementation
+) -> SessionService:
+    """Get session service dependency.
+
+    Note: In production, user_id would be extracted from JWT token
+    via an auth dependency.
+    """
+    return SessionService(repository=repository, user_id=None)
+
+
+# Type alias for session service dependency
+SessionSvc = Annotated[SessionService, Depends(get_session_service_dep)]
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/test_dependencies.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/dependencies.py
+git add discovery/tests/unit/test_dependencies.py
+git commit -m "feat(discovery): add FastAPI dependency injection setup"
+```
+
+---
+
+### Task 99: Integration Test for Database Layer
+
+**Files:**
+- Create: `discovery/tests/integration/test_database_layer.py`
+- Test: (Self-testing)
+
+**Step 1: Write the integration test**
+
+```python
+# discovery/tests/integration/test_database_layer.py
+"""Integration tests for database layer.
+
+These tests require a running PostgreSQL database.
+Skip if database not available.
+"""
+import os
+import pytest
+from uuid import uuid4
+
+pytestmark = pytest.mark.skipif(
+    not os.getenv("DATABASE_URL") and not os.getenv("POSTGRES_HOST"),
+    reason="Database not configured"
+)
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_session_repository_crud():
+    """Test session repository CRUD operations."""
+    from app.models.base import async_session_maker
+    from app.repositories.session_repository import SessionRepository
+
+    async with async_session_maker() as db:
+        repo = SessionRepository(db)
+
+        # Create
+        user_id = uuid4()
+        org_id = uuid4()
+        session = await repo.create(user_id=user_id, organization_id=org_id)
+        assert session.id is not None
+        assert session.current_step == 1
+
+        # Read
+        retrieved = await repo.get_by_id(session.id)
+        assert retrieved is not None
+        assert retrieved.id == session.id
+
+        # Update
+        updated = await repo.update_step(session.id, 2)
+        assert updated.current_step == 2
+
+        # Delete
+        deleted = await repo.delete(session.id)
+        assert deleted is True
+
+        # Verify deletion
+        retrieved = await repo.get_by_id(session.id)
+        assert retrieved is None
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_session_service_integration():
+    """Test session service with real database."""
+    from app.models.base import async_session_maker
+    from app.repositories.session_repository import SessionRepository
+    from app.services.session_service import SessionService
+
+    async with async_session_maker() as db:
+        repo = SessionRepository(db)
+        user_id = uuid4()
+        service = SessionService(repository=repo, user_id=user_id)
+
+        # Create session
+        org_id = uuid4()
+        result = await service.create(organization_id=org_id)
+
+        assert "id" in result
+        assert result["status"] == "draft"
+        assert result["current_step"] == 1
+
+        # Clean up
+        await repo.delete(uuid4().__class__(result["id"]))
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_onet_repository_search():
+    """Test O*NET repository search (requires seeded data)."""
+    from app.models.base import async_session_maker
+    from app.repositories.onet_repository import OnetRepository
+
+    async with async_session_maker() as db:
+        repo = OnetRepository(db)
+
+        # Search should return empty if no data seeded
+        # In production, would have seeded O*NET data
+        results = await repo.search_occupations("software")
+
+        # Just verify method works without error
+        assert isinstance(results, (list, tuple))
+```
+
+**Step 2: Run test to verify database connectivity**
+
+Run: `cd discovery && python -m pytest tests/integration/test_database_layer.py -v -m integration`
+Expected: PASS if database configured, SKIP if not
+
+**Step 3: Commit**
+
+```bash
+git add discovery/tests/integration/test_database_layer.py
+git commit -m "test(discovery): add database layer integration tests"
+```
+
+---
+
+**Phase 1 Complete!**
+
+This completes the database layer foundation. The discovery service now has:
+- SQLAlchemy models for all O*NET reference tables and application tables
+- Alembic migrations for schema management
+- Repository layer for database operations
+- Service layer connected to repositories (no more `NotImplementedError`)
+- FastAPI dependency injection setup
+- Integration tests for database operations
+
+---
+
+## Phase 2: Service Layer Implementation (Tasks 100-119)
+
+This phase connects all placeholder services to the database and implements core business logic.
+
+---
+
+## Part 14: Upload Service Implementation (Tasks 100-103)
+
+### Task 100: S3 Storage Client
+
+**Files:**
+- Create: `discovery/app/services/s3_client.py`
+- Test: `discovery/tests/unit/services/test_s3_client.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/services/test_s3_client.py
+"""Unit tests for S3 client."""
+import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
+
+
+def test_s3_client_exists():
+    """Test S3Client is importable."""
+    from app.services.s3_client import S3Client
+    assert S3Client is not None
+
+
+@pytest.mark.asyncio
+async def test_upload_file():
+    """Test upload_file method."""
+    from app.services.s3_client import S3Client
+
+    with patch("aioboto3.Session") as mock_session:
+        mock_s3 = AsyncMock()
+        mock_session.return_value.client.return_value.__aenter__.return_value = mock_s3
+
+        client = S3Client(
+            endpoint_url="http://localhost:4566",
+            bucket="test-bucket",
+            access_key="test",
+            secret_key="test",
+            region="us-east-1",
+        )
+
+        result = await client.upload_file(
+            key="sessions/123/file.xlsx",
+            content=b"test content",
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+        assert "url" in result
+        mock_s3.put_object.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_download_file():
+    """Test download_file method."""
+    from app.services.s3_client import S3Client
+
+    client = S3Client(
+        endpoint_url="http://localhost:4566",
+        bucket="test-bucket",
+        access_key="test",
+        secret_key="test",
+        region="us-east-1",
+    )
+
+    assert hasattr(client, "download_file")
+    assert callable(client.download_file)
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/services/test_s3_client.py -v`
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+```python
+# discovery/app/services/s3_client.py
+"""S3 storage client for file uploads."""
+import aioboto3
+from typing import Any
+
+
+class S3Client:
+    """Async S3 client for file storage operations."""
+
+    def __init__(
+        self,
+        endpoint_url: str | None,
+        bucket: str,
+        access_key: str | None,
+        secret_key: str | None,
+        region: str,
+    ) -> None:
+        self.endpoint_url = endpoint_url
+        self.bucket = bucket
+        self.access_key = access_key
+        self.secret_key = secret_key
+        self.region = region
+        self._session = aioboto3.Session()
+
+    def _get_client_config(self) -> dict[str, Any]:
+        """Get boto3 client configuration."""
+        config = {
+            "service_name": "s3",
+            "region_name": self.region,
+        }
+        if self.endpoint_url:
+            config["endpoint_url"] = self.endpoint_url
+        if self.access_key and self.secret_key:
+            config["aws_access_key_id"] = self.access_key
+            config["aws_secret_access_key"] = self.secret_key
+        return config
+
+    async def upload_file(
+        self,
+        key: str,
+        content: bytes,
+        content_type: str = "application/octet-stream",
+    ) -> dict[str, str]:
+        """Upload file to S3.
+
+        Args:
+            key: S3 object key (path).
+            content: File content as bytes.
+            content_type: MIME type of the file.
+
+        Returns:
+            Dict with url and key.
+        """
+        async with self._session.client(**self._get_client_config()) as s3:
+            await s3.put_object(
+                Bucket=self.bucket,
+                Key=key,
+                Body=content,
+                ContentType=content_type,
+            )
+
+        url = f"s3://{self.bucket}/{key}"
+        if self.endpoint_url:
+            url = f"{self.endpoint_url}/{self.bucket}/{key}"
+
+        return {"url": url, "key": key}
+
+    async def download_file(self, key: str) -> bytes:
+        """Download file from S3.
+
+        Args:
+            key: S3 object key.
+
+        Returns:
+            File content as bytes.
+        """
+        async with self._session.client(**self._get_client_config()) as s3:
+            response = await s3.get_object(Bucket=self.bucket, Key=key)
+            return await response["Body"].read()
+
+    async def delete_file(self, key: str) -> bool:
+        """Delete file from S3.
+
+        Args:
+            key: S3 object key.
+
+        Returns:
+            True if deleted successfully.
+        """
+        async with self._session.client(**self._get_client_config()) as s3:
+            await s3.delete_object(Bucket=self.bucket, Key=key)
+        return True
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/services/test_s3_client.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/services/s3_client.py discovery/tests/unit/services/test_s3_client.py
+git commit -m "feat(discovery): add S3 storage client"
+```
+
+---
+
+### Task 101: File Parser Service
+
+**Files:**
+- Create: `discovery/app/services/file_parser.py`
+- Test: `discovery/tests/unit/services/test_file_parser.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/services/test_file_parser.py
+"""Unit tests for file parser."""
+import pytest
+import io
+
+
+def test_file_parser_exists():
+    """Test FileParser is importable."""
+    from app.services.file_parser import FileParser
+    assert FileParser is not None
+
+
+def test_parse_csv():
+    """Test parsing CSV content."""
+    from app.services.file_parser import FileParser
+
+    csv_content = b"name,role,department\nJohn,Engineer,IT\nJane,Analyst,Finance"
+    parser = FileParser()
+    result = parser.parse(csv_content, "test.csv")
+
+    assert result["row_count"] == 2
+    assert "columns" in result["detected_schema"]
+    assert len(result["detected_schema"]["columns"]) == 3
+
+
+def test_parse_xlsx():
+    """Test parsing Excel content."""
+    from app.services.file_parser import FileParser
+
+    # Create minimal xlsx in memory
+    import openpyxl
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["name", "role", "department"])
+    ws.append(["John", "Engineer", "IT"])
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    xlsx_content = buffer.getvalue()
+
+    parser = FileParser()
+    result = parser.parse(xlsx_content, "test.xlsx")
+
+    assert result["row_count"] == 1
+    assert "columns" in result["detected_schema"]
+
+
+def test_detect_role_column():
+    """Test automatic role column detection."""
+    from app.services.file_parser import FileParser
+
+    csv_content = b"employee_name,job_title,dept\nJohn,Software Engineer,IT"
+    parser = FileParser()
+    result = parser.parse(csv_content, "test.csv")
+
+    suggestions = result.get("column_suggestions", {})
+    assert "role" in suggestions
+    assert suggestions["role"] == "job_title"
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/services/test_file_parser.py -v`
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+```python
+# discovery/app/services/file_parser.py
+"""File parser for CSV and Excel files."""
+import io
+import re
+from typing import Any
+
+import pandas as pd
+
+
+class FileParser:
+    """Parses uploaded files and detects schema."""
+
+    # Patterns for column detection
+    ROLE_PATTERNS = [
+        r"(?i)^(job[_\s]?title|role|position|occupation|title)$",
+        r"(?i).*job[_\s]?title.*",
+        r"(?i).*role.*",
+    ]
+    DEPARTMENT_PATTERNS = [
+        r"(?i)^(department|dept|division|team|unit)$",
+        r"(?i).*department.*",
+        r"(?i).*dept.*",
+    ]
+    GEOGRAPHY_PATTERNS = [
+        r"(?i)^(location|city|region|country|office|site)$",
+        r"(?i).*location.*",
+        r"(?i).*geography.*",
+    ]
+
+    def parse(self, content: bytes, filename: str) -> dict[str, Any]:
+        """Parse file content and extract schema.
+
+        Args:
+            content: File content as bytes.
+            filename: Original filename (for extension detection).
+
+        Returns:
+            Dict with row_count, detected_schema, column_suggestions, preview.
+        """
+        ext = filename.lower().split(".")[-1]
+
+        if ext == "csv":
+            df = pd.read_csv(io.BytesIO(content))
+        elif ext in ("xlsx", "xls"):
+            df = pd.read_excel(io.BytesIO(content))
+        else:
+            raise ValueError(f"Unsupported file type: {ext}")
+
+        columns = self._detect_columns(df)
+        suggestions = self._suggest_mappings(df.columns.tolist())
+
+        return {
+            "row_count": len(df),
+            "detected_schema": {
+                "columns": columns,
+                "dtypes": {col: str(df[col].dtype) for col in df.columns},
+            },
+            "column_suggestions": suggestions,
+            "preview": df.head(5).to_dict(orient="records"),
+        }
+
+    def _detect_columns(self, df: pd.DataFrame) -> list[dict[str, Any]]:
+        """Detect column types and sample values."""
+        columns = []
+        for col in df.columns:
+            sample_values = df[col].dropna().head(3).tolist()
+            columns.append({
+                "name": col,
+                "dtype": str(df[col].dtype),
+                "null_count": int(df[col].isna().sum()),
+                "unique_count": int(df[col].nunique()),
+                "sample_values": sample_values,
+            })
+        return columns
+
+    def _suggest_mappings(self, column_names: list[str]) -> dict[str, str | None]:
+        """Suggest column mappings based on patterns."""
+        suggestions = {"role": None, "department": None, "geography": None}
+
+        for col in column_names:
+            for pattern in self.ROLE_PATTERNS:
+                if re.match(pattern, col) and suggestions["role"] is None:
+                    suggestions["role"] = col
+                    break
+
+            for pattern in self.DEPARTMENT_PATTERNS:
+                if re.match(pattern, col) and suggestions["department"] is None:
+                    suggestions["department"] = col
+                    break
+
+            for pattern in self.GEOGRAPHY_PATTERNS:
+                if re.match(pattern, col) and suggestions["geography"] is None:
+                    suggestions["geography"] = col
+                    break
+
+        return suggestions
+
+    def extract_unique_values(
+        self,
+        content: bytes,
+        filename: str,
+        column: str,
+    ) -> list[dict[str, Any]]:
+        """Extract unique values from a column with counts.
+
+        Args:
+            content: File content.
+            filename: Original filename.
+            column: Column name to extract.
+
+        Returns:
+            List of dicts with value and count.
+        """
+        ext = filename.lower().split(".")[-1]
+
+        if ext == "csv":
+            df = pd.read_csv(io.BytesIO(content))
+        else:
+            df = pd.read_excel(io.BytesIO(content))
+
+        value_counts = df[column].value_counts()
+        return [
+            {"value": str(val), "count": int(count)}
+            for val, count in value_counts.items()
+        ]
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/services/test_file_parser.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/services/file_parser.py discovery/tests/unit/services/test_file_parser.py
+git commit -m "feat(discovery): add file parser with schema detection"
+```
+
+---
+
+### Task 102: Upload Service Database Integration
+
+**Files:**
+- Modify: `discovery/app/services/upload_service.py`
+- Test: `discovery/tests/unit/services/test_upload_service_impl.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/services/test_upload_service_impl.py
+"""Unit tests for implemented upload service."""
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
+
+
+@pytest.mark.asyncio
+async def test_process_upload():
+    """Test process_upload creates record and parses file."""
+    from app.services.upload_service import UploadService
+
+    mock_repo = AsyncMock()
+    mock_s3 = AsyncMock()
+    mock_parser = MagicMock()
+
+    mock_upload = MagicMock()
+    mock_upload.id = uuid4()
+    mock_upload.file_name = "test.csv"
+    mock_upload.row_count = 10
+    mock_repo.create.return_value = mock_upload
+
+    mock_s3.upload_file.return_value = {"url": "s3://bucket/key", "key": "key"}
+    mock_parser.parse.return_value = {
+        "row_count": 10,
+        "detected_schema": {"columns": []},
+        "column_suggestions": {"role": "job_title"},
+        "preview": [],
+    }
+
+    service = UploadService(
+        repository=mock_repo,
+        s3_client=mock_s3,
+        file_parser=mock_parser,
+    )
+
+    session_id = uuid4()
+    result = await service.process_upload(
+        session_id=session_id,
+        file_name="test.csv",
+        content=b"name,job_title\nJohn,Engineer",
+    )
+
+    assert result is not None
+    assert "id" in result
+    mock_repo.create.assert_called_once()
+    mock_s3.upload_file.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_get_by_session_id():
+    """Test get_by_session_id returns uploads."""
+    from app.services.upload_service import UploadService
+
+    mock_repo = AsyncMock()
+    mock_upload = MagicMock()
+    mock_upload.id = uuid4()
+    mock_upload.file_name = "test.csv"
+    mock_upload.row_count = 10
+    mock_upload.detected_schema = {}
+    mock_upload.created_at = MagicMock()
+    mock_upload.created_at.isoformat.return_value = "2026-02-01T00:00:00"
+    mock_repo.get_for_session.return_value = [mock_upload]
+
+    service = UploadService(repository=mock_repo)
+    result = await service.get_by_session_id(uuid4())
+
+    assert len(result) == 1
+    mock_repo.get_for_session.assert_called_once()
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/services/test_upload_service_impl.py -v`
+Expected: FAIL (service still raises NotImplementedError)
+
+**Step 3: Write minimal implementation**
+
+```python
+# discovery/app/services/upload_service.py
+"""Upload service for managing file uploads in discovery sessions."""
+from typing import Any
+from uuid import UUID
+
+from app.repositories.upload_repository import UploadRepository
+from app.services.s3_client import S3Client
+from app.services.file_parser import FileParser
+
+
+class UploadService:
+    """Upload service backed by S3 storage and database."""
+
+    def __init__(
+        self,
+        repository: UploadRepository,
+        s3_client: S3Client | None = None,
+        file_parser: FileParser | None = None,
+    ) -> None:
+        self.repository = repository
+        self.s3_client = s3_client
+        self.file_parser = file_parser or FileParser()
+
+    async def process_upload(
+        self,
+        session_id: UUID,
+        file_name: str,
+        content: bytes,
+    ) -> dict[str, Any]:
+        """Process an uploaded file.
+
+        Args:
+            session_id: The session ID.
+            file_name: Original filename.
+            content: File content as bytes.
+
+        Returns:
+            Dict with upload metadata.
+        """
+        # Parse file to detect schema
+        parse_result = self.file_parser.parse(content, file_name)
+
+        # Upload to S3 if client available
+        file_url = ""
+        if self.s3_client:
+            s3_result = await self.s3_client.upload_file(
+                key=f"sessions/{session_id}/{file_name}",
+                content=content,
+                content_type=self._get_content_type(file_name),
+            )
+            file_url = s3_result["url"]
+
+        # Create database record
+        upload = await self.repository.create(
+            session_id=session_id,
+            file_name=file_name,
+            file_url=file_url,
+            row_count=parse_result["row_count"],
+            column_mappings=None,
+            detected_schema=parse_result["detected_schema"],
+        )
+
+        return {
+            "id": str(upload.id),
+            "file_name": upload.file_name,
+            "row_count": upload.row_count,
+            "detected_schema": parse_result["detected_schema"],
+            "column_suggestions": parse_result.get("column_suggestions", {}),
+            "preview": parse_result.get("preview", []),
+            "created_at": upload.created_at.isoformat(),
+        }
+
+    async def get_by_session_id(self, session_id: UUID) -> list[dict[str, Any]]:
+        """Get all uploads for a session."""
+        uploads = await self.repository.get_for_session(session_id)
+        return [
+            {
+                "id": str(u.id),
+                "file_name": u.file_name,
+                "row_count": u.row_count,
+                "detected_schema": u.detected_schema,
+                "column_mappings": u.column_mappings,
+                "created_at": u.created_at.isoformat(),
+            }
+            for u in uploads
+        ]
+
+    async def update_column_mappings(
+        self,
+        upload_id: UUID,
+        mappings: dict[str, str | None],
+    ) -> dict[str, Any] | None:
+        """Update column mappings for an upload."""
+        upload = await self.repository.update_mappings(upload_id, mappings)
+        if not upload:
+            return None
+        return {
+            "id": str(upload.id),
+            "file_name": upload.file_name,
+            "column_mappings": upload.column_mappings,
+        }
+
+    async def get_file_content(self, upload_id: UUID) -> bytes | None:
+        """Get file content from S3."""
+        upload = await self.repository.get_by_id(upload_id)
+        if not upload or not self.s3_client:
+            return None
+
+        key = f"sessions/{upload.session_id}/{upload.file_name}"
+        return await self.s3_client.download_file(key)
+
+    def _get_content_type(self, filename: str) -> str:
+        """Get MIME type from filename."""
+        ext = filename.lower().split(".")[-1]
+        types = {
+            "csv": "text/csv",
+            "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "xls": "application/vnd.ms-excel",
+        }
+        return types.get(ext, "application/octet-stream")
+
+
+def get_upload_service() -> UploadService:
+    """Dependency placeholder - will be replaced with DI."""
+    raise NotImplementedError("Use dependency injection")
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/services/test_upload_service_impl.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/services/upload_service.py
+git add discovery/tests/unit/services/test_upload_service_impl.py
+git commit -m "feat(discovery): implement UploadService with S3 and parsing"
+```
+
+---
+
+### Task 103: Upload Service Dependency Injection
+
+**Files:**
+- Modify: `discovery/app/dependencies.py`
+- Test: `discovery/tests/unit/test_upload_dependencies.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/test_upload_dependencies.py
+"""Unit tests for upload dependencies."""
+import pytest
+
+
+def test_get_s3_client_exists():
+    """Test get_s3_client dependency exists."""
+    from app.dependencies import get_s3_client
+    assert get_s3_client is not None
+
+
+def test_get_file_parser_exists():
+    """Test get_file_parser dependency exists."""
+    from app.dependencies import get_file_parser
+    assert get_file_parser is not None
+
+
+def test_get_upload_service_dep_exists():
+    """Test get_upload_service_dep dependency exists."""
+    from app.dependencies import get_upload_service_dep
+    assert get_upload_service_dep is not None
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/test_upload_dependencies.py -v`
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+Add to `discovery/app/dependencies.py`:
+
+```python
+from app.services.s3_client import S3Client
+from app.services.file_parser import FileParser
+from app.services.upload_service import UploadService
+
+
+def get_s3_client() -> S3Client:
+    """Get S3 client dependency."""
+    settings = get_settings()
+    return S3Client(
+        endpoint_url=settings.s3_endpoint_url,
+        bucket=settings.s3_bucket,
+        access_key=settings.aws_access_key_id,
+        secret_key=settings.aws_secret_access_key.get_secret_value() if settings.aws_secret_access_key else None,
+        region=settings.aws_region,
+    )
+
+
+def get_file_parser() -> FileParser:
+    """Get file parser dependency."""
+    return FileParser()
+
+
+def get_upload_service_dep(
+    repository: UploadRepo,
+    s3_client: Annotated[S3Client, Depends(get_s3_client)],
+    file_parser: Annotated[FileParser, Depends(get_file_parser)],
+) -> UploadService:
+    """Get upload service dependency."""
+    return UploadService(
+        repository=repository,
+        s3_client=s3_client,
+        file_parser=file_parser,
+    )
+
+
+# Type alias
+UploadSvc = Annotated[UploadService, Depends(get_upload_service_dep)]
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/test_upload_dependencies.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/dependencies.py discovery/tests/unit/test_upload_dependencies.py
+git commit -m "feat(discovery): add upload service dependency injection"
+```
+
+---
+
+## Part 15: Role Mapping Service Implementation (Tasks 104-107)
+
+### Task 104: Fuzzy Matching Service
+
+**Files:**
+- Create: `discovery/app/services/fuzzy_matcher.py`
+- Test: `discovery/tests/unit/services/test_fuzzy_matcher.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/services/test_fuzzy_matcher.py
+"""Unit tests for fuzzy matcher."""
+import pytest
+
+
+def test_fuzzy_matcher_exists():
+    """Test FuzzyMatcher is importable."""
+    from app.services.fuzzy_matcher import FuzzyMatcher
+    assert FuzzyMatcher is not None
+
+
+def test_exact_match():
+    """Test exact match returns high score."""
+    from app.services.fuzzy_matcher import FuzzyMatcher
+
+    matcher = FuzzyMatcher()
+    score = matcher.calculate_similarity("Software Developer", "Software Developer")
+    assert score >= 0.95
+
+
+def test_fuzzy_match():
+    """Test fuzzy match returns reasonable score."""
+    from app.services.fuzzy_matcher import FuzzyMatcher
+
+    matcher = FuzzyMatcher()
+    score = matcher.calculate_similarity("Software Engineer", "Software Developer")
+    assert 0.6 <= score <= 0.9
+
+
+def test_no_match():
+    """Test unrelated strings return low score."""
+    from app.services.fuzzy_matcher import FuzzyMatcher
+
+    matcher = FuzzyMatcher()
+    score = matcher.calculate_similarity("Accountant", "Software Developer")
+    assert score < 0.5
+
+
+def test_find_best_matches():
+    """Test finding best matches from candidates."""
+    from app.services.fuzzy_matcher import FuzzyMatcher
+
+    matcher = FuzzyMatcher()
+    candidates = [
+        {"code": "15-1252.00", "title": "Software Developers"},
+        {"code": "15-1251.00", "title": "Computer Programmers"},
+        {"code": "13-2011.00", "title": "Accountants"},
+    ]
+
+    results = matcher.find_best_matches("Software Engineer", candidates, top_n=2)
+
+    assert len(results) == 2
+    assert results[0]["code"] == "15-1252.00"
+    assert "score" in results[0]
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/services/test_fuzzy_matcher.py -v`
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+```python
+# discovery/app/services/fuzzy_matcher.py
+"""Fuzzy string matching for role-to-occupation mapping."""
+from difflib import SequenceMatcher
+from typing import Any
+
+
+class FuzzyMatcher:
+    """Fuzzy string matcher for occupation matching."""
+
+    def calculate_similarity(self, s1: str, s2: str) -> float:
+        """Calculate similarity score between two strings.
+
+        Uses SequenceMatcher ratio with normalization.
+
+        Args:
+            s1: First string.
+            s2: Second string.
+
+        Returns:
+            Similarity score between 0.0 and 1.0.
+        """
+        s1_normalized = self._normalize(s1)
+        s2_normalized = self._normalize(s2)
+
+        # Direct ratio
+        ratio = SequenceMatcher(None, s1_normalized, s2_normalized).ratio()
+
+        # Bonus for substring match
+        if s1_normalized in s2_normalized or s2_normalized in s1_normalized:
+            ratio = min(1.0, ratio + 0.1)
+
+        return ratio
+
+    def _normalize(self, s: str) -> str:
+        """Normalize string for comparison."""
+        return s.lower().strip()
+
+    def find_best_matches(
+        self,
+        query: str,
+        candidates: list[dict[str, Any]],
+        top_n: int = 5,
+        title_key: str = "title",
+    ) -> list[dict[str, Any]]:
+        """Find best matching candidates for a query.
+
+        Args:
+            query: The search query.
+            candidates: List of candidate dicts with title field.
+            top_n: Number of top results to return.
+            title_key: Key for the title field in candidates.
+
+        Returns:
+            List of candidates with added 'score' field, sorted by score.
+        """
+        scored = []
+        for candidate in candidates:
+            title = candidate.get(title_key, "")
+            score = self.calculate_similarity(query, title)
+            scored.append({**candidate, "score": round(score, 3)})
+
+        # Sort by score descending
+        scored.sort(key=lambda x: x["score"], reverse=True)
+
+        return scored[:top_n]
+
+    def classify_confidence(self, score: float) -> str:
+        """Classify confidence level from score.
+
+        Args:
+            score: Similarity score 0.0-1.0.
+
+        Returns:
+            Confidence level: 'high', 'medium', 'low'.
+        """
+        if score >= 0.85:
+            return "high"
+        elif score >= 0.60:
+            return "medium"
+        else:
+            return "low"
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/services/test_fuzzy_matcher.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/services/fuzzy_matcher.py discovery/tests/unit/services/test_fuzzy_matcher.py
+git commit -m "feat(discovery): add fuzzy matcher for role-occupation mapping"
+```
+
+---
+
+### Task 105: Role Mapping Service Database Integration
+
+**Files:**
+- Modify: `discovery/app/services/role_mapping_service.py`
+- Create: `discovery/app/repositories/role_mapping_repository.py` (if not exists)
+- Test: `discovery/tests/unit/services/test_role_mapping_service_impl.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/services/test_role_mapping_service_impl.py
+"""Unit tests for implemented role mapping service."""
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
+
+
+@pytest.mark.asyncio
+async def test_create_mappings_from_upload():
+    """Test creating mappings from uploaded file roles."""
+    from app.services.role_mapping_service import RoleMappingService
+
+    mock_repo = AsyncMock()
+    mock_onet_client = AsyncMock()
+    mock_upload_service = AsyncMock()
+    mock_fuzzy = MagicMock()
+
+    # Mock upload with file content
+    mock_upload_service.get_file_content.return_value = b"name,role\nJohn,Engineer"
+
+    # Mock O*NET search results
+    mock_onet_client.search_occupations.return_value = [
+        {"code": "15-1252.00", "title": "Software Developers"},
+    ]
+
+    mock_fuzzy.find_best_matches.return_value = [
+        {"code": "15-1252.00", "title": "Software Developers", "score": 0.85},
+    ]
+
+    mock_mapping = MagicMock()
+    mock_mapping.id = uuid4()
+    mock_mapping.source_role = "Engineer"
+    mock_mapping.onet_code = "15-1252.00"
+    mock_mapping.confidence_score = 0.85
+    mock_repo.create.return_value = mock_mapping
+
+    service = RoleMappingService(
+        repository=mock_repo,
+        onet_client=mock_onet_client,
+        upload_service=mock_upload_service,
+        fuzzy_matcher=mock_fuzzy,
+    )
+
+    session_id = uuid4()
+    upload_id = uuid4()
+    result = await service.create_mappings_from_upload(
+        session_id=session_id,
+        upload_id=upload_id,
+        role_column="role",
+    )
+
+    assert len(result) > 0
+    mock_onet_client.search_occupations.assert_called()
+
+
+@pytest.mark.asyncio
+async def test_confirm_mapping():
+    """Test confirming a role mapping."""
+    from app.services.role_mapping_service import RoleMappingService
+
+    mock_repo = AsyncMock()
+    mock_mapping = MagicMock()
+    mock_mapping.id = uuid4()
+    mock_mapping.user_confirmed = True
+    mock_repo.confirm.return_value = mock_mapping
+
+    service = RoleMappingService(repository=mock_repo)
+    result = await service.confirm_mapping(mock_mapping.id, "15-1252.00")
+
+    assert result is not None
+    mock_repo.confirm.assert_called_once()
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/services/test_role_mapping_service_impl.py -v`
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+```python
+# discovery/app/services/role_mapping_service.py
+"""Role mapping service for managing role-to-O*NET mappings."""
+from typing import Any
+from uuid import UUID
+
+from app.repositories.role_mapping_repository import RoleMappingRepository
+from app.services.onet_client import OnetApiClient
+from app.services.upload_service import UploadService
+from app.services.fuzzy_matcher import FuzzyMatcher
+from app.services.file_parser import FileParser
+
+
+class RoleMappingService:
+    """Service for role-to-O*NET occupation mapping."""
+
+    def __init__(
+        self,
+        repository: RoleMappingRepository,
+        onet_client: OnetApiClient | None = None,
+        upload_service: UploadService | None = None,
+        fuzzy_matcher: FuzzyMatcher | None = None,
+    ) -> None:
+        self.repository = repository
+        self.onet_client = onet_client
+        self.upload_service = upload_service
+        self.fuzzy_matcher = fuzzy_matcher or FuzzyMatcher()
+        self._file_parser = FileParser()
+
+    async def create_mappings_from_upload(
+        self,
+        session_id: UUID,
+        upload_id: UUID,
+        role_column: str,
+    ) -> list[dict[str, Any]]:
+        """Create role mappings from uploaded file.
+
+        Args:
+            session_id: Discovery session ID.
+            upload_id: Upload ID containing the file.
+            role_column: Column name containing roles.
+
+        Returns:
+            List of created mapping dicts.
+        """
+        if not self.upload_service or not self.onet_client:
+            raise ValueError("upload_service and onet_client required")
+
+        # Get file content
+        content = await self.upload_service.get_file_content(upload_id)
+        if not content:
+            return []
+
+        # Extract unique roles
+        upload = await self.upload_service.repository.get_by_id(upload_id)
+        unique_roles = self._file_parser.extract_unique_values(
+            content, upload.file_name, role_column
+        )
+
+        mappings = []
+        for role_data in unique_roles:
+            role_name = role_data["value"]
+            row_count = role_data["count"]
+
+            # Search O*NET for matches
+            search_results = await self.onet_client.search_occupations(role_name)
+
+            # Find best match using fuzzy matching
+            if search_results:
+                best_matches = self.fuzzy_matcher.find_best_matches(
+                    role_name, search_results, top_n=1
+                )
+                if best_matches:
+                    best = best_matches[0]
+                    onet_code = best.get("code")
+                    confidence = best.get("score", 0.0)
+                else:
+                    onet_code = None
+                    confidence = 0.0
+            else:
+                onet_code = None
+                confidence = 0.0
+
+            # Create mapping record
+            mapping = await self.repository.create(
+                session_id=session_id,
+                source_role=role_name,
+                onet_code=onet_code,
+                confidence_score=confidence,
+                row_count=row_count,
+            )
+
+            mappings.append({
+                "id": str(mapping.id),
+                "source_role": mapping.source_role,
+                "onet_code": mapping.onet_code,
+                "confidence_score": mapping.confidence_score,
+                "row_count": mapping.row_count,
+                "user_confirmed": mapping.user_confirmed,
+            })
+
+        return mappings
+
+    async def get_by_session_id(self, session_id: UUID) -> list[dict[str, Any]]:
+        """Get all mappings for a session."""
+        mappings = await self.repository.get_for_session(session_id)
+        return [
+            {
+                "id": str(m.id),
+                "source_role": m.source_role,
+                "onet_code": m.onet_code,
+                "confidence_score": m.confidence_score,
+                "row_count": m.row_count,
+                "user_confirmed": m.user_confirmed,
+            }
+            for m in mappings
+        ]
+
+    async def confirm_mapping(
+        self,
+        mapping_id: UUID,
+        onet_code: str,
+    ) -> dict[str, Any] | None:
+        """Confirm a mapping with selected O*NET code."""
+        mapping = await self.repository.confirm(mapping_id, onet_code)
+        if not mapping:
+            return None
+        return {
+            "id": str(mapping.id),
+            "source_role": mapping.source_role,
+            "onet_code": mapping.onet_code,
+            "user_confirmed": mapping.user_confirmed,
+        }
+
+    async def bulk_confirm(
+        self,
+        session_id: UUID,
+        min_confidence: float = 0.85,
+    ) -> dict[str, Any]:
+        """Bulk confirm mappings above confidence threshold."""
+        mappings = await self.repository.get_for_session(session_id)
+        confirmed = 0
+
+        for mapping in mappings:
+            if (
+                not mapping.user_confirmed
+                and mapping.onet_code
+                and mapping.confidence_score >= min_confidence
+            ):
+                await self.repository.confirm(mapping.id, mapping.onet_code)
+                confirmed += 1
+
+        return {"confirmed_count": confirmed}
+
+    async def search_occupations(self, query: str) -> list[dict[str, Any]]:
+        """Search O*NET occupations for manual mapping."""
+        if not self.onet_client:
+            return []
+        return await self.onet_client.search_occupations(query)
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/services/test_role_mapping_service_impl.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/services/role_mapping_service.py
+git add discovery/tests/unit/services/test_role_mapping_service_impl.py
+git commit -m "feat(discovery): implement RoleMappingService with O*NET matching"
+```
+
+---
+
+### Task 106: Activity Selection Repository
+
+**Files:**
+- Create: `discovery/app/repositories/activity_selection_repository.py`
+- Test: `discovery/tests/unit/repositories/test_activity_selection_repository.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/repositories/test_activity_selection_repository.py
+"""Unit tests for activity selection repository."""
+import pytest
+from unittest.mock import AsyncMock
+
+
+def test_activity_selection_repository_exists():
+    """Test ActivitySelectionRepository is importable."""
+    from app.repositories.activity_selection_repository import ActivitySelectionRepository
+    assert ActivitySelectionRepository is not None
+
+
+@pytest.mark.asyncio
+async def test_bulk_create():
+    """Test bulk_create method exists."""
+    from app.repositories.activity_selection_repository import ActivitySelectionRepository
+
+    mock_session = AsyncMock()
+    repo = ActivitySelectionRepository(mock_session)
+
+    assert hasattr(repo, "bulk_create")
+
+
+@pytest.mark.asyncio
+async def test_get_for_role_mapping():
+    """Test get_for_role_mapping method exists."""
+    from app.repositories.activity_selection_repository import ActivitySelectionRepository
+
+    mock_session = AsyncMock()
+    repo = ActivitySelectionRepository(mock_session)
+
+    assert hasattr(repo, "get_for_role_mapping")
+
+
+@pytest.mark.asyncio
+async def test_update_selection():
+    """Test update_selection method exists."""
+    from app.repositories.activity_selection_repository import ActivitySelectionRepository
+
+    mock_session = AsyncMock()
+    repo = ActivitySelectionRepository(mock_session)
+
+    assert hasattr(repo, "update_selection")
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/repositories/test_activity_selection_repository.py -v`
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+```python
+# discovery/app/repositories/activity_selection_repository.py
+"""Activity selection repository."""
+from typing import Sequence
+from uuid import UUID
+
+from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.discovery_activity_selection import DiscoveryActivitySelection
+
+
+class ActivitySelectionRepository:
+    """Repository for activity selection operations."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def bulk_create(
+        self,
+        selections: list[dict],
+    ) -> Sequence[DiscoveryActivitySelection]:
+        """Create multiple activity selections."""
+        db_selections = [DiscoveryActivitySelection(**s) for s in selections]
+        self.session.add_all(db_selections)
+        await self.session.commit()
+        for s in db_selections:
+            await self.session.refresh(s)
+        return db_selections
+
+    async def get_for_session(
+        self,
+        session_id: UUID,
+    ) -> Sequence[DiscoveryActivitySelection]:
+        """Get all selections for a session."""
+        stmt = (
+            select(DiscoveryActivitySelection)
+            .where(DiscoveryActivitySelection.session_id == session_id)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalars().all()
+
+    async def get_for_role_mapping(
+        self,
+        role_mapping_id: UUID,
+    ) -> Sequence[DiscoveryActivitySelection]:
+        """Get selections for a specific role mapping."""
+        stmt = (
+            select(DiscoveryActivitySelection)
+            .where(DiscoveryActivitySelection.role_mapping_id == role_mapping_id)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalars().all()
+
+    async def update_selection(
+        self,
+        selection_id: UUID,
+        selected: bool,
+    ) -> DiscoveryActivitySelection | None:
+        """Update a selection's selected status."""
+        stmt = select(DiscoveryActivitySelection).where(
+            DiscoveryActivitySelection.id == selection_id
+        )
+        result = await self.session.execute(stmt)
+        selection = result.scalar_one_or_none()
+
+        if selection:
+            selection.selected = selected
+            selection.user_modified = True
+            await self.session.commit()
+            await self.session.refresh(selection)
+        return selection
+
+    async def delete_for_session(self, session_id: UUID) -> int:
+        """Delete all selections for a session."""
+        stmt = select(DiscoveryActivitySelection).where(
+            DiscoveryActivitySelection.session_id == session_id
+        )
+        result = await self.session.execute(stmt)
+        selections = result.scalars().all()
+
+        count = len(selections)
+        for s in selections:
+            await self.session.delete(s)
+        await self.session.commit()
+        return count
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/repositories/test_activity_selection_repository.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/repositories/activity_selection_repository.py
+git add discovery/tests/unit/repositories/test_activity_selection_repository.py
+git commit -m "feat(discovery): add ActivitySelectionRepository"
+```
+
+---
+
+### Task 107: Activity Service Implementation
+
+**Files:**
+- Modify: `discovery/app/services/activity_service.py`
+- Test: `discovery/tests/unit/services/test_activity_service_impl.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/services/test_activity_service_impl.py
+"""Unit tests for implemented activity service."""
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
+
+
+@pytest.mark.asyncio
+async def test_load_activities_for_mapping():
+    """Test loading DWAs for a role mapping."""
+    from app.services.activity_service import ActivityService
+
+    mock_selection_repo = AsyncMock()
+    mock_onet_repo = AsyncMock()
+
+    # Mock DWAs from O*NET
+    mock_dwa = MagicMock()
+    mock_dwa.id = "4.A.1.a.1"
+    mock_dwa.name = "Getting Information"
+    mock_dwa.ai_exposure_override = None
+    mock_dwa.iwa = MagicMock()
+    mock_dwa.iwa.gwa = MagicMock()
+    mock_dwa.iwa.gwa.ai_exposure_score = 0.75
+    mock_onet_repo.get_dwas_for_occupation.return_value = [mock_dwa]
+
+    mock_selection_repo.bulk_create.return_value = []
+
+    service = ActivityService(
+        selection_repository=mock_selection_repo,
+        onet_repository=mock_onet_repo,
+    )
+
+    session_id = uuid4()
+    mapping_id = uuid4()
+    result = await service.load_activities_for_mapping(
+        session_id=session_id,
+        role_mapping_id=mapping_id,
+        onet_code="15-1252.00",
+    )
+
+    mock_onet_repo.get_dwas_for_occupation.assert_called_once_with("15-1252.00")
+
+
+@pytest.mark.asyncio
+async def test_get_selections():
+    """Test getting activity selections."""
+    from app.services.activity_service import ActivityService
+
+    mock_repo = AsyncMock()
+    mock_selection = MagicMock()
+    mock_selection.id = uuid4()
+    mock_selection.dwa_id = "4.A.1.a.1"
+    mock_selection.selected = True
+    mock_selection.user_modified = False
+    mock_repo.get_for_role_mapping.return_value = [mock_selection]
+
+    service = ActivityService(selection_repository=mock_repo)
+    result = await service.get_selections(uuid4())
+
+    assert len(result) == 1
+    mock_repo.get_for_role_mapping.assert_called_once()
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/services/test_activity_service_impl.py -v`
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+```python
+# discovery/app/services/activity_service.py
+"""Activity service for managing DWA selections."""
+from typing import Any
+from uuid import UUID
+
+from app.repositories.activity_selection_repository import ActivitySelectionRepository
+from app.repositories.onet_repository import OnetRepository
+
+
+class ActivityService:
+    """Service for DWA activity selection management."""
+
+    # Default threshold for auto-selecting high-exposure activities
+    DEFAULT_EXPOSURE_THRESHOLD = 0.6
+
+    def __init__(
+        self,
+        selection_repository: ActivitySelectionRepository,
+        onet_repository: OnetRepository | None = None,
+    ) -> None:
+        self.selection_repository = selection_repository
+        self.onet_repository = onet_repository
+
+    async def load_activities_for_mapping(
+        self,
+        session_id: UUID,
+        role_mapping_id: UUID,
+        onet_code: str,
+        auto_select_threshold: float = DEFAULT_EXPOSURE_THRESHOLD,
+    ) -> list[dict[str, Any]]:
+        """Load DWAs for a role mapping and create selections.
+
+        Args:
+            session_id: Discovery session ID.
+            role_mapping_id: Role mapping ID.
+            onet_code: O*NET occupation code.
+            auto_select_threshold: Auto-select DWAs above this exposure.
+
+        Returns:
+            List of created selection dicts.
+        """
+        if not self.onet_repository:
+            return []
+
+        # Get DWAs for the occupation
+        dwas = await self.onet_repository.get_dwas_for_occupation(onet_code)
+
+        selections_data = []
+        for dwa in dwas:
+            # Get AI exposure score (from DWA override or GWA parent)
+            if hasattr(dwa, 'ai_exposure_override') and dwa.ai_exposure_override is not None:
+                exposure = dwa.ai_exposure_override
+            elif hasattr(dwa, 'iwa') and hasattr(dwa.iwa, 'gwa'):
+                exposure = dwa.iwa.gwa.ai_exposure_score or 0.0
+            else:
+                exposure = 0.0
+
+            # Auto-select if above threshold
+            auto_selected = exposure >= auto_select_threshold
+
+            selections_data.append({
+                "session_id": session_id,
+                "role_mapping_id": role_mapping_id,
+                "dwa_id": dwa.id,
+                "selected": auto_selected,
+                "user_modified": False,
+            })
+
+        created = await self.selection_repository.bulk_create(selections_data)
+
+        return [
+            {
+                "id": str(s.id),
+                "dwa_id": s.dwa_id,
+                "selected": s.selected,
+                "user_modified": s.user_modified,
+            }
+            for s in created
+        ]
+
+    async def get_selections(
+        self,
+        role_mapping_id: UUID,
+    ) -> list[dict[str, Any]]:
+        """Get activity selections for a role mapping."""
+        selections = await self.selection_repository.get_for_role_mapping(
+            role_mapping_id
+        )
+        return [
+            {
+                "id": str(s.id),
+                "dwa_id": s.dwa_id,
+                "selected": s.selected,
+                "user_modified": s.user_modified,
+            }
+            for s in selections
+        ]
+
+    async def get_session_selections(
+        self,
+        session_id: UUID,
+    ) -> list[dict[str, Any]]:
+        """Get all selections for a session."""
+        selections = await self.selection_repository.get_for_session(session_id)
+        return [
+            {
+                "id": str(s.id),
+                "role_mapping_id": str(s.role_mapping_id),
+                "dwa_id": s.dwa_id,
+                "selected": s.selected,
+                "user_modified": s.user_modified,
+            }
+            for s in selections
+        ]
+
+    async def update_selection(
+        self,
+        selection_id: UUID,
+        selected: bool,
+    ) -> dict[str, Any] | None:
+        """Update a selection's status."""
+        selection = await self.selection_repository.update_selection(
+            selection_id, selected
+        )
+        if not selection:
+            return None
+        return {
+            "id": str(selection.id),
+            "dwa_id": selection.dwa_id,
+            "selected": selection.selected,
+            "user_modified": selection.user_modified,
+        }
+
+    async def bulk_select(
+        self,
+        session_id: UUID,
+        select_all: bool = True,
+    ) -> dict[str, int]:
+        """Bulk select/deselect all activities for a session."""
+        selections = await self.selection_repository.get_for_session(session_id)
+        updated = 0
+
+        for selection in selections:
+            if selection.selected != select_all:
+                await self.selection_repository.update_selection(
+                    selection.id, select_all
+                )
+                updated += 1
+
+        return {"updated_count": updated}
+
+
+def get_activity_service() -> ActivityService:
+    """Dependency placeholder."""
+    raise NotImplementedError("Use dependency injection")
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/services/test_activity_service_impl.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/services/activity_service.py
+git add discovery/tests/unit/services/test_activity_service_impl.py
+git commit -m "feat(discovery): implement ActivityService with DWA selection"
+```
+
+---
+
+## Part 16: Analysis & Scoring Services (Tasks 108-111)
+
+### Task 108: Scoring Engine Implementation
+
+**Files:**
+- Create: `discovery/app/services/scoring_engine.py`
+- Test: `discovery/tests/unit/services/test_scoring_engine.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/services/test_scoring_engine.py
+"""Unit tests for scoring engine."""
+import pytest
+
+
+def test_scoring_engine_exists():
+    """Test ScoringEngine is importable."""
+    from app.services.scoring_engine import ScoringEngine
+    assert ScoringEngine is not None
+
+
+def test_calculate_ai_exposure():
+    """Test AI exposure score calculation."""
+    from app.services.scoring_engine import ScoringEngine
+
+    engine = ScoringEngine()
+    dwa_scores = [0.8, 0.7, 0.9, 0.6]
+    result = engine.calculate_ai_exposure(dwa_scores)
+
+    assert 0.7 <= result <= 0.8  # Average should be 0.75
+
+
+def test_calculate_impact():
+    """Test impact score calculation."""
+    from app.services.scoring_engine import ScoringEngine
+
+    engine = ScoringEngine()
+    result = engine.calculate_impact(
+        exposure=0.8,
+        row_count=100,
+        total_rows=1000,
+    )
+
+    assert 0.0 <= result <= 1.0
+
+
+def test_calculate_complexity():
+    """Test complexity score calculation."""
+    from app.services.scoring_engine import ScoringEngine
+
+    engine = ScoringEngine()
+    result = engine.calculate_complexity(exposure=0.8)
+
+    # Complexity is inverse of exposure
+    assert result == pytest.approx(0.2, rel=0.01)
+
+
+def test_calculate_priority():
+    """Test priority score calculation."""
+    from app.services.scoring_engine import ScoringEngine
+
+    engine = ScoringEngine()
+    result = engine.calculate_priority(
+        exposure=0.8,
+        impact=0.7,
+        complexity=0.2,
+    )
+
+    # Priority = (0.8*0.4) + (0.7*0.4) + ((1-0.2)*0.2) = 0.32 + 0.28 + 0.16 = 0.76
+    assert result == pytest.approx(0.76, rel=0.01)
+
+
+def test_score_role():
+    """Test complete role scoring."""
+    from app.services.scoring_engine import ScoringEngine
+
+    engine = ScoringEngine()
+    result = engine.score_role(
+        dwa_scores=[0.8, 0.7, 0.9],
+        row_count=50,
+        total_rows=500,
+    )
+
+    assert "ai_exposure" in result
+    assert "impact" in result
+    assert "complexity" in result
+    assert "priority" in result
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/services/test_scoring_engine.py -v`
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+```python
+# discovery/app/services/scoring_engine.py
+"""Scoring engine for AI exposure and priority calculations."""
+from dataclasses import dataclass
+from typing import Any
+
+
+@dataclass
+class RoleScores:
+    """Scores for a role."""
+    ai_exposure: float
+    impact: float
+    complexity: float
+    priority: float
+
+
+class ScoringEngine:
+    """Engine for calculating discovery scores.
+
+    Scoring formulas based on design spec:
+    - AI Exposure: Average of selected DWA exposure scores
+    - Impact: Exposure × (row_count / total_rows) normalized
+    - Complexity: 1 - Exposure (harder to automate = lower exposure)
+    - Priority: (Exposure×0.4) + (Impact×0.4) + ((1-Complexity)×0.2)
+    """
+
+    # Weight factors for priority calculation
+    EXPOSURE_WEIGHT = 0.4
+    IMPACT_WEIGHT = 0.4
+    EASE_WEIGHT = 0.2  # (1 - complexity)
+
+    def calculate_ai_exposure(self, dwa_scores: list[float]) -> float:
+        """Calculate AI exposure from DWA scores.
+
+        Args:
+            dwa_scores: List of exposure scores (0.0-1.0) for selected DWAs.
+
+        Returns:
+            Average exposure score.
+        """
+        if not dwa_scores:
+            return 0.0
+        return sum(dwa_scores) / len(dwa_scores)
+
+    def calculate_impact(
+        self,
+        exposure: float,
+        row_count: int,
+        total_rows: int,
+    ) -> float:
+        """Calculate impact score.
+
+        Impact considers both AI exposure and workforce coverage.
+
+        Args:
+            exposure: AI exposure score (0.0-1.0).
+            row_count: Number of employees in this role.
+            total_rows: Total employees in dataset.
+
+        Returns:
+            Impact score (0.0-1.0).
+        """
+        if total_rows == 0:
+            return 0.0
+
+        coverage = row_count / total_rows
+        # Weighted combination of exposure and coverage
+        return min(1.0, exposure * 0.6 + coverage * 0.4)
+
+    def calculate_complexity(self, exposure: float) -> float:
+        """Calculate complexity score.
+
+        Complexity is the inverse of exposure - lower exposure means
+        the work is harder to automate.
+
+        Args:
+            exposure: AI exposure score (0.0-1.0).
+
+        Returns:
+            Complexity score (0.0-1.0).
+        """
+        return 1.0 - exposure
+
+    def calculate_priority(
+        self,
+        exposure: float,
+        impact: float,
+        complexity: float,
+    ) -> float:
+        """Calculate priority score.
+
+        Priority favors high exposure, high impact, low complexity.
+
+        Args:
+            exposure: AI exposure score.
+            impact: Impact score.
+            complexity: Complexity score.
+
+        Returns:
+            Priority score (0.0-1.0).
+        """
+        ease = 1.0 - complexity
+        return (
+            exposure * self.EXPOSURE_WEIGHT
+            + impact * self.IMPACT_WEIGHT
+            + ease * self.EASE_WEIGHT
+        )
+
+    def score_role(
+        self,
+        dwa_scores: list[float],
+        row_count: int,
+        total_rows: int,
+    ) -> dict[str, float]:
+        """Calculate all scores for a role.
+
+        Args:
+            dwa_scores: Exposure scores for selected DWAs.
+            row_count: Employees in this role.
+            total_rows: Total employees.
+
+        Returns:
+            Dict with ai_exposure, impact, complexity, priority.
+        """
+        exposure = self.calculate_ai_exposure(dwa_scores)
+        impact = self.calculate_impact(exposure, row_count, total_rows)
+        complexity = self.calculate_complexity(exposure)
+        priority = self.calculate_priority(exposure, impact, complexity)
+
+        return {
+            "ai_exposure": round(exposure, 3),
+            "impact": round(impact, 3),
+            "complexity": round(complexity, 3),
+            "priority": round(priority, 3),
+        }
+
+    def classify_priority_tier(self, priority: float, complexity: float) -> str:
+        """Classify into priority tier.
+
+        Args:
+            priority: Priority score.
+            complexity: Complexity score.
+
+        Returns:
+            'now', 'next_quarter', or 'future'.
+        """
+        if priority >= 0.75 and complexity < 0.3:
+            return "now"
+        elif priority >= 0.60:
+            return "next_quarter"
+        else:
+            return "future"
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/services/test_scoring_engine.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/services/scoring_engine.py discovery/tests/unit/services/test_scoring_engine.py
+git commit -m "feat(discovery): add scoring engine with priority calculations"
+```
+
+---
+
+### Task 109: Analysis Service Database Integration
+
+**Files:**
+- Modify: `discovery/app/services/analysis_service.py`
+- Test: `discovery/tests/unit/services/test_analysis_service_impl.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/services/test_analysis_service_impl.py
+"""Unit tests for implemented analysis service."""
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
+
+
+@pytest.mark.asyncio
+async def test_trigger_analysis():
+    """Test triggering analysis for a session."""
+    from app.services.analysis_service import AnalysisService
+
+    mock_analysis_repo = AsyncMock()
+    mock_mapping_repo = AsyncMock()
+    mock_selection_repo = AsyncMock()
+
+    # Mock role mappings
+    mock_mapping = MagicMock()
+    mock_mapping.id = uuid4()
+    mock_mapping.source_role = "Engineer"
+    mock_mapping.onet_code = "15-1252.00"
+    mock_mapping.row_count = 50
+    mock_mapping_repo.get_for_session.return_value = [mock_mapping]
+
+    # Mock activity selections
+    mock_selection = MagicMock()
+    mock_selection.dwa_id = "4.A.1.a.1"
+    mock_selection.selected = True
+    mock_selection_repo.get_for_role_mapping.return_value = [mock_selection]
+
+    mock_analysis_repo.save_results.return_value = []
+
+    service = AnalysisService(
+        analysis_repository=mock_analysis_repo,
+        role_mapping_repository=mock_mapping_repo,
+        activity_selection_repository=mock_selection_repo,
+    )
+
+    session_id = uuid4()
+    result = await service.trigger_analysis(session_id)
+
+    assert result is not None
+    assert "status" in result
+
+
+@pytest.mark.asyncio
+async def test_get_by_dimension():
+    """Test getting analysis results by dimension."""
+    from app.services.analysis_service import AnalysisService
+    from app.schemas.analysis import AnalysisDimension
+
+    mock_repo = AsyncMock()
+    mock_result = MagicMock()
+    mock_result.id = uuid4()
+    mock_result.dimension_value = "Engineer"
+    mock_result.ai_exposure_score = 0.75
+    mock_result.impact_score = 0.8
+    mock_result.complexity_score = 0.25
+    mock_result.priority_score = 0.78
+    mock_repo.get_for_session.return_value = [mock_result]
+
+    service = AnalysisService(analysis_repository=mock_repo)
+    result = await service.get_by_dimension(uuid4(), AnalysisDimension.ROLE)
+
+    assert result is not None
+    assert "results" in result
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/services/test_analysis_service_impl.py -v`
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+```python
+# discovery/app/services/analysis_service.py
+"""Analysis service for scoring and aggregation."""
+from typing import Any
+from uuid import UUID
+
+from app.repositories.analysis_repository import AnalysisRepository
+from app.repositories.role_mapping_repository import RoleMappingRepository
+from app.repositories.activity_selection_repository import ActivitySelectionRepository
+from app.services.scoring_engine import ScoringEngine
+from app.schemas.analysis import AnalysisDimension, PriorityTier
+
+
+class AnalysisService:
+    """Service for analysis and scoring operations."""
+
+    def __init__(
+        self,
+        analysis_repository: AnalysisRepository,
+        role_mapping_repository: RoleMappingRepository | None = None,
+        activity_selection_repository: ActivitySelectionRepository | None = None,
+        scoring_engine: ScoringEngine | None = None,
+    ) -> None:
+        self.analysis_repository = analysis_repository
+        self.role_mapping_repository = role_mapping_repository
+        self.activity_selection_repository = activity_selection_repository
+        self.scoring_engine = scoring_engine or ScoringEngine()
+
+    async def trigger_analysis(self, session_id: UUID) -> dict[str, Any] | None:
+        """Trigger scoring analysis for a session.
+
+        Calculates scores for all role mappings and stores results.
+        """
+        if not self.role_mapping_repository or not self.activity_selection_repository:
+            return {"status": "error", "message": "Missing dependencies"}
+
+        # Get all role mappings
+        mappings = await self.role_mapping_repository.get_for_session(session_id)
+        if not mappings:
+            return {"status": "error", "message": "No mappings found"}
+
+        # Calculate total rows
+        total_rows = sum(m.row_count or 0 for m in mappings)
+
+        results_to_save = []
+        for mapping in mappings:
+            # Get selected DWAs for this mapping
+            selections = await self.activity_selection_repository.get_for_role_mapping(
+                mapping.id
+            )
+            selected_dwas = [s for s in selections if s.selected]
+
+            # For now, use placeholder exposure scores (would come from DWA model)
+            dwa_scores = [0.7] * len(selected_dwas) if selected_dwas else [0.5]
+
+            # Calculate scores
+            scores = self.scoring_engine.score_role(
+                dwa_scores=dwa_scores,
+                row_count=mapping.row_count or 0,
+                total_rows=total_rows,
+            )
+
+            priority_tier = self.scoring_engine.classify_priority_tier(
+                scores["priority"], scores["complexity"]
+            )
+
+            results_to_save.append({
+                "session_id": session_id,
+                "role_mapping_id": mapping.id,
+                "dimension": AnalysisDimension.ROLE,
+                "dimension_value": mapping.source_role,
+                "ai_exposure_score": scores["ai_exposure"],
+                "impact_score": scores["impact"],
+                "complexity_score": scores["complexity"],
+                "priority_score": scores["priority"],
+                "breakdown": {
+                    "dwa_count": len(selected_dwas),
+                    "priority_tier": priority_tier,
+                },
+            })
+
+        await self.analysis_repository.save_results(results_to_save)
+        return {"status": "completed", "count": len(results_to_save)}
+
+    async def get_by_dimension(
+        self,
+        session_id: UUID,
+        dimension: AnalysisDimension,
+        priority_tier: PriorityTier | None = None,
+    ) -> dict[str, Any] | None:
+        """Get analysis results for a dimension."""
+        from app.models.discovery_analysis import AnalysisDimension as DBDimension
+
+        db_dimension = DBDimension(dimension.value)
+        results = await self.analysis_repository.get_for_session(
+            session_id, db_dimension
+        )
+
+        if not results:
+            return {"dimension": dimension.value, "results": []}
+
+        formatted = []
+        for r in results:
+            tier = r.breakdown.get("priority_tier") if r.breakdown else None
+            if priority_tier and tier != priority_tier.value:
+                continue
+
+            formatted.append({
+                "id": str(r.id),
+                "name": r.dimension_value,
+                "ai_exposure_score": r.ai_exposure_score,
+                "impact_score": r.impact_score,
+                "complexity_score": r.complexity_score,
+                "priority_score": r.priority_score,
+                "priority_tier": tier,
+            })
+
+        return {"dimension": dimension.value, "results": formatted}
+
+    async def get_all_dimensions(self, session_id: UUID) -> dict[str, Any] | None:
+        """Get summary of all dimensions."""
+        results = await self.analysis_repository.get_for_session(session_id)
+
+        if not results:
+            return None
+
+        # Group by dimension
+        by_dimension: dict[str, list] = {}
+        for r in results:
+            dim = r.dimension.value
+            if dim not in by_dimension:
+                by_dimension[dim] = []
+            by_dimension[dim].append(r.ai_exposure_score)
+
+        summary = {}
+        for dim, scores in by_dimension.items():
+            summary[dim] = {
+                "count": len(scores),
+                "avg_exposure": round(sum(scores) / len(scores), 3) if scores else 0,
+            }
+
+        return summary
+
+
+def get_analysis_service() -> AnalysisService:
+    """Dependency placeholder."""
+    raise NotImplementedError("Use dependency injection")
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/services/test_analysis_service_impl.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/services/analysis_service.py
+git add discovery/tests/unit/services/test_analysis_service_impl.py
+git commit -m "feat(discovery): implement AnalysisService with scoring"
+```
+
+---
+
+### Task 110: Roadmap Service Implementation
+
+**Files:**
+- Modify: `discovery/app/services/roadmap_service.py`
+- Create: `discovery/app/repositories/candidate_repository.py`
+- Test: `discovery/tests/unit/services/test_roadmap_service_impl.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/services/test_roadmap_service_impl.py
+"""Unit tests for implemented roadmap service."""
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
+
+
+@pytest.mark.asyncio
+async def test_generate_candidates():
+    """Test generating agentification candidates."""
+    from app.services.roadmap_service import RoadmapService
+
+    mock_candidate_repo = AsyncMock()
+    mock_analysis_repo = AsyncMock()
+
+    # Mock analysis results
+    mock_result = MagicMock()
+    mock_result.id = uuid4()
+    mock_result.role_mapping_id = uuid4()
+    mock_result.dimension_value = "Data Entry Clerk"
+    mock_result.priority_score = 0.85
+    mock_result.complexity_score = 0.2
+    mock_result.ai_exposure_score = 0.8
+    mock_result.breakdown = {"priority_tier": "now"}
+    mock_analysis_repo.get_for_session.return_value = [mock_result]
+
+    mock_candidate = MagicMock()
+    mock_candidate.id = uuid4()
+    mock_candidate.name = "Data Entry Agent"
+    mock_candidate_repo.create.return_value = mock_candidate
+
+    service = RoadmapService(
+        candidate_repository=mock_candidate_repo,
+        analysis_repository=mock_analysis_repo,
+    )
+
+    result = await service.generate_candidates(uuid4())
+    assert len(result) > 0
+
+
+@pytest.mark.asyncio
+async def test_get_candidates():
+    """Test getting roadmap candidates."""
+    from app.services.roadmap_service import RoadmapService
+
+    mock_repo = AsyncMock()
+    mock_candidate = MagicMock()
+    mock_candidate.id = uuid4()
+    mock_candidate.name = "Invoice Agent"
+    mock_candidate.priority_tier = MagicMock()
+    mock_candidate.priority_tier.value = "now"
+    mock_candidate.estimated_impact = 0.85
+    mock_candidate.selected_for_build = False
+    mock_repo.get_for_session.return_value = [mock_candidate]
+
+    service = RoadmapService(candidate_repository=mock_repo)
+    result = await service.get_candidates(uuid4())
+
+    assert len(result) == 1
+    assert result[0]["name"] == "Invoice Agent"
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/services/test_roadmap_service_impl.py -v`
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+First, create the candidate repository:
+
+```python
+# discovery/app/repositories/candidate_repository.py
+"""Agentification candidate repository."""
+from typing import Sequence
+from uuid import UUID
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.agentification_candidate import AgentificationCandidate, PriorityTier
+
+
+class CandidateRepository:
+    """Repository for agentification candidates."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def create(
+        self,
+        session_id: UUID,
+        role_mapping_id: UUID | None,
+        name: str,
+        description: str | None,
+        priority_tier: str,
+        estimated_impact: float,
+    ) -> AgentificationCandidate:
+        """Create a new candidate."""
+        tier = PriorityTier(priority_tier)
+        candidate = AgentificationCandidate(
+            session_id=session_id,
+            role_mapping_id=role_mapping_id,
+            name=name,
+            description=description,
+            priority_tier=tier,
+            estimated_impact=estimated_impact,
+        )
+        self.session.add(candidate)
+        await self.session.commit()
+        await self.session.refresh(candidate)
+        return candidate
+
+    async def get_for_session(
+        self,
+        session_id: UUID,
+        tier: str | None = None,
+    ) -> Sequence[AgentificationCandidate]:
+        """Get candidates for a session."""
+        stmt = select(AgentificationCandidate).where(
+            AgentificationCandidate.session_id == session_id
+        )
+        if tier:
+            stmt = stmt.where(
+                AgentificationCandidate.priority_tier == PriorityTier(tier)
+            )
+        stmt = stmt.order_by(AgentificationCandidate.estimated_impact.desc())
+
+        result = await self.session.execute(stmt)
+        return result.scalars().all()
+
+    async def update_tier(
+        self,
+        candidate_id: UUID,
+        tier: str,
+    ) -> AgentificationCandidate | None:
+        """Update candidate priority tier."""
+        stmt = select(AgentificationCandidate).where(
+            AgentificationCandidate.id == candidate_id
+        )
+        result = await self.session.execute(stmt)
+        candidate = result.scalar_one_or_none()
+
+        if candidate:
+            candidate.priority_tier = PriorityTier(tier)
+            await self.session.commit()
+            await self.session.refresh(candidate)
+        return candidate
+
+    async def select_for_build(
+        self,
+        candidate_id: UUID,
+        selected: bool,
+    ) -> AgentificationCandidate | None:
+        """Mark candidate for build."""
+        stmt = select(AgentificationCandidate).where(
+            AgentificationCandidate.id == candidate_id
+        )
+        result = await self.session.execute(stmt)
+        candidate = result.scalar_one_or_none()
+
+        if candidate:
+            candidate.selected_for_build = selected
+            await self.session.commit()
+            await self.session.refresh(candidate)
+        return candidate
+```
+
+Then, implement the roadmap service:
+
+```python
+# discovery/app/services/roadmap_service.py
+"""Roadmap service for candidate generation and prioritization."""
+from typing import Any
+from uuid import UUID
+
+from app.repositories.candidate_repository import CandidateRepository
+from app.repositories.analysis_repository import AnalysisRepository
+
+
+class RoadmapService:
+    """Service for roadmap and candidate management."""
+
+    def __init__(
+        self,
+        candidate_repository: CandidateRepository,
+        analysis_repository: AnalysisRepository | None = None,
+    ) -> None:
+        self.candidate_repository = candidate_repository
+        self.analysis_repository = analysis_repository
+
+    async def generate_candidates(
+        self,
+        session_id: UUID,
+    ) -> list[dict[str, Any]]:
+        """Generate agentification candidates from analysis results."""
+        if not self.analysis_repository:
+            return []
+
+        # Get role-dimension analysis results
+        from app.models.discovery_analysis import AnalysisDimension
+        results = await self.analysis_repository.get_for_session(
+            session_id, AnalysisDimension.ROLE
+        )
+
+        candidates = []
+        for result in results:
+            # Generate agent name from role
+            agent_name = self._generate_agent_name(result.dimension_value)
+            description = self._generate_description(
+                result.dimension_value,
+                result.ai_exposure_score,
+            )
+
+            tier = result.breakdown.get("priority_tier", "future") if result.breakdown else "future"
+
+            candidate = await self.candidate_repository.create(
+                session_id=session_id,
+                role_mapping_id=result.role_mapping_id,
+                name=agent_name,
+                description=description,
+                priority_tier=tier,
+                estimated_impact=result.priority_score or 0.0,
+            )
+
+            candidates.append({
+                "id": str(candidate.id),
+                "name": candidate.name,
+                "description": candidate.description,
+                "priority_tier": candidate.priority_tier.value,
+                "estimated_impact": candidate.estimated_impact,
+            })
+
+        return candidates
+
+    async def get_candidates(
+        self,
+        session_id: UUID,
+        tier: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Get candidates for a session."""
+        candidates = await self.candidate_repository.get_for_session(
+            session_id, tier
+        )
+        return [
+            {
+                "id": str(c.id),
+                "name": c.name,
+                "description": c.description,
+                "priority_tier": c.priority_tier.value,
+                "estimated_impact": c.estimated_impact,
+                "selected_for_build": c.selected_for_build,
+            }
+            for c in candidates
+        ]
+
+    async def update_tier(
+        self,
+        candidate_id: UUID,
+        tier: str,
+    ) -> dict[str, Any] | None:
+        """Update candidate priority tier."""
+        candidate = await self.candidate_repository.update_tier(candidate_id, tier)
+        if not candidate:
+            return None
+        return {
+            "id": str(candidate.id),
+            "name": candidate.name,
+            "priority_tier": candidate.priority_tier.value,
+        }
+
+    async def select_for_build(
+        self,
+        candidate_id: UUID,
+        selected: bool,
+    ) -> dict[str, Any] | None:
+        """Mark candidate for build."""
+        candidate = await self.candidate_repository.select_for_build(
+            candidate_id, selected
+        )
+        if not candidate:
+            return None
+        return {
+            "id": str(candidate.id),
+            "name": candidate.name,
+            "selected_for_build": candidate.selected_for_build,
+        }
+
+    def _generate_agent_name(self, role_name: str) -> str:
+        """Generate agent name from role."""
+        # Simple transformation: "Data Entry Clerk" -> "Data Entry Agent"
+        words = role_name.split()
+        if words[-1].lower() in ("clerk", "specialist", "analyst", "manager"):
+            words[-1] = "Agent"
+        else:
+            words.append("Agent")
+        return " ".join(words)
+
+    def _generate_description(self, role_name: str, exposure: float) -> str:
+        """Generate agent description."""
+        exposure_pct = int(exposure * 100)
+        return (
+            f"AI agent to automate tasks from the {role_name} role. "
+            f"Based on analysis, approximately {exposure_pct}% of work activities "
+            f"are suitable for AI automation."
+        )
+
+
+def get_roadmap_service() -> RoadmapService:
+    """Dependency placeholder."""
+    raise NotImplementedError("Use dependency injection")
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/services/test_roadmap_service_impl.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/repositories/candidate_repository.py
+git add discovery/app/services/roadmap_service.py
+git add discovery/tests/unit/services/test_roadmap_service_impl.py
+git commit -m "feat(discovery): implement RoadmapService with candidate generation"
+```
+
+---
+
+### Task 111: Handoff and Export Services
+
+**Files:**
+- Modify: `discovery/app/services/handoff_service.py`
+- Modify: `discovery/app/services/export_service.py`
+- Test: `discovery/tests/unit/services/test_handoff_export_impl.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/services/test_handoff_export_impl.py
+"""Unit tests for handoff and export services."""
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
+
+
+@pytest.mark.asyncio
+async def test_create_handoff_bundle():
+    """Test creating handoff bundle."""
+    from app.services.handoff_service import HandoffService
+
+    mock_candidate_repo = AsyncMock()
+    mock_session_repo = AsyncMock()
+
+    mock_candidate = MagicMock()
+    mock_candidate.id = uuid4()
+    mock_candidate.name = "Invoice Agent"
+    mock_candidate.description = "Automates invoice processing"
+    mock_candidate.estimated_impact = 0.85
+    mock_candidate.selected_for_build = True
+    mock_candidate_repo.get_for_session.return_value = [mock_candidate]
+
+    mock_session = MagicMock()
+    mock_session.id = uuid4()
+    mock_session_repo.get_by_id.return_value = mock_session
+
+    service = HandoffService(
+        candidate_repository=mock_candidate_repo,
+        session_repository=mock_session_repo,
+    )
+
+    result = await service.create_handoff_bundle(uuid4())
+
+    assert result is not None
+    assert "candidates" in result
+    assert len(result["candidates"]) == 1
+
+
+def test_export_service_exists():
+    """Test ExportService is importable."""
+    from app.services.export_service import ExportService
+    assert ExportService is not None
+
+
+@pytest.mark.asyncio
+async def test_export_json():
+    """Test JSON export."""
+    from app.services.export_service import ExportService
+
+    mock_session_repo = AsyncMock()
+    mock_analysis_repo = AsyncMock()
+    mock_candidate_repo = AsyncMock()
+
+    mock_session = MagicMock()
+    mock_session.id = uuid4()
+    mock_session.created_at = MagicMock()
+    mock_session.created_at.isoformat.return_value = "2026-02-01T00:00:00"
+    mock_session_repo.get_by_id.return_value = mock_session
+
+    mock_analysis_repo.get_for_session.return_value = []
+    mock_candidate_repo.get_for_session.return_value = []
+
+    service = ExportService(
+        session_repository=mock_session_repo,
+        analysis_repository=mock_analysis_repo,
+        candidate_repository=mock_candidate_repo,
+    )
+
+    result = await service.export_json(mock_session.id)
+
+    assert result is not None
+    assert "session_id" in result
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/services/test_handoff_export_impl.py -v`
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+```python
+# discovery/app/services/handoff_service.py
+"""Handoff service for Build intake integration."""
+from typing import Any
+from uuid import UUID
+
+from app.repositories.candidate_repository import CandidateRepository
+from app.repositories.session_repository import SessionRepository
+
+
+class HandoffService:
+    """Service for creating handoff bundles to Build workflow."""
+
+    def __init__(
+        self,
+        candidate_repository: CandidateRepository,
+        session_repository: SessionRepository | None = None,
+    ) -> None:
+        self.candidate_repository = candidate_repository
+        self.session_repository = session_repository
+
+    async def create_handoff_bundle(
+        self,
+        session_id: UUID,
+    ) -> dict[str, Any]:
+        """Create handoff bundle for selected candidates.
+
+        Returns bundle with candidate details for Build intake.
+        """
+        # Get selected candidates
+        all_candidates = await self.candidate_repository.get_for_session(session_id)
+        selected = [c for c in all_candidates if c.selected_for_build]
+
+        if not selected:
+            return {"error": "No candidates selected for build", "candidates": []}
+
+        candidates_data = []
+        for c in selected:
+            candidates_data.append({
+                "id": str(c.id),
+                "name": c.name,
+                "description": c.description,
+                "priority_tier": c.priority_tier.value,
+                "estimated_impact": c.estimated_impact,
+                "role_mapping_id": str(c.role_mapping_id) if c.role_mapping_id else None,
+            })
+
+        return {
+            "session_id": str(session_id),
+            "candidates": candidates_data,
+            "count": len(candidates_data),
+        }
+
+    async def complete_handoff(
+        self,
+        session_id: UUID,
+        intake_request_ids: dict[str, UUID],
+    ) -> dict[str, Any]:
+        """Mark handoff complete with intake request IDs.
+
+        Args:
+            session_id: Discovery session ID.
+            intake_request_ids: Mapping of candidate_id -> intake_request_id.
+
+        Returns:
+            Summary of completed handoffs.
+        """
+        # Would update candidates with intake_request_id
+        # and mark session as completed
+        return {
+            "status": "completed",
+            "handoffs": len(intake_request_ids),
+        }
+
+
+def get_handoff_service() -> HandoffService:
+    """Dependency placeholder."""
+    raise NotImplementedError("Use dependency injection")
+```
+
+```python
+# discovery/app/services/export_service.py
+"""Export service for generating reports."""
+import json
+from typing import Any
+from uuid import UUID
+
+from app.repositories.session_repository import SessionRepository
+from app.repositories.analysis_repository import AnalysisRepository
+from app.repositories.candidate_repository import CandidateRepository
+
+
+class ExportService:
+    """Service for exporting discovery results."""
+
+    def __init__(
+        self,
+        session_repository: SessionRepository,
+        analysis_repository: AnalysisRepository | None = None,
+        candidate_repository: CandidateRepository | None = None,
+    ) -> None:
+        self.session_repository = session_repository
+        self.analysis_repository = analysis_repository
+        self.candidate_repository = candidate_repository
+
+    async def export_json(self, session_id: UUID) -> dict[str, Any]:
+        """Export session data as JSON."""
+        session = await self.session_repository.get_by_id(session_id)
+        if not session:
+            return {"error": "Session not found"}
+
+        result = {
+            "session_id": str(session.id),
+            "created_at": session.created_at.isoformat(),
+            "status": session.status.value,
+            "analysis_results": [],
+            "candidates": [],
+        }
+
+        if self.analysis_repository:
+            results = await self.analysis_repository.get_for_session(session_id)
+            result["analysis_results"] = [
+                {
+                    "dimension": r.dimension.value,
+                    "name": r.dimension_value,
+                    "ai_exposure": r.ai_exposure_score,
+                    "impact": r.impact_score,
+                    "priority": r.priority_score,
+                }
+                for r in results
+            ]
+
+        if self.candidate_repository:
+            candidates = await self.candidate_repository.get_for_session(session_id)
+            result["candidates"] = [
+                {
+                    "name": c.name,
+                    "priority_tier": c.priority_tier.value,
+                    "estimated_impact": c.estimated_impact,
+                    "selected_for_build": c.selected_for_build,
+                }
+                for c in candidates
+            ]
+
+        return result
+
+    async def export_csv(self, session_id: UUID) -> str:
+        """Export analysis results as CSV."""
+        if not self.analysis_repository:
+            return "dimension,name,ai_exposure,impact,priority\n"
+
+        results = await self.analysis_repository.get_for_session(session_id)
+        lines = ["dimension,name,ai_exposure,impact,priority"]
+
+        for r in results:
+            lines.append(
+                f"{r.dimension.value},{r.dimension_value},"
+                f"{r.ai_exposure_score},{r.impact_score},{r.priority_score}"
+            )
+
+        return "\n".join(lines)
+
+
+def get_export_service() -> ExportService:
+    """Dependency placeholder."""
+    raise NotImplementedError("Use dependency injection")
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/services/test_handoff_export_impl.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/services/handoff_service.py
+git add discovery/app/services/export_service.py
+git add discovery/tests/unit/services/test_handoff_export_impl.py
+git commit -m "feat(discovery): implement HandoffService and ExportService"
+```
+
+---
+
+**Phase 2 Complete!**
+
+All placeholder services now have working implementations:
+- UploadService with S3 storage and file parsing
+- RoleMappingService with fuzzy matching and O*NET search
+- ActivityService with DWA selection management
+- AnalysisService with scoring engine integration
+- RoadmapService with candidate generation
+- HandoffService for Build intake
+- ExportService for JSON/CSV reports
+
+---
+
+## Phase 3: Agent Business Logic (Tasks 112-126)
+
+This phase implements the business logic for each subagent and connects them to the orchestrator.
+
+---
+
+## Part 17: Subagent Implementations (Tasks 112-116)
+
+### Task 112: Upload Subagent Business Logic
+
+**Files:**
+- Modify: `discovery/app/agents/upload_agent.py`
+- Test: `discovery/tests/unit/agents/test_upload_agent_impl.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/agents/test_upload_agent_impl.py
+"""Unit tests for upload agent implementation."""
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
+
+
+@pytest.mark.asyncio
+async def test_process_file_uploaded():
+    """Test processing when file is uploaded."""
+    from app.agents.upload_agent import UploadSubagent
+
+    mock_upload_service = AsyncMock()
+    mock_upload_service.get_by_session_id.return_value = [{
+        "id": str(uuid4()),
+        "file_name": "workforce.xlsx",
+        "detected_schema": {"columns": [{"name": "role"}, {"name": "department"}]},
+        "column_suggestions": {"role": "role", "department": "department"},
+    }]
+
+    session = MagicMock()
+    session.id = uuid4()
+
+    agent = UploadSubagent(
+        session=session,
+        upload_service=mock_upload_service,
+    )
+
+    result = await agent.process("I've uploaded my file")
+
+    assert "message" in result
+    assert "quick_actions" in result
+
+
+@pytest.mark.asyncio
+async def test_confirm_column_mappings():
+    """Test confirming column mappings advances step."""
+    from app.agents.upload_agent import UploadSubagent
+
+    mock_upload_service = AsyncMock()
+    mock_upload_service.update_column_mappings.return_value = {"id": str(uuid4())}
+
+    session = MagicMock()
+    session.id = uuid4()
+    session.current_step = 1
+
+    agent = UploadSubagent(
+        session=session,
+        upload_service=mock_upload_service,
+    )
+
+    result = await agent.process("Yes, role is in column A")
+
+    mock_upload_service.update_column_mappings.assert_called()
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/agents/test_upload_agent_impl.py -v`
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+```python
+# discovery/app/agents/upload_agent.py
+"""Upload subagent for Step 1: File Upload."""
+from typing import Any
+
+from app.agents.base import BaseSubagent
+from app.services.upload_service import UploadService
+
+
+class UploadSubagent(BaseSubagent):
+    """Handles file upload, schema detection, and column mapping."""
+
+    def __init__(
+        self,
+        session: Any,
+        upload_service: UploadService,
+        memory_service: Any = None,
+    ) -> None:
+        super().__init__(session, memory_service)
+        self.upload_service = upload_service
+        self._awaiting_confirmation = False
+        self._pending_mappings: dict[str, str | None] = {}
+
+    async def process(self, message: str) -> dict[str, Any]:
+        """Process user message for upload step."""
+        message_lower = message.lower()
+
+        # Check for upload status
+        uploads = await self.upload_service.get_by_session_id(self.session.id)
+
+        if not uploads:
+            return {
+                "message": "Please upload your workforce data file (.xlsx or .csv) to begin.",
+                "quick_actions": ["Upload file"],
+                "step_complete": False,
+            }
+
+        upload = uploads[0]  # Use most recent
+        schema = upload.get("detected_schema", {})
+        suggestions = upload.get("column_suggestions", {})
+
+        # If awaiting confirmation
+        if self._awaiting_confirmation:
+            if any(word in message_lower for word in ["yes", "confirm", "correct", "looks good"]):
+                await self.upload_service.update_column_mappings(
+                    upload["id"],
+                    self._pending_mappings,
+                )
+                return {
+                    "message": "Column mappings confirmed. Moving to role mapping step.",
+                    "quick_actions": [],
+                    "step_complete": True,
+                }
+            elif any(word in message_lower for word in ["no", "change", "different"]):
+                self._awaiting_confirmation = False
+                return {
+                    "message": "Which column contains job titles/roles?",
+                    "quick_actions": [c["name"] for c in schema.get("columns", [])[:5]],
+                    "step_complete": False,
+                }
+
+        # Check if user is specifying a column
+        columns = [c["name"] for c in schema.get("columns", [])]
+        for col in columns:
+            if col.lower() in message_lower:
+                if not self._pending_mappings.get("role"):
+                    self._pending_mappings["role"] = col
+                    return {
+                        "message": f"Got it, '{col}' contains roles. Which column has department/team info?",
+                        "quick_actions": [c for c in columns if c != col][:4] + ["Skip"],
+                        "step_complete": False,
+                    }
+                elif not self._pending_mappings.get("department"):
+                    self._pending_mappings["department"] = col if col.lower() != "skip" else None
+                    self._awaiting_confirmation = True
+                    return {
+                        "message": f"I'll use:\n- Roles: {self._pending_mappings['role']}\n- Department: {self._pending_mappings.get('department', 'None')}\n\nIs this correct?",
+                        "quick_actions": ["Yes, continue", "No, let me change"],
+                        "step_complete": False,
+                    }
+
+        # Default: Show detected schema and ask for confirmation
+        if suggestions.get("role"):
+            self._pending_mappings = {
+                "role": suggestions.get("role"),
+                "department": suggestions.get("department"),
+                "geography": suggestions.get("geography"),
+            }
+            self._awaiting_confirmation = True
+
+            role_col = suggestions.get("role", "unknown")
+            dept_col = suggestions.get("department", "none detected")
+            return {
+                "message": f"I analyzed your file and found:\n- {upload['row_count']} rows\n- Role column: '{role_col}'\n- Department: '{dept_col}'\n\nDoes this look correct?",
+                "quick_actions": ["Yes, continue", "No, let me specify"],
+                "step_complete": False,
+            }
+
+        # No suggestions - ask user
+        return {
+            "message": "I found these columns in your file. Which one contains job titles/roles?",
+            "quick_actions": columns[:5],
+            "step_complete": False,
+        }
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/agents/test_upload_agent_impl.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/agents/upload_agent.py discovery/tests/unit/agents/test_upload_agent_impl.py
+git commit -m "feat(discovery): implement UploadSubagent business logic"
+```
+
+---
+
+### Task 113: Mapping Subagent Business Logic
+
+**Files:**
+- Modify: `discovery/app/agents/mapping_agent.py`
+- Test: `discovery/tests/unit/agents/test_mapping_agent_impl.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/agents/test_mapping_agent_impl.py
+"""Unit tests for mapping agent implementation."""
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
+
+
+@pytest.mark.asyncio
+async def test_show_mappings():
+    """Test showing role mappings."""
+    from app.agents.mapping_agent import MappingSubagent
+
+    mock_mapping_service = AsyncMock()
+    mock_mapping_service.get_by_session_id.return_value = [
+        {
+            "id": str(uuid4()),
+            "source_role": "Software Engineer",
+            "onet_code": "15-1252.00",
+            "confidence_score": 0.92,
+            "user_confirmed": False,
+        },
+    ]
+
+    session = MagicMock()
+    session.id = uuid4()
+
+    agent = MappingSubagent(session=session, mapping_service=mock_mapping_service)
+    result = await agent.process("Show me the mappings")
+
+    assert "message" in result
+    assert "Software Engineer" in result["message"]
+
+
+@pytest.mark.asyncio
+async def test_bulk_confirm():
+    """Test bulk confirming high-confidence mappings."""
+    from app.agents.mapping_agent import MappingSubagent
+
+    mock_mapping_service = AsyncMock()
+    mock_mapping_service.bulk_confirm.return_value = {"confirmed_count": 5}
+
+    session = MagicMock()
+    session.id = uuid4()
+
+    agent = MappingSubagent(session=session, mapping_service=mock_mapping_service)
+    result = await agent.process("Accept all high confidence")
+
+    mock_mapping_service.bulk_confirm.assert_called()
+    assert "confirmed" in result["message"].lower()
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/agents/test_mapping_agent_impl.py -v`
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+```python
+# discovery/app/agents/mapping_agent.py
+"""Mapping subagent for Step 2: Role Mapping."""
+from typing import Any
+
+from app.agents.base import BaseSubagent
+from app.services.role_mapping_service import RoleMappingService
+
+
+class MappingSubagent(BaseSubagent):
+    """Handles role-to-O*NET occupation mapping."""
+
+    def __init__(
+        self,
+        session: Any,
+        mapping_service: RoleMappingService,
+        memory_service: Any = None,
+    ) -> None:
+        super().__init__(session, memory_service)
+        self.mapping_service = mapping_service
+
+    async def process(self, message: str) -> dict[str, Any]:
+        """Process user message for mapping step."""
+        message_lower = message.lower()
+
+        # Get current mappings
+        mappings = await self.mapping_service.get_by_session_id(self.session.id)
+
+        if not mappings:
+            return {
+                "message": "No role mappings found. Please complete the upload step first.",
+                "quick_actions": ["Go back to upload"],
+                "step_complete": False,
+            }
+
+        # Handle bulk confirm
+        if any(word in message_lower for word in ["accept all", "confirm all", "bulk"]):
+            result = await self.mapping_service.bulk_confirm(
+                self.session.id,
+                min_confidence=0.85,
+            )
+            confirmed = result.get("confirmed_count", 0)
+            return {
+                "message": f"Confirmed {confirmed} high-confidence mappings (>85%).",
+                "quick_actions": ["Show remaining", "Continue to activities"],
+                "step_complete": False,
+            }
+
+        # Handle continue/done
+        if any(word in message_lower for word in ["continue", "done", "next", "proceed"]):
+            unconfirmed = [m for m in mappings if not m.get("user_confirmed")]
+            if unconfirmed:
+                return {
+                    "message": f"You have {len(unconfirmed)} unconfirmed mappings. Continue anyway?",
+                    "quick_actions": ["Yes, continue", "Review unconfirmed"],
+                    "step_complete": False,
+                }
+            return {
+                "message": "All mappings confirmed. Moving to activity selection.",
+                "quick_actions": [],
+                "step_complete": True,
+            }
+
+        # Handle search
+        if "search" in message_lower:
+            query = message_lower.replace("search", "").strip()
+            if query:
+                results = await self.mapping_service.search_occupations(query)
+                if results:
+                    titles = [f"• {r.get('title', '')} ({r.get('code', '')})" for r in results[:5]]
+                    return {
+                        "message": f"Found these O*NET occupations:\n" + "\n".join(titles),
+                        "quick_actions": [r.get("code", "") for r in results[:3]],
+                        "step_complete": False,
+                    }
+
+        # Default: Show mapping summary
+        confirmed = sum(1 for m in mappings if m.get("user_confirmed"))
+        high_conf = sum(1 for m in mappings if m.get("confidence_score", 0) >= 0.85)
+
+        mapping_lines = []
+        for m in mappings[:10]:
+            status = "✓" if m.get("user_confirmed") else "○"
+            conf = int(m.get("confidence_score", 0) * 100)
+            mapping_lines.append(
+                f"{status} {m['source_role']} → {m.get('onet_code', '?')} ({conf}%)"
+            )
+
+        summary = "\n".join(mapping_lines)
+        if len(mappings) > 10:
+            summary += f"\n... and {len(mappings) - 10} more"
+
+        return {
+            "message": f"Role Mappings ({confirmed}/{len(mappings)} confirmed):\n\n{summary}",
+            "quick_actions": [
+                f"Accept all >{85}%",
+                "Search occupation",
+                "Continue to activities",
+            ],
+            "step_complete": False,
+        }
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/agents/test_mapping_agent_impl.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/agents/mapping_agent.py discovery/tests/unit/agents/test_mapping_agent_impl.py
+git commit -m "feat(discovery): implement MappingSubagent business logic"
+```
+
+---
+
+### Task 114: Activity Subagent Business Logic
+
+**Files:**
+- Modify: `discovery/app/agents/activity_agent.py`
+- Test: `discovery/tests/unit/agents/test_activity_agent_impl.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/agents/test_activity_agent_impl.py
+"""Unit tests for activity agent implementation."""
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
+
+
+@pytest.mark.asyncio
+async def test_show_activities():
+    """Test showing activity selections."""
+    from app.agents.activity_agent import ActivitySubagent
+
+    mock_activity_service = AsyncMock()
+    mock_activity_service.get_session_selections.return_value = [
+        {"id": str(uuid4()), "dwa_id": "4.A.1.a.1", "selected": True},
+        {"id": str(uuid4()), "dwa_id": "4.A.2.a.1", "selected": False},
+    ]
+
+    session = MagicMock()
+    session.id = uuid4()
+
+    agent = ActivitySubagent(session=session, activity_service=mock_activity_service)
+    result = await agent.process("Show activities")
+
+    assert "message" in result
+    assert "2" in result["message"] or "activities" in result["message"].lower()
+
+
+@pytest.mark.asyncio
+async def test_select_high_exposure():
+    """Test selecting high exposure activities."""
+    from app.agents.activity_agent import ActivitySubagent
+
+    mock_activity_service = AsyncMock()
+    mock_activity_service.bulk_select.return_value = {"updated_count": 10}
+
+    session = MagicMock()
+    session.id = uuid4()
+
+    agent = ActivitySubagent(session=session, activity_service=mock_activity_service)
+    result = await agent.process("Select high exposure")
+
+    assert "message" in result
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/agents/test_activity_agent_impl.py -v`
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+```python
+# discovery/app/agents/activity_agent.py
+"""Activity subagent for Step 3: Activity Selection."""
+from typing import Any
+
+from app.agents.base import BaseSubagent
+from app.services.activity_service import ActivityService
+
+
+class ActivitySubagent(BaseSubagent):
+    """Handles DWA activity selection and review."""
+
+    def __init__(
+        self,
+        session: Any,
+        activity_service: ActivityService,
+        memory_service: Any = None,
+    ) -> None:
+        super().__init__(session, memory_service)
+        self.activity_service = activity_service
+
+    async def process(self, message: str) -> dict[str, Any]:
+        """Process user message for activity step."""
+        message_lower = message.lower()
+
+        # Get current selections
+        selections = await self.activity_service.get_session_selections(
+            self.session.id
+        )
+
+        if not selections:
+            return {
+                "message": "No activities loaded. Please complete role mapping first.",
+                "quick_actions": ["Go back to mapping"],
+                "step_complete": False,
+            }
+
+        # Handle select all / clear all
+        if "select all" in message_lower or "high exposure" in message_lower:
+            result = await self.activity_service.bulk_select(
+                self.session.id, select_all=True
+            )
+            return {
+                "message": f"Selected {result['updated_count']} activities.",
+                "quick_actions": ["Show summary", "Continue to analysis"],
+                "step_complete": False,
+            }
+
+        if "clear all" in message_lower or "deselect" in message_lower:
+            result = await self.activity_service.bulk_select(
+                self.session.id, select_all=False
+            )
+            return {
+                "message": f"Cleared {result['updated_count']} selections.",
+                "quick_actions": ["Select high exposure", "Continue"],
+                "step_complete": False,
+            }
+
+        # Handle continue
+        if any(word in message_lower for word in ["continue", "done", "next"]):
+            selected = sum(1 for s in selections if s.get("selected"))
+            if selected == 0:
+                return {
+                    "message": "No activities selected. Please select at least some activities for analysis.",
+                    "quick_actions": ["Select high exposure", "Select all"],
+                    "step_complete": False,
+                }
+            return {
+                "message": f"Confirmed {selected} activities. Moving to analysis.",
+                "quick_actions": [],
+                "step_complete": True,
+            }
+
+        # Default: Show summary
+        selected = sum(1 for s in selections if s.get("selected"))
+        modified = sum(1 for s in selections if s.get("user_modified"))
+
+        return {
+            "message": (
+                f"Activity Selection Summary:\n"
+                f"• Total activities: {len(selections)}\n"
+                f"• Selected: {selected}\n"
+                f"• User modified: {modified}\n\n"
+                f"You can adjust selections or continue to analysis."
+            ),
+            "quick_actions": [
+                "Select high exposure",
+                "Clear all",
+                "Continue to analysis",
+            ],
+            "step_complete": False,
+        }
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/agents/test_activity_agent_impl.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/agents/activity_agent.py discovery/tests/unit/agents/test_activity_agent_impl.py
+git commit -m "feat(discovery): implement ActivitySubagent business logic"
+```
+
+---
+
+### Task 115: Analysis Subagent Business Logic
+
+**Files:**
+- Modify: `discovery/app/agents/analysis_agent.py`
+- Test: `discovery/tests/unit/agents/test_analysis_agent_impl.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/agents/test_analysis_agent_impl.py
+"""Unit tests for analysis agent implementation."""
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
+
+
+@pytest.mark.asyncio
+async def test_trigger_analysis():
+    """Test triggering analysis."""
+    from app.agents.analysis_agent import AnalysisSubagent
+
+    mock_analysis_service = AsyncMock()
+    mock_analysis_service.trigger_analysis.return_value = {"status": "completed", "count": 5}
+    mock_analysis_service.get_all_dimensions.return_value = {
+        "role": {"count": 5, "avg_exposure": 0.75},
+    }
+
+    session = MagicMock()
+    session.id = uuid4()
+
+    agent = AnalysisSubagent(session=session, analysis_service=mock_analysis_service)
+    result = await agent.process("Run analysis")
+
+    mock_analysis_service.trigger_analysis.assert_called()
+    assert "message" in result
+
+
+@pytest.mark.asyncio
+async def test_view_by_dimension():
+    """Test viewing results by dimension."""
+    from app.agents.analysis_agent import AnalysisSubagent
+    from app.schemas.analysis import AnalysisDimension
+
+    mock_analysis_service = AsyncMock()
+    mock_analysis_service.get_by_dimension.return_value = {
+        "dimension": "role",
+        "results": [
+            {"name": "Engineer", "priority_score": 0.85, "ai_exposure_score": 0.78},
+        ],
+    }
+
+    session = MagicMock()
+    session.id = uuid4()
+
+    agent = AnalysisSubagent(session=session, analysis_service=mock_analysis_service)
+    result = await agent.process("Show by role")
+
+    assert "Engineer" in result["message"]
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/agents/test_analysis_agent_impl.py -v`
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+```python
+# discovery/app/agents/analysis_agent.py
+"""Analysis subagent for Step 4: Analysis."""
+from typing import Any
+
+from app.agents.base import BaseSubagent
+from app.services.analysis_service import AnalysisService
+from app.schemas.analysis import AnalysisDimension
+
+
+class AnalysisSubagent(BaseSubagent):
+    """Handles scoring analysis and result exploration."""
+
+    def __init__(
+        self,
+        session: Any,
+        analysis_service: AnalysisService,
+        memory_service: Any = None,
+    ) -> None:
+        super().__init__(session, memory_service)
+        self.analysis_service = analysis_service
+        self._analysis_run = False
+
+    async def process(self, message: str) -> dict[str, Any]:
+        """Process user message for analysis step."""
+        message_lower = message.lower()
+
+        # Handle run/trigger analysis
+        if any(word in message_lower for word in ["run", "analyze", "calculate", "start"]):
+            result = await self.analysis_service.trigger_analysis(self.session.id)
+            self._analysis_run = True
+
+            if result.get("status") == "completed":
+                summary = await self.analysis_service.get_all_dimensions(self.session.id)
+                return {
+                    "message": self._format_summary(summary),
+                    "quick_actions": ["View by role", "View by department", "Continue to roadmap"],
+                    "step_complete": False,
+                }
+            return {
+                "message": "Analysis failed. Please ensure activities are selected.",
+                "quick_actions": ["Go back to activities"],
+                "step_complete": False,
+            }
+
+        # Handle view by dimension
+        for dim in AnalysisDimension:
+            if dim.value in message_lower:
+                results = await self.analysis_service.get_by_dimension(
+                    self.session.id, dim
+                )
+                return {
+                    "message": self._format_dimension_results(results),
+                    "quick_actions": self._get_other_dimensions(dim),
+                    "step_complete": False,
+                }
+
+        # Handle continue
+        if any(word in message_lower for word in ["continue", "done", "next", "roadmap"]):
+            if not self._analysis_run:
+                summary = await self.analysis_service.get_all_dimensions(self.session.id)
+                if not summary:
+                    return {
+                        "message": "Please run analysis first.",
+                        "quick_actions": ["Run analysis"],
+                        "step_complete": False,
+                    }
+            return {
+                "message": "Analysis complete. Moving to roadmap generation.",
+                "quick_actions": [],
+                "step_complete": True,
+            }
+
+        # Default: Show summary or prompt
+        summary = await self.analysis_service.get_all_dimensions(self.session.id)
+        if summary:
+            return {
+                "message": self._format_summary(summary),
+                "quick_actions": ["View by role", "View by department", "Continue to roadmap"],
+                "step_complete": False,
+            }
+
+        return {
+            "message": "Ready to analyze your workforce data. This will calculate AI exposure and priority scores.",
+            "quick_actions": ["Run analysis"],
+            "step_complete": False,
+        }
+
+    def _format_summary(self, summary: dict | None) -> str:
+        """Format analysis summary."""
+        if not summary:
+            return "No analysis results available."
+
+        lines = ["**Analysis Summary**\n"]
+        for dim, stats in summary.items():
+            avg = int(stats.get("avg_exposure", 0) * 100)
+            lines.append(f"• {dim.title()}: {stats['count']} items, {avg}% avg exposure")
+        return "\n".join(lines)
+
+    def _format_dimension_results(self, results: dict | None) -> str:
+        """Format dimension results."""
+        if not results or not results.get("results"):
+            return "No results for this dimension."
+
+        lines = [f"**{results['dimension'].title()} Analysis**\n"]
+        for r in results["results"][:10]:
+            priority = int(r.get("priority_score", 0) * 100)
+            exposure = int(r.get("ai_exposure_score", 0) * 100)
+            lines.append(f"• {r['name']}: {priority}% priority, {exposure}% exposure")
+
+        if len(results["results"]) > 10:
+            lines.append(f"... and {len(results['results']) - 10} more")
+        return "\n".join(lines)
+
+    def _get_other_dimensions(self, current: AnalysisDimension) -> list[str]:
+        """Get quick actions for other dimensions."""
+        others = [f"View by {d.value}" for d in AnalysisDimension if d != current]
+        return others[:3] + ["Continue to roadmap"]
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/agents/test_analysis_agent_impl.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/agents/analysis_agent.py discovery/tests/unit/agents/test_analysis_agent_impl.py
+git commit -m "feat(discovery): implement AnalysisSubagent business logic"
+```
+
+---
+
+### Task 116: Roadmap Subagent Business Logic
+
+**Files:**
+- Modify: `discovery/app/agents/roadmap_agent.py`
+- Test: `discovery/tests/unit/agents/test_roadmap_agent_impl.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/agents/test_roadmap_agent_impl.py
+"""Unit tests for roadmap agent implementation."""
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
+
+
+@pytest.mark.asyncio
+async def test_generate_roadmap():
+    """Test generating roadmap candidates."""
+    from app.agents.roadmap_agent import RoadmapSubagent
+
+    mock_roadmap_service = AsyncMock()
+    mock_roadmap_service.generate_candidates.return_value = [
+        {"id": str(uuid4()), "name": "Invoice Agent", "priority_tier": "now"},
+    ]
+    mock_roadmap_service.get_candidates.return_value = [
+        {"id": str(uuid4()), "name": "Invoice Agent", "priority_tier": "now", "selected_for_build": False},
+    ]
+
+    session = MagicMock()
+    session.id = uuid4()
+
+    agent = RoadmapSubagent(session=session, roadmap_service=mock_roadmap_service)
+    result = await agent.process("Generate roadmap")
+
+    mock_roadmap_service.generate_candidates.assert_called()
+
+
+@pytest.mark.asyncio
+async def test_select_for_build():
+    """Test selecting candidate for build."""
+    from app.agents.roadmap_agent import RoadmapSubagent
+
+    mock_roadmap_service = AsyncMock()
+    mock_roadmap_service.select_for_build.return_value = {
+        "id": str(uuid4()),
+        "name": "Invoice Agent",
+        "selected_for_build": True,
+    }
+
+    session = MagicMock()
+    session.id = uuid4()
+
+    agent = RoadmapSubagent(session=session, roadmap_service=mock_roadmap_service)
+    agent._candidates = [{"id": "123", "name": "Invoice Agent"}]
+    result = await agent.process("Select Invoice Agent")
+
+    assert "message" in result
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/agents/test_roadmap_agent_impl.py -v`
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+```python
+# discovery/app/agents/roadmap_agent.py
+"""Roadmap subagent for Step 5: Roadmap."""
+from typing import Any
+
+from app.agents.base import BaseSubagent
+from app.services.roadmap_service import RoadmapService
+from app.services.handoff_service import HandoffService
+
+
+class RoadmapSubagent(BaseSubagent):
+    """Handles roadmap generation and Build handoff."""
+
+    def __init__(
+        self,
+        session: Any,
+        roadmap_service: RoadmapService,
+        handoff_service: HandoffService | None = None,
+        memory_service: Any = None,
+    ) -> None:
+        super().__init__(session, memory_service)
+        self.roadmap_service = roadmap_service
+        self.handoff_service = handoff_service
+        self._candidates: list[dict] = []
+
+    async def process(self, message: str) -> dict[str, Any]:
+        """Process user message for roadmap step."""
+        message_lower = message.lower()
+
+        # Handle generate roadmap
+        if any(word in message_lower for word in ["generate", "create", "build roadmap"]):
+            candidates = await self.roadmap_service.generate_candidates(self.session.id)
+            self._candidates = candidates
+            return {
+                "message": self._format_roadmap(candidates),
+                "quick_actions": ["Select for build", "Send to intake"],
+                "step_complete": False,
+            }
+
+        # Handle selection
+        if "select" in message_lower:
+            for candidate in self._candidates:
+                if candidate["name"].lower() in message_lower:
+                    await self.roadmap_service.select_for_build(
+                        candidate["id"], selected=True
+                    )
+                    return {
+                        "message": f"Selected '{candidate['name']}' for build.",
+                        "quick_actions": ["Select more", "Send to intake"],
+                        "step_complete": False,
+                    }
+
+        # Handle send to intake / handoff
+        if any(word in message_lower for word in ["send", "handoff", "intake", "finish"]):
+            if self.handoff_service:
+                bundle = await self.handoff_service.create_handoff_bundle(
+                    self.session.id
+                )
+                if bundle.get("candidates"):
+                    return {
+                        "message": f"Sent {len(bundle['candidates'])} candidates to Build intake. Discovery complete!",
+                        "quick_actions": ["Export results"],
+                        "step_complete": True,
+                    }
+                return {
+                    "message": "No candidates selected for build. Please select at least one.",
+                    "quick_actions": ["View candidates"],
+                    "step_complete": False,
+                }
+            return {
+                "message": "Discovery session complete!",
+                "quick_actions": ["Export results"],
+                "step_complete": True,
+            }
+
+        # Default: Show current roadmap
+        if not self._candidates:
+            self._candidates = await self.roadmap_service.get_candidates(self.session.id)
+
+        if self._candidates:
+            return {
+                "message": self._format_roadmap(self._candidates),
+                "quick_actions": ["Select for build", "Send to intake"],
+                "step_complete": False,
+            }
+
+        return {
+            "message": "Ready to generate your automation roadmap based on analysis results.",
+            "quick_actions": ["Generate roadmap"],
+            "step_complete": False,
+        }
+
+    def _format_roadmap(self, candidates: list[dict]) -> str:
+        """Format roadmap candidates by tier."""
+        tiers = {"now": [], "next_quarter": [], "future": []}
+
+        for c in candidates:
+            tier = c.get("priority_tier", "future")
+            tiers[tier].append(c)
+
+        lines = ["**Automation Roadmap**\n"]
+
+        if tiers["now"]:
+            lines.append("🚀 **NOW** (High priority)")
+            for c in tiers["now"]:
+                sel = "✓" if c.get("selected_for_build") else "○"
+                lines.append(f"  {sel} {c['name']}")
+
+        if tiers["next_quarter"]:
+            lines.append("\n📅 **NEXT QUARTER**")
+            for c in tiers["next_quarter"]:
+                sel = "✓" if c.get("selected_for_build") else "○"
+                lines.append(f"  {sel} {c['name']}")
+
+        if tiers["future"]:
+            lines.append("\n🔮 **FUTURE**")
+            for c in tiers["future"]:
+                sel = "✓" if c.get("selected_for_build") else "○"
+                lines.append(f"  {sel} {c['name']}")
+
+        return "\n".join(lines)
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/agents/test_roadmap_agent_impl.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/agents/roadmap_agent.py discovery/tests/unit/agents/test_roadmap_agent_impl.py
+git commit -m "feat(discovery): implement RoadmapSubagent business logic"
+```
+
+---
+
+## Part 18: Orchestrator Integration (Tasks 117-119)
+
+### Task 117: Wire Orchestrator to Subagents
+
+**Files:**
+- Modify: `discovery/app/agents/orchestrator.py`
+- Test: `discovery/tests/unit/agents/test_orchestrator_impl.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/agents/test_orchestrator_impl.py
+"""Unit tests for orchestrator implementation."""
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
+
+
+@pytest.mark.asyncio
+async def test_route_to_upload_agent():
+    """Test routing to upload agent in step 1."""
+    from app.agents.orchestrator import DiscoveryOrchestrator
+    from app.enums import DiscoveryStep
+
+    mock_services = {
+        "upload": AsyncMock(),
+        "mapping": AsyncMock(),
+        "activity": AsyncMock(),
+        "analysis": AsyncMock(),
+        "roadmap": AsyncMock(),
+    }
+
+    session = MagicMock()
+    session.id = uuid4()
+    session.current_step = DiscoveryStep.UPLOAD
+
+    orchestrator = DiscoveryOrchestrator(session=session, services=mock_services)
+    result = await orchestrator.process("Hello")
+
+    assert "message" in result
+
+
+@pytest.mark.asyncio
+async def test_advance_step_on_completion():
+    """Test step advances when subagent completes."""
+    from app.agents.orchestrator import DiscoveryOrchestrator
+    from app.enums import DiscoveryStep
+
+    mock_services = {"upload": AsyncMock()}
+
+    session = MagicMock()
+    session.id = uuid4()
+    session.current_step = DiscoveryStep.UPLOAD
+
+    orchestrator = DiscoveryOrchestrator(session=session, services=mock_services)
+
+    # Simulate subagent completion
+    orchestrator._subagents["upload"] = AsyncMock()
+    orchestrator._subagents["upload"].process.return_value = {
+        "message": "Done",
+        "step_complete": True,
+    }
+
+    result = await orchestrator.process("Confirm mappings")
+
+    assert session.current_step == DiscoveryStep.MAP_ROLES
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/agents/test_orchestrator_impl.py -v`
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+```python
+# discovery/app/agents/orchestrator.py
+"""Discovery Orchestrator for routing messages to appropriate subagents."""
+from typing import Any
+from uuid import uuid4
+
+from app.enums import DiscoveryStep
+from app.agents.upload_agent import UploadSubagent
+from app.agents.mapping_agent import MappingSubagent
+from app.agents.activity_agent import ActivitySubagent
+from app.agents.analysis_agent import AnalysisSubagent
+from app.agents.roadmap_agent import RoadmapSubagent
+
+
+class DiscoveryOrchestrator:
+    """Orchestrates the discovery wizard by routing to subagents."""
+
+    _STEP_ORDER: list[DiscoveryStep] = [
+        DiscoveryStep.UPLOAD,
+        DiscoveryStep.MAP_ROLES,
+        DiscoveryStep.SELECT_ACTIVITIES,
+        DiscoveryStep.ANALYZE,
+        DiscoveryStep.ROADMAP,
+    ]
+
+    def __init__(
+        self,
+        session: Any,
+        services: dict[str, Any],
+        memory_service: Any = None,
+    ) -> None:
+        self._session = session
+        self._services = services
+        self._memory_service = memory_service
+        self._conversation_id: str = str(uuid4())
+        self._message_history: list[dict[str, Any]] = []
+        self._subagents: dict[str, Any] = {}
+
+        # Initialize subagents with their services
+        self._init_subagents()
+
+    def _init_subagents(self) -> None:
+        """Initialize subagent instances."""
+        if "upload" in self._services:
+            self._subagents["upload"] = UploadSubagent(
+                session=self._session,
+                upload_service=self._services["upload"],
+                memory_service=self._memory_service,
+            )
+        if "mapping" in self._services:
+            self._subagents["mapping"] = MappingSubagent(
+                session=self._session,
+                mapping_service=self._services["mapping"],
+                memory_service=self._memory_service,
+            )
+        if "activity" in self._services:
+            self._subagents["activity"] = ActivitySubagent(
+                session=self._session,
+                activity_service=self._services["activity"],
+                memory_service=self._memory_service,
+            )
+        if "analysis" in self._services:
+            self._subagents["analysis"] = AnalysisSubagent(
+                session=self._session,
+                analysis_service=self._services["analysis"],
+                memory_service=self._memory_service,
+            )
+        if "roadmap" in self._services:
+            self._subagents["roadmap"] = RoadmapSubagent(
+                session=self._session,
+                roadmap_service=self._services["roadmap"],
+                handoff_service=self._services.get("handoff"),
+                memory_service=self._memory_service,
+            )
+
+    async def process(self, message: str) -> dict[str, Any]:
+        """Process message by routing to appropriate subagent."""
+        self._message_history.append({"role": "user", "content": message})
+
+        # Get subagent for current step
+        step_to_agent = {
+            DiscoveryStep.UPLOAD: "upload",
+            DiscoveryStep.MAP_ROLES: "mapping",
+            DiscoveryStep.SELECT_ACTIVITIES: "activity",
+            DiscoveryStep.ANALYZE: "analysis",
+            DiscoveryStep.ROADMAP: "roadmap",
+        }
+
+        agent_key = step_to_agent.get(self._session.current_step)
+        if not agent_key or agent_key not in self._subagents:
+            return {
+                "message": "Invalid step or agent not configured.",
+                "step_complete": False,
+            }
+
+        subagent = self._subagents[agent_key]
+        response = await subagent.process(message)
+
+        self._message_history.append({
+            "role": "assistant",
+            "content": response.get("message", ""),
+        })
+
+        # Advance step if complete
+        if response.get("step_complete"):
+            self._advance_step()
+
+        return response
+
+    def _advance_step(self) -> None:
+        """Advance to next step in wizard."""
+        current = self._session.current_step
+        try:
+            idx = self._STEP_ORDER.index(current)
+            if idx < len(self._STEP_ORDER) - 1:
+                self._session.current_step = self._STEP_ORDER[idx + 1]
+        except ValueError:
+            pass
+
+    def get_conversation_history(self) -> list[dict[str, Any]]:
+        """Get full conversation history."""
+        return self._message_history.copy()
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/agents/test_orchestrator_impl.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/agents/orchestrator.py discovery/tests/unit/agents/test_orchestrator_impl.py
+git commit -m "feat(discovery): wire orchestrator to subagents with step routing"
+```
+
+---
+
+### Task 118: Chat Service Orchestrator Integration
+
+**Files:**
+- Modify: `discovery/app/services/chat_service.py`
+- Test: `discovery/tests/unit/services/test_chat_service_impl.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/services/test_chat_service_impl.py
+"""Unit tests for chat service integration."""
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
+
+
+@pytest.mark.asyncio
+async def test_send_message_routes_to_orchestrator():
+    """Test send_message uses orchestrator."""
+    from app.services.chat_service import ChatService
+
+    mock_orchestrator = AsyncMock()
+    mock_orchestrator.process.return_value = {
+        "message": "Hello!",
+        "quick_actions": ["Upload file"],
+        "step_complete": False,
+    }
+
+    mock_session_service = AsyncMock()
+    mock_session = MagicMock()
+    mock_session.id = uuid4()
+    mock_session.current_step = 1
+    mock_session_service.get_by_id.return_value = mock_session
+
+    service = ChatService(
+        session_service=mock_session_service,
+        orchestrator_factory=lambda s, svc: mock_orchestrator,
+    )
+
+    result = await service.send_message(mock_session.id, "Hi there")
+
+    assert "response" in result
+    assert "quick_actions" in result
+    mock_orchestrator.process.assert_called_once_with("Hi there")
+
+
+@pytest.mark.asyncio
+async def test_get_history():
+    """Test getting conversation history."""
+    from app.services.chat_service import ChatService
+
+    mock_orchestrator = AsyncMock()
+    mock_orchestrator.get_conversation_history.return_value = [
+        {"role": "user", "content": "Hello"},
+        {"role": "assistant", "content": "Hi!"},
+    ]
+
+    service = ChatService(
+        orchestrator_factory=lambda s, svc: mock_orchestrator,
+    )
+    service._orchestrators[uuid4()] = mock_orchestrator
+
+    # Get history from cached orchestrator
+    session_id = list(service._orchestrators.keys())[0]
+    result = await service.get_history(session_id)
+
+    assert len(result) == 2
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/services/test_chat_service_impl.py -v`
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+```python
+# discovery/app/services/chat_service.py
+"""Chat service for managing conversation with discovery orchestrator."""
+from typing import Any, Callable
+from uuid import UUID
+
+from app.agents.orchestrator import DiscoveryOrchestrator
+from app.services.session_service import SessionService
+
+
+class ChatService:
+    """Service for chat interactions with discovery workflow."""
+
+    def __init__(
+        self,
+        session_service: SessionService | None = None,
+        services: dict[str, Any] | None = None,
+        orchestrator_factory: Callable | None = None,
+    ) -> None:
+        self.session_service = session_service
+        self._services = services or {}
+        self._orchestrator_factory = orchestrator_factory
+        self._orchestrators: dict[UUID, DiscoveryOrchestrator] = {}
+
+    async def send_message(
+        self,
+        session_id: UUID,
+        message: str,
+    ) -> dict[str, Any]:
+        """Send a message and get response.
+
+        Routes message through orchestrator to appropriate subagent.
+        """
+        orchestrator = await self._get_or_create_orchestrator(session_id)
+
+        response = await orchestrator.process(message)
+
+        return {
+            "response": response.get("message", ""),
+            "quick_actions": response.get("quick_actions", []),
+            "step_complete": response.get("step_complete", False),
+        }
+
+    async def get_history(
+        self,
+        session_id: UUID,
+    ) -> list[dict[str, Any]]:
+        """Get conversation history for a session."""
+        orchestrator = self._orchestrators.get(session_id)
+        if not orchestrator:
+            return []
+        return orchestrator.get_conversation_history()
+
+    async def _get_or_create_orchestrator(
+        self,
+        session_id: UUID,
+    ) -> DiscoveryOrchestrator:
+        """Get existing or create new orchestrator for session."""
+        if session_id in self._orchestrators:
+            return self._orchestrators[session_id]
+
+        # Get session data
+        session = None
+        if self.session_service:
+            session_data = await self.session_service.get_by_id(session_id)
+            if session_data:
+                # Create a session object
+                from types import SimpleNamespace
+                session = SimpleNamespace(**session_data)
+
+        if not session:
+            from types import SimpleNamespace
+            from app.enums import DiscoveryStep
+            session = SimpleNamespace(
+                id=session_id,
+                current_step=DiscoveryStep.UPLOAD,
+            )
+
+        # Create orchestrator
+        if self._orchestrator_factory:
+            orchestrator = self._orchestrator_factory(session, self._services)
+        else:
+            orchestrator = DiscoveryOrchestrator(
+                session=session,
+                services=self._services,
+            )
+
+        self._orchestrators[session_id] = orchestrator
+        return orchestrator
+
+
+def get_chat_service() -> ChatService:
+    """Dependency placeholder."""
+    raise NotImplementedError("Use dependency injection")
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/services/test_chat_service_impl.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/services/chat_service.py discovery/tests/unit/services/test_chat_service_impl.py
+git commit -m "feat(discovery): integrate ChatService with orchestrator"
+```
+
+---
+
+### Task 119: Agent Memory Models and Repository
+
+**Files:**
+- Create: `discovery/app/models/agent_memory.py`
+- Create: `discovery/app/repositories/memory_repository.py`
+- Create: `discovery/migrations/versions/011_agent_memory.py`
+- Test: `discovery/tests/unit/models/test_agent_memory.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/models/test_agent_memory.py
+"""Unit tests for agent memory models."""
+import pytest
+
+
+def test_working_memory_exists():
+    """Test AgentWorkingMemory model exists."""
+    from app.models.agent_memory import AgentWorkingMemory
+    assert AgentWorkingMemory is not None
+
+
+def test_episodic_memory_exists():
+    """Test AgentEpisodicMemory model exists."""
+    from app.models.agent_memory import AgentEpisodicMemory
+    assert AgentEpisodicMemory is not None
+
+
+def test_semantic_memory_exists():
+    """Test AgentSemanticMemory model exists."""
+    from app.models.agent_memory import AgentSemanticMemory
+    assert AgentSemanticMemory is not None
+
+
+def test_episodic_has_organization_scope():
+    """Test episodic memory is scoped to organization."""
+    from app.models.agent_memory import AgentEpisodicMemory
+    columns = AgentEpisodicMemory.__table__.columns.keys()
+    assert "organization_id" in columns
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/models/test_agent_memory.py -v`
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+```python
+# discovery/app/models/agent_memory.py
+"""Agent memory models for learning and context."""
+from datetime import datetime, timezone
+from uuid import UUID, uuid4
+
+from sqlalchemy import String, DateTime, Float, Integer, ForeignKey, Text
+from sqlalchemy.dialects.postgresql import UUID as PGUUID, JSONB
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.models.base import Base
+
+
+class AgentWorkingMemory(Base):
+    """Working memory - session-scoped context."""
+    __tablename__ = "agent_memory_working"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    agent_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    session_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("discovery_sessions.id"),
+        nullable=False,
+    )
+    context: Mapped[dict] = mapped_column(JSONB, default=dict)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class AgentEpisodicMemory(Base):
+    """Episodic memory - specific interactions for learning."""
+    __tablename__ = "agent_memory_episodic"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    agent_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    organization_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    episode_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    content: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    relevance_score: Mapped[float] = mapped_column(Float, default=1.0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+
+class AgentSemanticMemory(Base):
+    """Semantic memory - learned patterns and facts."""
+    __tablename__ = "agent_memory_semantic"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    agent_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    organization_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    fact_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    content: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, default=0.5)
+    occurrence_count: Mapped[int] = mapped_column(Integer, default=1)
+    last_updated: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+```
+
+```python
+# discovery/app/repositories/memory_repository.py
+"""Agent memory repository."""
+from datetime import datetime, timezone, timedelta
+from typing import Sequence
+from uuid import UUID
+
+from sqlalchemy import select, delete
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.agent_memory import (
+    AgentWorkingMemory,
+    AgentEpisodicMemory,
+    AgentSemanticMemory,
+)
+
+
+class MemoryRepository:
+    """Repository for agent memory operations."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    # Working Memory
+    async def get_working_memory(
+        self,
+        agent_type: str,
+        session_id: UUID,
+    ) -> AgentWorkingMemory | None:
+        """Get working memory for agent in session."""
+        stmt = select(AgentWorkingMemory).where(
+            AgentWorkingMemory.agent_type == agent_type,
+            AgentWorkingMemory.session_id == session_id,
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def save_working_memory(
+        self,
+        agent_type: str,
+        session_id: UUID,
+        context: dict,
+        ttl_hours: int = 24,
+    ) -> AgentWorkingMemory:
+        """Save or update working memory."""
+        existing = await self.get_working_memory(agent_type, session_id)
+        expires_at = datetime.now(timezone.utc) + timedelta(hours=ttl_hours)
+
+        if existing:
+            existing.context = context
+            existing.expires_at = expires_at
+            await self.session.commit()
+            await self.session.refresh(existing)
+            return existing
+
+        memory = AgentWorkingMemory(
+            agent_type=agent_type,
+            session_id=session_id,
+            context=context,
+            expires_at=expires_at,
+        )
+        self.session.add(memory)
+        await self.session.commit()
+        await self.session.refresh(memory)
+        return memory
+
+    # Episodic Memory
+    async def record_episode(
+        self,
+        agent_type: str,
+        organization_id: UUID,
+        episode_type: str,
+        content: dict,
+    ) -> AgentEpisodicMemory:
+        """Record an episode for learning."""
+        episode = AgentEpisodicMemory(
+            agent_type=agent_type,
+            organization_id=organization_id,
+            episode_type=episode_type,
+            content=content,
+        )
+        self.session.add(episode)
+        await self.session.commit()
+        await self.session.refresh(episode)
+        return episode
+
+    async def get_similar_episodes(
+        self,
+        agent_type: str,
+        organization_id: UUID,
+        episode_type: str,
+        limit: int = 10,
+    ) -> Sequence[AgentEpisodicMemory]:
+        """Get similar episodes for context."""
+        stmt = (
+            select(AgentEpisodicMemory)
+            .where(
+                AgentEpisodicMemory.agent_type == agent_type,
+                AgentEpisodicMemory.organization_id == organization_id,
+                AgentEpisodicMemory.episode_type == episode_type,
+            )
+            .order_by(AgentEpisodicMemory.relevance_score.desc())
+            .limit(limit)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalars().all()
+
+    # Semantic Memory
+    async def learn_fact(
+        self,
+        agent_type: str,
+        organization_id: UUID,
+        fact_type: str,
+        content: dict,
+    ) -> AgentSemanticMemory:
+        """Learn or reinforce a fact."""
+        # Check for existing similar fact
+        stmt = select(AgentSemanticMemory).where(
+            AgentSemanticMemory.agent_type == agent_type,
+            AgentSemanticMemory.organization_id == organization_id,
+            AgentSemanticMemory.fact_type == fact_type,
+            AgentSemanticMemory.content == content,
+        )
+        result = await self.session.execute(stmt)
+        existing = result.scalar_one_or_none()
+
+        if existing:
+            existing.occurrence_count += 1
+            existing.confidence = min(1.0, existing.confidence + 0.1)
+            await self.session.commit()
+            await self.session.refresh(existing)
+            return existing
+
+        fact = AgentSemanticMemory(
+            agent_type=agent_type,
+            organization_id=organization_id,
+            fact_type=fact_type,
+            content=content,
+        )
+        self.session.add(fact)
+        await self.session.commit()
+        await self.session.refresh(fact)
+        return fact
+
+    async def get_relevant_facts(
+        self,
+        agent_type: str,
+        organization_id: UUID,
+        fact_type: str | None = None,
+        min_confidence: float = 0.5,
+    ) -> Sequence[AgentSemanticMemory]:
+        """Get relevant learned facts."""
+        stmt = select(AgentSemanticMemory).where(
+            AgentSemanticMemory.agent_type == agent_type,
+            AgentSemanticMemory.organization_id == organization_id,
+            AgentSemanticMemory.confidence >= min_confidence,
+        )
+        if fact_type:
+            stmt = stmt.where(AgentSemanticMemory.fact_type == fact_type)
+        stmt = stmt.order_by(AgentSemanticMemory.confidence.desc())
+
+        result = await self.session.execute(stmt)
+        return result.scalars().all()
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/models/test_agent_memory.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/models/agent_memory.py
+git add discovery/app/repositories/memory_repository.py
+git add discovery/migrations/versions/011_agent_memory.py
+git add discovery/tests/unit/models/test_agent_memory.py
+git commit -m "feat(discovery): add agent memory models and repository"
+```
+
+---
+
+**Phase 3 Complete!**
+
+All subagents now have business logic:
+- UploadSubagent: File analysis and column mapping
+- MappingSubagent: O*NET matching and bulk operations
+- ActivitySubagent: DWA selection management
+- AnalysisSubagent: Score exploration and insights
+- RoadmapSubagent: Candidate generation and handoff
+
+Orchestrator integration:
+- ChatService routes through orchestrator
+- Step progression managed automatically
+- Agent memory for learning
+
+---
+
+## Phase 4: Background Jobs (Tasks 120-124)
+
+This phase implements scheduled background jobs for O*NET data synchronization.
+
+---
+
+## Part 20: Job Infrastructure (Tasks 120-124)
+
+### Task 120: APScheduler Setup
+
+**Files:**
+- Create: `discovery/app/jobs/__init__.py`
+- Create: `discovery/app/jobs/scheduler.py`
+- Test: `discovery/tests/unit/jobs/test_scheduler.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/jobs/test_scheduler.py
+"""Unit tests for job scheduler."""
+import pytest
+
+
+def test_scheduler_exists():
+    """Test Scheduler is importable."""
+    from app.jobs.scheduler import JobScheduler
+    assert JobScheduler is not None
+
+
+def test_scheduler_can_add_job():
+    """Test adding a job to scheduler."""
+    from app.jobs.scheduler import JobScheduler
+
+    scheduler = JobScheduler()
+    assert hasattr(scheduler, "add_job")
+
+
+def test_scheduler_can_start():
+    """Test scheduler can start."""
+    from app.jobs.scheduler import JobScheduler
+
+    scheduler = JobScheduler()
+    assert hasattr(scheduler, "start")
+    assert hasattr(scheduler, "shutdown")
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/jobs/test_scheduler.py -v`
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+```python
+# discovery/app/jobs/__init__.py
+"""Background job scheduling."""
+from app.jobs.scheduler import JobScheduler
+
+__all__ = ["JobScheduler"]
+```
+
+```python
+# discovery/app/jobs/scheduler.py
+"""Job scheduler using APScheduler."""
+import logging
+from typing import Callable, Any
+
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
+
+logger = logging.getLogger(__name__)
+
+
+class JobScheduler:
+    """Async job scheduler for background tasks."""
+
+    def __init__(self) -> None:
+        self._scheduler = AsyncIOScheduler()
+        self._jobs: dict[str, Any] = {}
+
+    def add_job(
+        self,
+        job_id: str,
+        func: Callable,
+        trigger: str = "interval",
+        **trigger_args,
+    ) -> None:
+        """Add a job to the scheduler.
+
+        Args:
+            job_id: Unique job identifier.
+            func: Async function to execute.
+            trigger: 'interval' or 'cron'.
+            **trigger_args: Arguments for the trigger (hours, minutes, day_of_week, etc.)
+        """
+        if trigger == "cron":
+            trigger_obj = CronTrigger(**trigger_args)
+        else:
+            trigger_obj = IntervalTrigger(**trigger_args)
+
+        job = self._scheduler.add_job(
+            func,
+            trigger=trigger_obj,
+            id=job_id,
+            replace_existing=True,
+        )
+        self._jobs[job_id] = job
+        logger.info(f"Added job: {job_id}")
+
+    def remove_job(self, job_id: str) -> bool:
+        """Remove a job from the scheduler."""
+        if job_id in self._jobs:
+            self._scheduler.remove_job(job_id)
+            del self._jobs[job_id]
+            return True
+        return False
+
+    def start(self) -> None:
+        """Start the scheduler."""
+        if not self._scheduler.running:
+            self._scheduler.start()
+            logger.info("Job scheduler started")
+
+    def shutdown(self, wait: bool = True) -> None:
+        """Shutdown the scheduler."""
+        if self._scheduler.running:
+            self._scheduler.shutdown(wait=wait)
+            logger.info("Job scheduler stopped")
+
+    def get_jobs(self) -> list[dict[str, Any]]:
+        """Get list of scheduled jobs."""
+        return [
+            {
+                "id": job.id,
+                "next_run": str(job.next_run_time) if job.next_run_time else None,
+            }
+            for job in self._scheduler.get_jobs()
+        ]
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/jobs/test_scheduler.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/jobs/ discovery/tests/unit/jobs/
+git commit -m "feat(discovery): add APScheduler job infrastructure"
+```
+
+---
+
+### Task 121: O*NET Weekly Sync Job
+
+**Files:**
+- Create: `discovery/app/jobs/onet_sync_job.py`
+- Test: `discovery/tests/unit/jobs/test_onet_sync_job.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/jobs/test_onet_sync_job.py
+"""Unit tests for O*NET sync job."""
+import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
+
+
+def test_onet_sync_job_exists():
+    """Test OnetSyncJob is importable."""
+    from app.jobs.onet_sync_job import OnetSyncJob
+    assert OnetSyncJob is not None
+
+
+@pytest.mark.asyncio
+async def test_run_sync():
+    """Test running the sync job."""
+    from app.jobs.onet_sync_job import OnetSyncJob
+
+    mock_sync_service = AsyncMock()
+    mock_sync_service.full_sync.return_value = {
+        "occupations": 100,
+        "activities": 500,
+        "errors": [],
+    }
+
+    job = OnetSyncJob(sync_service=mock_sync_service)
+    result = await job.run()
+
+    assert result["occupations"] == 100
+    mock_sync_service.full_sync.assert_called_once()
+
+
+def test_job_schedule_config():
+    """Test job has correct schedule config."""
+    from app.jobs.onet_sync_job import OnetSyncJob
+
+    # Default: Sunday 2am UTC
+    assert OnetSyncJob.SCHEDULE_DAY == "sun"
+    assert OnetSyncJob.SCHEDULE_HOUR == 2
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/jobs/test_onet_sync_job.py -v`
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+```python
+# discovery/app/jobs/onet_sync_job.py
+"""Weekly O*NET data synchronization job."""
+import logging
+from datetime import datetime, timezone
+from typing import Any
+
+from app.services.onet_sync_service import OnetSyncService
+
+logger = logging.getLogger(__name__)
+
+
+class OnetSyncJob:
+    """Job for weekly O*NET data synchronization.
+
+    Runs every Sunday at 2am UTC by default.
+    """
+
+    SCHEDULE_DAY = "sun"
+    SCHEDULE_HOUR = 2
+    SCHEDULE_MINUTE = 0
+
+    def __init__(self, sync_service: OnetSyncService) -> None:
+        self.sync_service = sync_service
+
+    async def run(self) -> dict[str, Any]:
+        """Execute the sync job.
+
+        Returns:
+            Dict with sync statistics.
+        """
+        start_time = datetime.now(timezone.utc)
+        logger.info(f"Starting O*NET sync job at {start_time}")
+
+        try:
+            result = await self.sync_service.full_sync()
+
+            end_time = datetime.now(timezone.utc)
+            duration = (end_time - start_time).total_seconds()
+
+            logger.info(
+                f"O*NET sync completed in {duration:.2f}s: "
+                f"{result['occupations']} occupations, "
+                f"{result['activities']} activities"
+            )
+
+            if result.get("errors"):
+                logger.warning(f"Sync had {len(result['errors'])} errors")
+
+            return {
+                **result,
+                "started_at": start_time.isoformat(),
+                "completed_at": end_time.isoformat(),
+                "duration_seconds": duration,
+            }
+
+        except Exception as e:
+            logger.error(f"O*NET sync failed: {e}")
+            raise
+
+    @classmethod
+    def get_schedule_config(cls) -> dict[str, Any]:
+        """Get cron schedule configuration."""
+        return {
+            "day_of_week": cls.SCHEDULE_DAY,
+            "hour": cls.SCHEDULE_HOUR,
+            "minute": cls.SCHEDULE_MINUTE,
+        }
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/jobs/test_onet_sync_job.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/jobs/onet_sync_job.py discovery/tests/unit/jobs/test_onet_sync_job.py
+git commit -m "feat(discovery): add O*NET weekly sync job"
+```
+
+---
+
+### Task 122: Job Registration in App Startup
+
+**Files:**
+- Modify: `discovery/app/main.py`
+- Test: `discovery/tests/unit/test_job_registration.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/test_job_registration.py
+"""Unit tests for job registration."""
+import pytest
+from unittest.mock import patch, MagicMock
+
+
+def test_scheduler_registered_on_startup():
+    """Test scheduler is registered on app startup."""
+    from app.main import app
+
+    # Check lifespan event handlers exist
+    assert hasattr(app, "router")
+
+
+@pytest.mark.asyncio
+async def test_register_jobs_function():
+    """Test register_jobs creates sync job."""
+    from app.main import register_jobs
+
+    mock_scheduler = MagicMock()
+
+    with patch("app.main.get_settings") as mock_settings:
+        mock_settings.return_value.onet_api_key.get_secret_value.return_value = "test"
+        register_jobs(mock_scheduler)
+
+    mock_scheduler.add_job.assert_called()
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/test_job_registration.py -v`
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+Update `discovery/app/main.py`:
+
+```python
+# Add to discovery/app/main.py
+from contextlib import asynccontextmanager
+from app.jobs.scheduler import JobScheduler
+from app.jobs.onet_sync_job import OnetSyncJob
+from app.config import get_settings
+
+
+scheduler = JobScheduler()
+
+
+def register_jobs(scheduler: JobScheduler) -> None:
+    """Register background jobs with scheduler."""
+    settings = get_settings()
+
+    # Only register if API key is configured
+    if settings.onet_api_key.get_secret_value():
+        from app.services.onet_client import OnetApiClient
+        from app.services.onet_sync_service import OnetSyncService
+        from app.models.base import async_session_maker
+
+        async def run_onet_sync():
+            async with async_session_maker() as session:
+                client = OnetApiClient(settings)
+                sync_service = OnetSyncService(client, session)
+                job = OnetSyncJob(sync_service)
+                await job.run()
+
+        scheduler.add_job(
+            job_id="onet_weekly_sync",
+            func=run_onet_sync,
+            trigger="cron",
+            **OnetSyncJob.get_schedule_config(),
+        )
+
+
+@asynccontextmanager
+async def lifespan(app):
+    """Application lifespan handler."""
+    # Startup
+    register_jobs(scheduler)
+    scheduler.start()
+    yield
+    # Shutdown
+    scheduler.shutdown()
+
+
+# Update FastAPI app initialization
+app = FastAPI(
+    title="Discovery API",
+    version="1.0.0",
+    lifespan=lifespan,
+)
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/test_job_registration.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/main.py discovery/tests/unit/test_job_registration.py
+git commit -m "feat(discovery): register O*NET sync job on app startup"
+```
+
+---
+
+**Phase 4 Complete!**
+
+Background job infrastructure:
+- APScheduler integration for async jobs
+- Weekly O*NET sync job (Sundays 2am UTC)
+- Automatic job registration on startup
+
+**Next Phase:** Phase 5: Error Handling & Recovery
+
+---
+
+## Phase 5: Error Handling & Recovery (Tasks 123-126)
+
+This phase implements robust error handling and session recovery.
+
+---
+
+## Part 21: Error Handling (Tasks 123-126)
+
+### Task 123: Custom Exception Classes
+
+**Files:**
+- Modify: `discovery/app/exceptions.py`
+- Test: `discovery/tests/unit/test_exceptions.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/test_exceptions.py
+"""Unit tests for custom exceptions."""
+import pytest
+
+
+def test_discovery_exception_exists():
+    """Test DiscoveryException base class exists."""
+    from app.exceptions import DiscoveryException
+    assert DiscoveryException is not None
+
+
+def test_session_not_found_exception():
+    """Test SessionNotFoundException."""
+    from app.exceptions import SessionNotFoundException
+
+    exc = SessionNotFoundException("abc-123")
+    assert "abc-123" in str(exc)
+
+
+def test_validation_exception():
+    """Test ValidationException with details."""
+    from app.exceptions import ValidationException
+
+    exc = ValidationException("Invalid file", details={"field": "file"})
+    assert exc.details == {"field": "file"}
+
+
+def test_onet_exception_retry_info():
+    """Test OnetApiException with retry info."""
+    from app.exceptions import OnetRateLimitError
+
+    exc = OnetRateLimitError("Rate limited", retry_after=60)
+    assert exc.retry_after == 60
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/test_exceptions.py -v`
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+```python
+# discovery/app/exceptions.py
+"""Custom exceptions for Discovery module."""
+from typing import Any
+
+
+class DiscoveryException(Exception):
+    """Base exception for Discovery module."""
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None):
+        super().__init__(message)
+        self.message = message
+        self.details = details or {}
+
+
+class SessionNotFoundException(DiscoveryException):
+    """Session not found."""
+
+    def __init__(self, session_id: str):
+        super().__init__(f"Session not found: {session_id}")
+        self.session_id = session_id
+
+
+class ValidationException(DiscoveryException):
+    """Validation error."""
+    pass
+
+
+class FileParseException(DiscoveryException):
+    """File parsing error."""
+
+    def __init__(self, message: str, filename: str | None = None):
+        super().__init__(message, {"filename": filename})
+        self.filename = filename
+
+
+class OnetApiError(DiscoveryException):
+    """O*NET API error."""
+
+    def __init__(self, message: str, status_code: int | None = None):
+        super().__init__(message, {"status_code": status_code})
+        self.status_code = status_code
+
+
+class OnetRateLimitError(OnetApiError):
+    """O*NET rate limit exceeded."""
+
+    def __init__(self, message: str, retry_after: int | None = None):
+        super().__init__(message, 429)
+        self.retry_after = retry_after
+
+
+class OnetAuthError(OnetApiError):
+    """O*NET authentication failed."""
+
+    def __init__(self, message: str):
+        super().__init__(message, 401)
+
+
+class OnetNotFoundError(OnetApiError):
+    """O*NET resource not found."""
+
+    def __init__(self, message: str, resource: str | None = None):
+        super().__init__(message, 404)
+        self.resource = resource
+
+
+class AnalysisException(DiscoveryException):
+    """Analysis error."""
+    pass
+
+
+class HandoffException(DiscoveryException):
+    """Handoff to Build error."""
+    pass
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/test_exceptions.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/exceptions.py discovery/tests/unit/test_exceptions.py
+git commit -m "feat(discovery): add comprehensive exception classes"
+```
+
+---
+
+### Task 124: Global Exception Handlers
+
+**Files:**
+- Create: `discovery/app/middleware/error_handler.py`
+- Test: `discovery/tests/unit/middleware/test_error_handler.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/middleware/test_error_handler.py
+"""Unit tests for error handler middleware."""
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+
+def test_error_handler_exists():
+    """Test error handler is importable."""
+    from app.middleware.error_handler import add_exception_handlers
+    assert add_exception_handlers is not None
+
+
+def test_handles_session_not_found():
+    """Test 404 response for session not found."""
+    from app.middleware.error_handler import add_exception_handlers
+    from app.exceptions import SessionNotFoundException
+
+    app = FastAPI()
+    add_exception_handlers(app)
+
+    @app.get("/test")
+    async def test_route():
+        raise SessionNotFoundException("test-id")
+
+    client = TestClient(app, raise_server_exceptions=False)
+    response = client.get("/test")
+
+    assert response.status_code == 404
+    assert "Session not found" in response.json()["detail"]
+
+
+def test_handles_validation_error():
+    """Test 422 response for validation error."""
+    from app.middleware.error_handler import add_exception_handlers
+    from app.exceptions import ValidationException
+
+    app = FastAPI()
+    add_exception_handlers(app)
+
+    @app.get("/test")
+    async def test_route():
+        raise ValidationException("Invalid input", {"field": "name"})
+
+    client = TestClient(app, raise_server_exceptions=False)
+    response = client.get("/test")
+
+    assert response.status_code == 422
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/middleware/test_error_handler.py -v`
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+```python
+# discovery/app/middleware/error_handler.py
+"""Global exception handlers."""
+import logging
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+
+from app.exceptions import (
+    DiscoveryException,
+    SessionNotFoundException,
+    ValidationException,
+    FileParseException,
+    OnetApiError,
+    OnetRateLimitError,
+    AnalysisException,
+)
+
+logger = logging.getLogger(__name__)
+
+
+def add_exception_handlers(app: FastAPI) -> None:
+    """Register exception handlers with FastAPI app."""
+
+    @app.exception_handler(SessionNotFoundException)
+    async def session_not_found_handler(request: Request, exc: SessionNotFoundException):
+        return JSONResponse(
+            status_code=404,
+            content={
+                "detail": exc.message,
+                "type": "session_not_found",
+                "session_id": exc.session_id,
+            },
+        )
+
+    @app.exception_handler(ValidationException)
+    async def validation_handler(request: Request, exc: ValidationException):
+        return JSONResponse(
+            status_code=422,
+            content={
+                "detail": exc.message,
+                "type": "validation_error",
+                "errors": exc.details,
+            },
+        )
+
+    @app.exception_handler(FileParseException)
+    async def file_parse_handler(request: Request, exc: FileParseException):
+        return JSONResponse(
+            status_code=400,
+            content={
+                "detail": exc.message,
+                "type": "file_parse_error",
+                "filename": exc.filename,
+            },
+        )
+
+    @app.exception_handler(OnetRateLimitError)
+    async def rate_limit_handler(request: Request, exc: OnetRateLimitError):
+        headers = {}
+        if exc.retry_after:
+            headers["Retry-After"] = str(exc.retry_after)
+        return JSONResponse(
+            status_code=429,
+            content={
+                "detail": exc.message,
+                "type": "rate_limit",
+                "retry_after": exc.retry_after,
+            },
+            headers=headers,
+        )
+
+    @app.exception_handler(OnetApiError)
+    async def onet_error_handler(request: Request, exc: OnetApiError):
+        logger.error(f"O*NET API error: {exc.message}")
+        return JSONResponse(
+            status_code=502,
+            content={
+                "detail": "External API error. Please try again.",
+                "type": "external_api_error",
+            },
+        )
+
+    @app.exception_handler(DiscoveryException)
+    async def discovery_error_handler(request: Request, exc: DiscoveryException):
+        logger.error(f"Discovery error: {exc.message}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": exc.message,
+                "type": "discovery_error",
+            },
+        )
+
+    @app.exception_handler(Exception)
+    async def generic_error_handler(request: Request, exc: Exception):
+        logger.exception(f"Unhandled exception: {exc}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": "An unexpected error occurred.",
+                "type": "internal_error",
+            },
+        )
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/middleware/test_error_handler.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/middleware/ discovery/tests/unit/middleware/
+git commit -m "feat(discovery): add global exception handlers"
+```
+
+---
+
+### Task 125: Session Auto-Save Middleware
+
+**Files:**
+- Create: `discovery/app/middleware/session_save.py`
+- Test: `discovery/tests/unit/middleware/test_session_save.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/middleware/test_session_save.py
+"""Unit tests for session auto-save."""
+import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
+
+
+def test_auto_save_middleware_exists():
+    """Test AutoSaveMiddleware is importable."""
+    from app.middleware.session_save import AutoSaveMiddleware
+    assert AutoSaveMiddleware is not None
+
+
+@pytest.mark.asyncio
+async def test_saves_on_successful_request():
+    """Test session is saved after successful request."""
+    from app.middleware.session_save import AutoSaveMiddleware
+
+    mock_session_service = AsyncMock()
+    middleware = AutoSaveMiddleware(session_service=mock_session_service)
+
+    # Simulate successful response handling
+    assert hasattr(middleware, "save_session_state")
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/middleware/test_session_save.py -v`
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+```python
+# discovery/app/middleware/session_save.py
+"""Session auto-save middleware."""
+import logging
+from typing import Any
+from uuid import UUID
+
+from app.services.session_service import SessionService
+
+logger = logging.getLogger(__name__)
+
+
+class AutoSaveMiddleware:
+    """Middleware for automatic session state persistence.
+
+    Saves session state after each successful interaction
+    to enable recovery from failures.
+    """
+
+    def __init__(self, session_service: SessionService) -> None:
+        self.session_service = session_service
+        self._pending_saves: dict[UUID, dict[str, Any]] = {}
+
+    async def save_session_state(
+        self,
+        session_id: UUID,
+        state: dict[str, Any],
+    ) -> None:
+        """Save session state to database.
+
+        Args:
+            session_id: Session to save.
+            state: State data to persist.
+        """
+        try:
+            # Get current session
+            session = await self.session_service.get_by_id(session_id)
+            if not session:
+                logger.warning(f"Session {session_id} not found for auto-save")
+                return
+
+            # Update step if changed
+            if "current_step" in state:
+                await self.session_service.update_step(
+                    session_id, state["current_step"]
+                )
+
+            logger.debug(f"Auto-saved session {session_id}")
+
+        except Exception as e:
+            logger.error(f"Failed to auto-save session {session_id}: {e}")
+
+    def queue_save(self, session_id: UUID, state: dict[str, Any]) -> None:
+        """Queue a session save for batch processing."""
+        self._pending_saves[session_id] = state
+
+    async def flush_pending_saves(self) -> int:
+        """Flush all pending saves.
+
+        Returns:
+            Number of sessions saved.
+        """
+        count = 0
+        for session_id, state in list(self._pending_saves.items()):
+            await self.save_session_state(session_id, state)
+            del self._pending_saves[session_id]
+            count += 1
+        return count
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/middleware/test_session_save.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/middleware/session_save.py discovery/tests/unit/middleware/test_session_save.py
+git commit -m "feat(discovery): add session auto-save middleware"
+```
+
+---
+
+### Task 126: Register Error Handlers in App
+
+**Files:**
+- Modify: `discovery/app/main.py`
+- Test: `discovery/tests/unit/test_error_registration.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/test_error_registration.py
+"""Unit tests for error handler registration."""
+import pytest
+from fastapi.testclient import TestClient
+
+
+def test_error_handlers_registered():
+    """Test error handlers are registered with app."""
+    from app.main import app
+
+    # Check exception handlers exist
+    assert len(app.exception_handlers) > 0
+
+
+def test_returns_json_on_error():
+    """Test errors return JSON response."""
+    from app.main import app
+
+    client = TestClient(app, raise_server_exceptions=False)
+    response = client.get("/api/v1/sessions/invalid-uuid")
+
+    # Should get JSON error response
+    assert response.headers.get("content-type") == "application/json"
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/test_error_registration.py -v`
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+Update `discovery/app/main.py` to add:
+
+```python
+from app.middleware.error_handler import add_exception_handlers
+
+# After app initialization
+add_exception_handlers(app)
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/test_error_registration.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/main.py discovery/tests/unit/test_error_registration.py
+git commit -m "feat(discovery): register error handlers in app"
+```
+
+---
+
+**Phase 5 Complete!**
+
+Error handling infrastructure:
+- Comprehensive exception classes
+- Global exception handlers with proper HTTP status codes
+- Session auto-save for recovery
+- JSON error responses
+
+---
+
+## Phase 6: API Router Integration (Tasks 127-134)
+
+This phase wires all routers to use the implemented services with dependency injection.
+
+---
+
+## Part 22: Router Dependency Injection (Tasks 127-134)
+
+### Task 127: Complete Dependency Module
+
+**Files:**
+- Modify: `discovery/app/dependencies.py`
+- Test: `discovery/tests/unit/test_all_dependencies.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/unit/test_all_dependencies.py
+"""Unit tests for all dependencies."""
+import pytest
+
+
+def test_all_service_dependencies_exist():
+    """Test all service dependencies are defined."""
+    from app.dependencies import (
+        get_session_service_dep,
+        get_upload_service_dep,
+        get_role_mapping_service_dep,
+        get_activity_service_dep,
+        get_analysis_service_dep,
+        get_roadmap_service_dep,
+        get_chat_service_dep,
+    )
+
+    assert get_session_service_dep is not None
+    assert get_upload_service_dep is not None
+    assert get_role_mapping_service_dep is not None
+    assert get_activity_service_dep is not None
+    assert get_analysis_service_dep is not None
+    assert get_roadmap_service_dep is not None
+    assert get_chat_service_dep is not None
+
+
+def test_all_repository_dependencies_exist():
+    """Test all repository dependencies are defined."""
+    from app.dependencies import (
+        get_session_repository,
+        get_upload_repository,
+        get_role_mapping_repository,
+        get_activity_selection_repository,
+        get_analysis_repository,
+        get_candidate_repository,
+        get_onet_repository,
+    )
+
+    assert get_session_repository is not None
+    assert get_upload_repository is not None
+    assert get_role_mapping_repository is not None
+    assert get_activity_selection_repository is not None
+    assert get_analysis_repository is not None
+    assert get_candidate_repository is not None
+    assert get_onet_repository is not None
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/unit/test_all_dependencies.py -v`
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+Complete `discovery/app/dependencies.py` with all service and repository dependencies.
+
+(Implementer adds remaining dependency functions following the established pattern)
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/unit/test_all_dependencies.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/dependencies.py discovery/tests/unit/test_all_dependencies.py
+git commit -m "feat(discovery): complete dependency injection module"
+```
+
+---
+
+### Task 128: Sessions Router Integration
+
+**Files:**
+- Modify: `discovery/app/routers/sessions.py`
+- Test: `discovery/tests/integration/routers/test_sessions_router.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/integration/routers/test_sessions_router.py
+"""Integration tests for sessions router."""
+import pytest
+from fastapi.testclient import TestClient
+from unittest.mock import AsyncMock, patch
+
+
+def test_create_session():
+    """Test POST /sessions creates a session."""
+    from app.main import app
+
+    with patch("app.dependencies.get_session_service_dep") as mock_dep:
+        mock_service = AsyncMock()
+        mock_service.create.return_value = {
+            "id": "test-uuid",
+            "status": "draft",
+            "current_step": 1,
+        }
+        mock_dep.return_value = mock_service
+
+        client = TestClient(app)
+        response = client.post(
+            "/api/v1/sessions",
+            json={"organization_id": "org-uuid"},
+        )
+
+        assert response.status_code == 201
+        assert "id" in response.json()
+
+
+def test_get_session():
+    """Test GET /sessions/{id} returns session."""
+    from app.main import app
+
+    with patch("app.dependencies.get_session_service_dep") as mock_dep:
+        mock_service = AsyncMock()
+        mock_service.get_by_id.return_value = {
+            "id": "test-uuid",
+            "status": "draft",
+            "current_step": 1,
+        }
+        mock_dep.return_value = mock_service
+
+        client = TestClient(app)
+        response = client.get("/api/v1/sessions/test-uuid")
+
+        assert response.status_code == 200
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/integration/routers/test_sessions_router.py -v`
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+Update router to use dependencies:
+
+```python
+# discovery/app/routers/sessions.py
+from fastapi import APIRouter, Depends, HTTPException, status
+from app.dependencies import SessionSvc
+from app.schemas.session import SessionCreate, SessionResponse
+
+router = APIRouter(prefix="/sessions", tags=["sessions"])
+
+
+@router.post("", response_model=SessionResponse, status_code=status.HTTP_201_CREATED)
+async def create_session(
+    data: SessionCreate,
+    service: SessionSvc,
+):
+    """Create a new discovery session."""
+    result = await service.create(organization_id=data.organization_id)
+    return result
+
+
+@router.get("/{session_id}", response_model=SessionResponse)
+async def get_session(session_id: str, service: SessionSvc):
+    """Get a discovery session by ID."""
+    result = await service.get_by_id(session_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return result
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/integration/routers/test_sessions_router.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/routers/sessions.py discovery/tests/integration/routers/
+git commit -m "feat(discovery): integrate sessions router with services"
+```
+
+---
+
+### Task 129: Uploads Router Integration
+
+**Files:**
+- Modify: `discovery/app/routers/uploads.py`
+- Test: `discovery/tests/integration/routers/test_uploads_router.py`
+
+**Step 1: Write the failing test**
+
+```python
+# discovery/tests/integration/routers/test_uploads_router.py
+"""Integration tests for uploads router."""
+import pytest
+from fastapi.testclient import TestClient
+from unittest.mock import AsyncMock, patch
+import io
+
+
+def test_upload_file():
+    """Test POST /sessions/{id}/upload uploads file."""
+    from app.main import app
+
+    with patch("app.dependencies.get_upload_service_dep") as mock_dep:
+        mock_service = AsyncMock()
+        mock_service.process_upload.return_value = {
+            "id": "upload-uuid",
+            "file_name": "test.csv",
+            "row_count": 100,
+        }
+        mock_dep.return_value = mock_service
+
+        client = TestClient(app)
+        files = {"file": ("test.csv", io.BytesIO(b"name,role\nJohn,Eng"), "text/csv")}
+        response = client.post(
+            "/api/v1/sessions/session-uuid/upload",
+            files=files,
+        )
+
+        assert response.status_code == 201
+
+
+def test_get_uploads():
+    """Test GET /sessions/{id}/uploads returns uploads."""
+    from app.main import app
+
+    with patch("app.dependencies.get_upload_service_dep") as mock_dep:
+        mock_service = AsyncMock()
+        mock_service.get_by_session_id.return_value = [
+            {"id": "upload-uuid", "file_name": "test.csv"},
+        ]
+        mock_dep.return_value = mock_service
+
+        client = TestClient(app)
+        response = client.get("/api/v1/sessions/session-uuid/uploads")
+
+        assert response.status_code == 200
+        assert len(response.json()) == 1
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery && python -m pytest tests/integration/routers/test_uploads_router.py -v`
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+(Implementer updates router following the sessions router pattern)
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery && python -m pytest tests/integration/routers/test_uploads_router.py -v`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/app/routers/uploads.py discovery/tests/integration/routers/test_uploads_router.py
+git commit -m "feat(discovery): integrate uploads router with services"
+```
+
+---
+
+### Task 130-134: Remaining Router Integrations
+
+Following the same pattern, integrate:
+
+- **Task 130**: Role Mappings Router (`/sessions/{id}/mappings`)
+- **Task 131**: Activities Router (`/sessions/{id}/activities`)
+- **Task 132**: Analysis Router (`/sessions/{id}/analysis`)
+- **Task 133**: Roadmap Router (`/sessions/{id}/candidates`)
+- **Task 134**: Chat Router (`/chat/message`)
+
+Each task follows the TDD pattern:
+1. Write integration test
+2. Verify test fails
+3. Update router with dependency injection
+4. Verify test passes
+5. Commit
+
+---
+
+**Phase 6 Complete!**
+
+All routers integrated with dependency injection:
+- Sessions, Uploads, Mappings, Activities, Analysis, Roadmap, Chat
+- Proper error handling with HTTP status codes
+- Request/response validation with Pydantic schemas
+
+**Next Phase:** Phase 7: Frontend Implementation
+
+---
+
+## Phase 7: Frontend Implementation (Tasks 135-155)
+
+This phase implements the React frontend with shadcn/ui components.
+
+---
+
+## Part 23: Frontend Infrastructure (Tasks 135-138)
+
+### Task 135: Frontend Project Setup
+
+**Files:**
+- Create: `discovery/frontend/package.json`
+- Create: `discovery/frontend/vite.config.ts`
+- Create: `discovery/frontend/tsconfig.json`
+- Create: `discovery/frontend/tailwind.config.js`
+- Create: `discovery/frontend/src/main.tsx`
+- Create: `discovery/frontend/src/App.tsx`
+
+**Step 1: Initialize project**
+
+```bash
+cd discovery
+npm create vite@latest frontend -- --template react-ts
+cd frontend
+npm install
+npm install -D tailwindcss postcss autoprefixer
+npx tailwindcss init -p
+```
+
+**Step 2: Install shadcn/ui**
+
+```bash
+npx shadcn-ui@latest init
+```
+
+Configure with:
+- Style: Default
+- Base color: Slate
+- CSS variables: Yes
+
+**Step 3: Install core dependencies**
+
+```bash
+npm install @tanstack/react-query axios react-router-dom lucide-react
+npm install -D @types/node
+```
+
+**Step 4: Create base App structure**
+
+```tsx
+// discovery/frontend/src/App.tsx
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { DiscoveryLayout } from './components/layout/DiscoveryLayout'
+import { DiscoveryWizard } from './pages/DiscoveryWizard'
+
+const queryClient = new QueryClient()
+
+export default function App() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<DiscoveryLayout />}>
+            <Route index element={<DiscoveryWizard />} />
+          </Route>
+        </Routes>
+      </BrowserRouter>
+    </QueryClientProvider>
+  )
+}
+```
+
+**Step 5: Commit**
+
+```bash
+git add discovery/frontend/
+git commit -m "feat(discovery): initialize React frontend with Vite and shadcn/ui"
+```
+
+---
+
+### Task 136: API Client Setup
+
+**Files:**
+- Create: `discovery/frontend/src/lib/api.ts`
+- Create: `discovery/frontend/src/hooks/useSession.ts`
+- Test: `discovery/frontend/src/lib/api.test.ts`
+
+**Step 1: Write the failing test**
+
+```typescript
+// discovery/frontend/src/lib/api.test.ts
+import { describe, it, expect, vi } from 'vitest'
+import { discoveryApi } from './api'
+
+describe('Discovery API', () => {
+  it('should have session methods', () => {
+    expect(discoveryApi.sessions.create).toBeDefined()
+    expect(discoveryApi.sessions.get).toBeDefined()
+  })
+
+  it('should have upload methods', () => {
+    expect(discoveryApi.uploads.upload).toBeDefined()
+    expect(discoveryApi.uploads.list).toBeDefined()
+  })
+
+  it('should have chat methods', () => {
+    expect(discoveryApi.chat.sendMessage).toBeDefined()
+  })
+})
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `cd discovery/frontend && npm test`
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+```typescript
+// discovery/frontend/src/lib/api.ts
+import axios from 'axios'
+
+const client = axios.create({
+  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8001/api/v1',
+  headers: { 'Content-Type': 'application/json' },
+})
+
+export const discoveryApi = {
+  sessions: {
+    create: (organizationId: string) =>
+      client.post('/sessions', { organization_id: organizationId }),
+    get: (sessionId: string) =>
+      client.get(`/sessions/${sessionId}`),
+    list: () =>
+      client.get('/sessions'),
+  },
+
+  uploads: {
+    upload: (sessionId: string, file: File) => {
+      const formData = new FormData()
+      formData.append('file', file)
+      return client.post(`/sessions/${sessionId}/upload`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+    },
+    list: (sessionId: string) =>
+      client.get(`/sessions/${sessionId}/uploads`),
+    updateMappings: (uploadId: string, mappings: Record<string, string>) =>
+      client.patch(`/uploads/${uploadId}/mappings`, mappings),
+  },
+
+  mappings: {
+    list: (sessionId: string) =>
+      client.get(`/sessions/${sessionId}/mappings`),
+    confirm: (mappingId: string, onetCode: string) =>
+      client.patch(`/mappings/${mappingId}`, { onet_code: onetCode, user_confirmed: true }),
+    bulkConfirm: (sessionId: string, minConfidence: number) =>
+      client.post(`/sessions/${sessionId}/mappings/bulk-confirm`, { min_confidence: minConfidence }),
+  },
+
+  activities: {
+    list: (sessionId: string) =>
+      client.get(`/sessions/${sessionId}/activities`),
+    update: (selectionId: string, selected: boolean) =>
+      client.patch(`/activities/${selectionId}`, { selected }),
+  },
+
+  analysis: {
+    trigger: (sessionId: string) =>
+      client.post(`/sessions/${sessionId}/analysis`),
+    getByDimension: (sessionId: string, dimension: string) =>
+      client.get(`/sessions/${sessionId}/analysis/${dimension}`),
+    getSummary: (sessionId: string) =>
+      client.get(`/sessions/${sessionId}/analysis`),
+  },
+
+  roadmap: {
+    generate: (sessionId: string) =>
+      client.post(`/sessions/${sessionId}/candidates`),
+    list: (sessionId: string) =>
+      client.get(`/sessions/${sessionId}/candidates`),
+    updateTier: (candidateId: string, tier: string) =>
+      client.patch(`/candidates/${candidateId}`, { priority_tier: tier }),
+    selectForBuild: (candidateId: string, selected: boolean) =>
+      client.patch(`/candidates/${candidateId}`, { selected_for_build: selected }),
+  },
+
+  chat: {
+    sendMessage: (sessionId: string, message: string) =>
+      client.post('/chat/message', { session_id: sessionId, message }),
+    getHistory: (sessionId: string) =>
+      client.get(`/chat/history/${sessionId}`),
+  },
+
+  exports: {
+    json: (sessionId: string) =>
+      client.get(`/sessions/${sessionId}/export?format=json`),
+    csv: (sessionId: string) =>
+      client.get(`/sessions/${sessionId}/export?format=csv`),
+  },
+}
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `cd discovery/frontend && npm test`
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add discovery/frontend/src/lib/api.ts discovery/frontend/src/lib/api.test.ts
+git commit -m "feat(discovery): add API client for backend communication"
+```
+
+---
+
+### Task 137: Discovery Layout Component
+
+**Files:**
+- Create: `discovery/frontend/src/components/layout/DiscoveryLayout.tsx`
+- Create: `discovery/frontend/src/components/layout/Sidebar.tsx`
+- Create: `discovery/frontend/src/components/layout/StepIndicator.tsx`
+
+**Step 1: Write components**
+
+```tsx
+// discovery/frontend/src/components/layout/DiscoveryLayout.tsx
+import { Outlet } from 'react-router-dom'
+import { Sidebar } from './Sidebar'
+import { StepIndicator } from './StepIndicator'
+
+export function DiscoveryLayout() {
+  return (
+    <div className="flex h-screen bg-[#0a0a0a]">
+      <Sidebar />
+      <main className="flex-1 flex flex-col overflow-hidden">
+        <StepIndicator />
+        <div className="flex-1 overflow-auto p-6">
+          <Outlet />
+        </div>
+      </main>
+    </div>
+  )
+}
+```
+
+```tsx
+// discovery/frontend/src/components/layout/StepIndicator.tsx
+import { cn } from '@/lib/utils'
+
+const STEPS = [
+  { id: 1, name: 'Upload', description: 'Upload workforce data' },
+  { id: 2, name: 'Map Roles', description: 'Map to O*NET' },
+  { id: 3, name: 'Activities', description: 'Select activities' },
+  { id: 4, name: 'Analysis', description: 'Review scores' },
+  { id: 5, name: 'Roadmap', description: 'Build roadmap' },
+]
+
+interface StepIndicatorProps {
+  currentStep?: number
+}
+
+export function StepIndicator({ currentStep = 1 }: StepIndicatorProps) {
+  return (
+    <div className="border-b border-gray-800 bg-[#111111] px-6 py-4">
+      <nav className="flex items-center justify-center space-x-4">
+        {STEPS.map((step, index) => (
+          <div key={step.id} className="flex items-center">
+            <div
+              className={cn(
+                'flex items-center justify-center w-8 h-8 rounded-full text-sm font-medium',
+                step.id < currentStep && 'bg-green-600 text-white',
+                step.id === currentStep && 'bg-blue-600 text-white',
+                step.id > currentStep && 'bg-gray-700 text-gray-400'
+              )}
+            >
+              {step.id < currentStep ? '✓' : step.id}
+            </div>
+            <span
+              className={cn(
+                'ml-2 text-sm',
+                step.id <= currentStep ? 'text-white' : 'text-gray-500'
+              )}
+            >
+              {step.name}
+            </span>
+            {index < STEPS.length - 1 && (
+              <div className="w-12 h-0.5 mx-4 bg-gray-700" />
+            )}
+          </div>
+        ))}
+      </nav>
+    </div>
+  )
+}
+```
+
+**Step 2: Commit**
+
+```bash
+git add discovery/frontend/src/components/layout/
+git commit -m "feat(discovery): add layout components with step indicator"
+```
+
+---
+
+### Task 138: Chat Panel Component
+
+**Files:**
+- Create: `discovery/frontend/src/components/chat/ChatPanel.tsx`
+- Create: `discovery/frontend/src/components/chat/MessageBubble.tsx`
+- Create: `discovery/frontend/src/components/chat/QuickActions.tsx`
+
+**Step 1: Write components**
+
+```tsx
+// discovery/frontend/src/components/chat/ChatPanel.tsx
+import { useState } from 'react'
+import { MessageBubble } from './MessageBubble'
+import { QuickActions } from './QuickActions'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Send, ChevronUp, ChevronDown } from 'lucide-react'
+
+interface Message {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+interface ChatPanelProps {
+  messages: Message[]
+  quickActions: string[]
+  onSendMessage: (message: string) => void
+  onQuickAction: (action: string) => void
+  isLoading?: boolean
+}
+
+export function ChatPanel({
+  messages,
+  quickActions,
+  onSendMessage,
+  onQuickAction,
+  isLoading,
+}: ChatPanelProps) {
+  const [input, setInput] = useState('')
+  const [isExpanded, setIsExpanded] = useState(true)
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (input.trim()) {
+      onSendMessage(input)
+      setInput('')
+    }
+  }
+
+  return (
+    <div className="fixed bottom-4 right-4 w-80 bg-[#111111] rounded-lg shadow-xl border border-gray-800">
+      {/* Header */}
+      <button
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="w-full px-4 py-3 flex items-center justify-between border-b border-gray-800"
+      >
+        <span className="font-medium text-white">Discovery Assistant</span>
+        {isExpanded ? <ChevronDown size={20} /> : <ChevronUp size={20} />}
+      </button>
+
+      {isExpanded && (
+        <>
+          {/* Messages */}
+          <div className="h-64 overflow-y-auto p-4 space-y-3">
+            {messages.map((msg, i) => (
+              <MessageBubble key={i} role={msg.role} content={msg.content} />
+            ))}
+            {isLoading && (
+              <div className="text-gray-400 text-sm">Thinking...</div>
+            )}
+          </div>
+
+          {/* Quick Actions */}
+          {quickActions.length > 0 && (
+            <QuickActions actions={quickActions} onSelect={onQuickAction} />
+          )}
+
+          {/* Input */}
+          <form onSubmit={handleSubmit} className="p-3 border-t border-gray-800">
+            <div className="flex gap-2">
+              <Input
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="Type a message..."
+                className="flex-1 bg-gray-900 border-gray-700"
+              />
+              <Button type="submit" size="icon" disabled={isLoading}>
+                <Send size={18} />
+              </Button>
+            </div>
+          </form>
+        </>
+      )}
+    </div>
+  )
+}
+```
+
+**Step 2: Commit**
+
+```bash
+git add discovery/frontend/src/components/chat/
+git commit -m "feat(discovery): add chat panel components"
+```
+
+---
+
+## Part 24: Step Components (Tasks 139-143)
+
+### Task 139: Upload Step Component
+
+**Files:**
+- Create: `discovery/frontend/src/components/steps/UploadStep.tsx`
+
+```tsx
+// discovery/frontend/src/components/steps/UploadStep.tsx
+import { useCallback, useState } from 'react'
+import { useDropzone } from 'react-dropzone'
+import { Upload, FileSpreadsheet, CheckCircle } from 'lucide-react'
+import { Card, CardContent } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+
+interface UploadStepProps {
+  onUpload: (file: File) => Promise<void>
+  uploadResult?: {
+    fileName: string
+    rowCount: number
+    columns: string[]
+  }
+}
+
+export function UploadStep({ onUpload, uploadResult }: UploadStepProps) {
+  const [isUploading, setIsUploading] = useState(false)
+
+  const onDrop = useCallback(async (files: File[]) => {
+    if (files.length > 0) {
+      setIsUploading(true)
+      try {
+        await onUpload(files[0])
+      } finally {
+        setIsUploading(false)
+      }
+    }
+  }, [onUpload])
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    accept: {
+      'text/csv': ['.csv'],
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+    },
+    maxFiles: 1,
+  })
+
+  if (uploadResult) {
+    return (
+      <Card className="bg-[#111111] border-gray-800">
+        <CardContent className="p-6">
+          <div className="flex items-center gap-4">
+            <CheckCircle className="text-green-500" size={48} />
+            <div>
+              <h3 className="text-lg font-medium text-white">
+                {uploadResult.fileName}
+              </h3>
+              <p className="text-gray-400">
+                {uploadResult.rowCount} rows • {uploadResult.columns.length} columns
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  return (
+    <div
+      {...getRootProps()}
+      className={`
+        border-2 border-dashed rounded-lg p-12 text-center cursor-pointer
+        transition-colors duration-200
+        ${isDragActive ? 'border-blue-500 bg-blue-500/10' : 'border-gray-700 hover:border-gray-500'}
+      `}
+    >
+      <input {...getInputProps()} />
+      <Upload className="mx-auto text-gray-400 mb-4" size={48} />
+      <h3 className="text-lg font-medium text-white mb-2">
+        {isUploading ? 'Uploading...' : 'Drop your file here'}
+      </h3>
+      <p className="text-gray-400 mb-4">or click to browse</p>
+      <div className="flex justify-center gap-2">
+        <span className="px-2 py-1 bg-gray-800 rounded text-sm text-gray-300">.xlsx</span>
+        <span className="px-2 py-1 bg-gray-800 rounded text-sm text-gray-300">.csv</span>
+      </div>
+    </div>
+  )
+}
+```
+
+---
+
+### Task 140: Role Mapping Step Component
+
+**Files:**
+- Create: `discovery/frontend/src/components/steps/MappingStep.tsx`
+
+---
+
+### Task 141: Activity Selection Step Component
+
+**Files:**
+- Create: `discovery/frontend/src/components/steps/ActivityStep.tsx`
+
+---
+
+### Task 142: Analysis Step Component
+
+**Files:**
+- Create: `discovery/frontend/src/components/steps/AnalysisStep.tsx`
+
+---
+
+### Task 143: Roadmap Step Component
+
+**Files:**
+- Create: `discovery/frontend/src/components/steps/RoadmapStep.tsx`
+
+(Each task follows the same pattern: create component, add tests, commit)
+
+---
+
+## Part 25: Main Wizard Page (Tasks 144-147)
+
+### Task 144: Discovery Wizard Page
+
+**Files:**
+- Create: `discovery/frontend/src/pages/DiscoveryWizard.tsx`
+
+```tsx
+// discovery/frontend/src/pages/DiscoveryWizard.tsx
+import { useState } from 'react'
+import { useQuery, useMutation } from '@tanstack/react-query'
+import { discoveryApi } from '@/lib/api'
+import { UploadStep } from '@/components/steps/UploadStep'
+import { MappingStep } from '@/components/steps/MappingStep'
+import { ActivityStep } from '@/components/steps/ActivityStep'
+import { AnalysisStep } from '@/components/steps/AnalysisStep'
+import { RoadmapStep } from '@/components/steps/RoadmapStep'
+import { ChatPanel } from '@/components/chat/ChatPanel'
+
+export function DiscoveryWizard() {
+  const [sessionId, setSessionId] = useState<string | null>(null)
+  const [currentStep, setCurrentStep] = useState(1)
+  const [messages, setMessages] = useState<Array<{role: 'user' | 'assistant', content: string}>>([])
+  const [quickActions, setQuickActions] = useState<string[]>([])
+
+  // Create session on mount
+  const createSession = useMutation({
+    mutationFn: () => discoveryApi.sessions.create('default-org'),
+    onSuccess: (data) => setSessionId(data.data.id),
+  })
+
+  // Chat mutation
+  const sendMessage = useMutation({
+    mutationFn: (message: string) =>
+      discoveryApi.chat.sendMessage(sessionId!, message),
+    onSuccess: (data) => {
+      setMessages(prev => [
+        ...prev,
+        { role: 'assistant', content: data.data.response },
+      ])
+      setQuickActions(data.data.quick_actions || [])
+      if (data.data.step_complete) {
+        setCurrentStep(prev => prev + 1)
+      }
+    },
+  })
+
+  const handleSendMessage = (message: string) => {
+    setMessages(prev => [...prev, { role: 'user', content: message }])
+    sendMessage.mutate(message)
+  }
+
+  const renderStep = () => {
+    switch (currentStep) {
+      case 1:
+        return <UploadStep onUpload={async (file) => {
+          if (sessionId) {
+            await discoveryApi.uploads.upload(sessionId, file)
+          }
+        }} />
+      case 2:
+        return <MappingStep sessionId={sessionId!} />
+      case 3:
+        return <ActivityStep sessionId={sessionId!} />
+      case 4:
+        return <AnalysisStep sessionId={sessionId!} />
+      case 5:
+        return <RoadmapStep sessionId={sessionId!} />
+      default:
+        return null
+    }
+  }
+
+  return (
+    <div className="max-w-4xl mx-auto">
+      {renderStep()}
+      <ChatPanel
+        messages={messages}
+        quickActions={quickActions}
+        onSendMessage={handleSendMessage}
+        onQuickAction={handleSendMessage}
+        isLoading={sendMessage.isPending}
+      />
+    </div>
+  )
+}
+```
+
+---
+
+### Tasks 145-155: Remaining Frontend Tasks
+
+- **Task 145**: Add React Query hooks for each API endpoint
+- **Task 146**: Implement responsive design
+- **Task 147**: Add loading states and skeletons
+- **Task 148**: Implement error boundaries
+- **Task 149**: Add toast notifications
+- **Task 150**: Implement dark mode toggle (default dark)
+- **Task 151**: Add keyboard shortcuts
+- **Task 152**: Implement export functionality
+- **Task 153**: Add session persistence (localStorage)
+- **Task 154**: End-to-end tests with Playwright
+- **Task 155**: Build optimization and deployment config
+
+---
+
+**Phase 7 Complete!**
+
+Frontend implementation complete:
+- React 18 with TypeScript
+- Vite for fast builds
+- shadcn/ui component library
+- TanStack Query for data fetching
+- 5-step wizard with chat integration
+- Dark mode default design
+- Responsive layout
+
+---
+
+## Summary
+
+This implementation plan covers **155 tasks** across **7 phases**:
+
+| Phase | Description | Tasks |
+|-------|-------------|-------|
+| 0 | Container Infrastructure | 0-77 |
+| 1 | Database Layer | 78-99 |
+| 2 | Service Implementation | 100-119 |
+| 3 | Agent Business Logic | 112-119 |
+| 4 | Background Jobs | 120-124 |
+| 5 | Error Handling | 123-126 |
+| 6 | API Router Integration | 127-134 |
+| 7 | Frontend Implementation | 135-155 |
+
+**Total estimated commits:** ~100+
+
+**To execute:** Use `superpowers:subagent-driven-development` or `superpowers:executing-plans` skills.

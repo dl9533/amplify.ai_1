@@ -1,5 +1,6 @@
 # discovery/app/middleware/session_save.py
 """Session auto-save middleware."""
+import asyncio
 import logging
 from typing import Any
 from uuid import UUID
@@ -14,11 +15,14 @@ class AutoSaveMiddleware:
 
     Saves session state after each successful interaction
     to enable recovery from failures.
+
+    Thread-safe: Uses asyncio.Lock for concurrent access protection.
     """
 
     def __init__(self, session_service: SessionService) -> None:
         self.session_service = session_service
         self._pending_saves: dict[UUID, dict[str, Any]] = {}
+        self._lock = asyncio.Lock()
 
     async def save_session_state(
         self,
@@ -49,19 +53,31 @@ class AutoSaveMiddleware:
         except Exception as e:
             logger.error(f"Failed to auto-save session {session_id}: {e}")
 
-    def queue_save(self, session_id: UUID, state: dict[str, Any]) -> None:
-        """Queue a session save for batch processing."""
-        self._pending_saves[session_id] = state
+    async def queue_save(self, session_id: UUID, state: dict[str, Any]) -> None:
+        """Queue a session save for batch processing.
+
+        Thread-safe: Uses lock to protect concurrent access.
+        """
+        async with self._lock:
+            self._pending_saves[session_id] = state
 
     async def flush_pending_saves(self) -> int:
         """Flush all pending saves.
 
+        Uses asyncio.Lock to ensure thread-safety when concurrent
+        requests modify the pending saves dict.
+
         Returns:
             Number of sessions saved.
         """
+        async with self._lock:
+            # Take snapshot while holding the lock
+            pending = self._pending_saves.copy()
+            self._pending_saves.clear()
+
+        # Save outside the lock to avoid blocking queue_save
         count = 0
-        for session_id, state in list(self._pending_saves.items()):
+        for session_id, state in pending.items():
             await self.save_session_state(session_id, state)
-            del self._pending_saves[session_id]
             count += 1
         return count

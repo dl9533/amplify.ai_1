@@ -47,10 +47,10 @@ export function ColumnMappingPreview({
       <div className="flex flex-wrap gap-4">
         {(Object.keys(MAPPING_LABELS) as MappingKey[]).map((key) => (
           <div key={key} className="flex flex-col">
-            <label htmlFor={`mapping-${key}`} className="text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor={`mapping-${key}`} className="text-sm font-medium text-foreground mb-1">
               {MAPPING_LABELS[key]}
               {REQUIRED_MAPPINGS.includes(key) && !mappings[key] && (
-                <span className="text-red-500 ml-1">(Role required)</span>
+                <span className="text-destructive ml-1">(Role required)</span>
               )}
             </label>
             <select
@@ -58,7 +58,7 @@ export function ColumnMappingPreview({
               aria-label={MAPPING_LABELS[key]}
               value={mappings[key] || ''}
               onChange={(e) => handleMappingChange(key, e.target.value)}
-              className="border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-primary focus:border-primary"
+              className="border border-border rounded-md px-3 py-2 text-sm bg-background text-foreground focus:ring-ring focus:border-primary"
             >
               <option value="">Select column...</option>
               {schema.columns.map((column) => (
@@ -72,15 +72,15 @@ export function ColumnMappingPreview({
       </div>
 
       {/* Data preview table */}
-      <div className="overflow-x-auto border border-gray-200 rounded-lg">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
+      <div className="overflow-x-auto border border-border rounded-lg">
+        <table className="min-w-full divide-y divide-border">
+          <thead className="bg-background-muted">
             <tr>
               {schema.columns.map((column) => (
                 <th
                   key={column}
-                  className={`px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider ${
-                    isMapped(column) ? 'bg-primary-50' : ''
+                  className={`px-4 py-3 text-left text-xs font-medium text-foreground-muted uppercase tracking-wider ${
+                    isMapped(column) ? 'bg-primary/10' : ''
                   }`}
                 >
                   {column}
@@ -88,14 +88,14 @@ export function ColumnMappingPreview({
               ))}
             </tr>
           </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
+          <tbody className="bg-background divide-y divide-border">
             {schema.sampleRows.map((row, rowIndex) => (
               <tr key={rowIndex}>
                 {row.map((cell, cellIndex) => (
                   <td
                     key={cellIndex}
-                    className={`px-4 py-3 text-sm text-gray-900 whitespace-nowrap ${
-                      isMapped(schema.columns[cellIndex]) ? 'bg-primary-50' : ''
+                    className={`px-4 py-3 text-sm text-foreground whitespace-nowrap ${
+                      isMapped(schema.columns[cellIndex]) ? 'bg-primary/10' : ''
                     }`}
                   >
                     {cell}

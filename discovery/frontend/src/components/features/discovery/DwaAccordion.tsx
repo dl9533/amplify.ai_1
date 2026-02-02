@@ -48,11 +48,11 @@ export function DwaAccordion({ group, onDwaToggle, onSelectAllInGroup, defaultOp
   }, [onDwaToggle])
 
   return (
-    <div className="border border-gray-200 rounded-lg overflow-hidden">
+    <div className="border border-border rounded-lg overflow-hidden">
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex items-center justify-between p-4 bg-gray-50 hover:bg-gray-100 transition-colors"
+        className="w-full flex items-center justify-between p-4 bg-background-muted hover:bg-background-accent transition-colors"
         aria-expanded={isOpen}
         aria-controls={`dwa-panel-${group.gwaId}`}
       >
@@ -63,12 +63,12 @@ export function DwaAccordion({ group, onDwaToggle, onSelectAllInGroup, defaultOp
           >
             &#9654;
           </span>
-          <span className="font-medium text-gray-900">{group.gwaTitle}</span>
+          <span className="font-medium text-foreground">{group.gwaTitle}</span>
         </div>
         <div className="flex items-center gap-3">
-          <span className="text-sm text-gray-500">{selectedCount}/{totalCount} selected</span>
+          <span className="text-sm text-foreground-muted">{selectedCount}/{totalCount} selected</span>
           <span
-            className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800"
+            className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary"
             title="AI Exposure Score"
           >
             {exposurePercentage}%
@@ -79,7 +79,7 @@ export function DwaAccordion({ group, onDwaToggle, onSelectAllInGroup, defaultOp
       {isOpen && (
         <div
           id={`dwa-panel-${group.gwaId}`}
-          className="p-4 bg-white border-t border-gray-200"
+          className="p-4 bg-background border-t border-border"
         >
           <div className="flex justify-end mb-3">
             <button
@@ -88,8 +88,8 @@ export function DwaAccordion({ group, onDwaToggle, onSelectAllInGroup, defaultOp
               disabled={allSelected}
               className={`text-sm font-medium ${
                 allSelected
-                  ? 'text-gray-400 cursor-not-allowed'
-                  : 'text-blue-600 hover:text-blue-800'
+                  ? 'text-foreground-subtle cursor-not-allowed'
+                  : 'text-primary hover:text-primary/80'
               }`}
               aria-label={`Select all tasks in ${group.gwaTitle}`}
               aria-disabled={allSelected}
@@ -105,14 +105,14 @@ export function DwaAccordion({ group, onDwaToggle, onSelectAllInGroup, defaultOp
                   id={`dwa-${dwa.id}`}
                   checked={dwa.isSelected}
                   onChange={() => handleCheckboxChange(dwa)}
-                  className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                  className="h-4 w-4 text-primary border-border rounded focus:ring-ring"
                   aria-label={dwa.title}
                 />
                 <label
                   htmlFor={`dwa-${dwa.id}`}
-                  className="text-sm text-gray-700 cursor-pointer"
+                  className="text-sm text-foreground cursor-pointer"
                 >
-                  <span className="text-gray-400 mr-2">{dwa.dwaId}</span>
+                  <span className="text-foreground-subtle mr-2">{dwa.dwaId}</span>
                   {dwa.title}
                 </label>
               </li>

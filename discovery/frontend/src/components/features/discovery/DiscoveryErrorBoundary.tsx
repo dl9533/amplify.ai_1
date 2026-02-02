@@ -71,22 +71,22 @@ export class DiscoveryErrorBoundary extends React.Component<
           className="flex flex-col items-center justify-center min-h-[400px] p-8"
         >
           <div className="text-center max-w-md">
-            <h2 className="text-xl font-semibold text-gray-900 mb-2">
+            <h2 className="text-xl font-semibold text-foreground mb-2">
               Something went wrong
             </h2>
-            <p className="text-gray-600 mb-6">
+            <p className="text-foreground-muted mb-6">
               An unexpected error occurred. You can try again or go back to your sessions.
             </p>
             <div className="flex flex-col sm:flex-row gap-3 justify-center">
               <button
                 onClick={this.handleRetry}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                className="btn-primary btn-md rounded-md"
               >
                 Retry
               </button>
               <Link
                 to="/discovery"
-                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 text-center"
+                className="btn-secondary btn-md rounded-md text-center"
               >
                 Back to Sessions
               </Link>

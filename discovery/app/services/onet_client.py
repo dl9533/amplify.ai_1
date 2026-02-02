@@ -3,9 +3,9 @@
 This module provides an async client for interacting with the O*NET Web Services API
 to retrieve occupation data, tasks, and work activities.
 
-O*NET Web Services API:
-- Base URL: https://services.onetcenter.org/ws/
-- Authentication: Basic Auth (API key as username, empty password)
+O*NET Web Services API v2:
+- Base URL: https://api-v2.onetcenter.org/
+- Authentication: X-API-Key header
 - Returns JSON
 """
 
@@ -53,15 +53,18 @@ class OnetApiClient:
         """
         return self.settings.onet_api_key.get_secret_value()
 
-    def _get_auth(self) -> httpx.BasicAuth:
-        """Create Basic Auth credentials for O*NET API.
+    def _get_headers(self) -> dict[str, str]:
+        """Create headers for O*NET API v2 requests.
 
-        O*NET uses the API key as the username with an empty password.
+        O*NET v2 uses X-API-Key header for authentication.
 
         Returns:
-            httpx.BasicAuth instance configured for O*NET.
+            Dict with Accept and X-API-Key headers.
         """
-        return httpx.BasicAuth(username=self._get_api_key(), password="")
+        return {
+            "Accept": "application/json",
+            "X-API-Key": self._get_api_key(),
+        }
 
     async def _get(
         self,
@@ -84,13 +87,11 @@ class OnetApiClient:
             OnetApiError: For other HTTP errors.
         """
         url = f"{self.base_url}{endpoint}"
-        headers = {"Accept": "application/json"}
 
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(
                 url=url,
-                auth=self._get_auth(),
-                headers=headers,
+                headers=self._get_headers(),
                 params=params,
             )
 
@@ -115,7 +116,8 @@ class OnetApiClient:
                     raise OnetAuthError(
                         message="O*NET API authentication failed",
                     ) from e
-                elif status_code == 404:
+                elif status_code in (404, 422):
+                    # 404 = not found, 422 = invalid code format (v2 API)
                     raise OnetNotFoundError(
                         message=f"O*NET resource not found: {endpoint}",
                         resource=endpoint,
@@ -138,7 +140,8 @@ class OnetApiClient:
             List of occupation dictionaries with 'code' and 'title' fields.
         """
         response = await self._get("mnm/search", params={"keyword": keyword})
-        return response.get("occupation", [])
+        # v2 API uses 'career' key instead of 'occupation'
+        return response.get("career", [])
 
     async def get_occupation(self, code: str) -> dict[str, Any] | None:
         """Get occupation details by O*NET code.

@@ -119,8 +119,9 @@ export function FileDropZone({
       className={`
         flex flex-col items-center justify-center
         p-8 border-2 border-dashed rounded-lg
-        transition-colors cursor-pointer
-        ${isDragOver ? 'border-primary bg-primary/5' : 'border-gray-300 hover:border-gray-400'}
+        transition-colors duration-150 cursor-pointer
+        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background
+        ${isDragOver ? 'border-primary bg-primary/5' : 'border-border hover:border-foreground-subtle'}
         ${isUploading ? 'pointer-events-none opacity-75' : ''}
       `}
     >
@@ -131,19 +132,19 @@ export function FileDropZone({
             aria-valuenow={progress}
             aria-valuemin={0}
             aria-valuemax={100}
-            className="w-full bg-gray-200 rounded-full h-2.5"
+            className="w-full bg-background-accent rounded-full h-2.5"
           >
             <div
-              className="bg-primary h-2.5 rounded-full transition-all"
+              className="bg-primary h-2.5 rounded-full transition-all duration-150"
               style={{ width: `${progress}%` }}
             />
           </div>
-          <p className="text-center text-sm text-gray-600 mt-2">{progress}%</p>
+          <p className="text-center text-sm text-foreground-muted mt-2 tabular-nums">{progress}%</p>
         </div>
       ) : (
         <>
           <svg
-            className="w-12 h-12 text-gray-400 mb-4"
+            className="w-12 h-12 text-foreground-subtle mb-4"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
@@ -156,23 +157,23 @@ export function FileDropZone({
               d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
             />
           </svg>
-          <p className="text-gray-600 mb-2">
+          <p className="text-foreground-muted mb-2">
             Drag and drop your file here, or
           </p>
           <button
             type="button"
             onClick={handleBrowseClick}
-            className="text-primary hover:text-primary/80 font-medium underline"
+            className="text-primary hover:text-primary/80 font-medium underline transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded"
           >
             Browse
           </button>
           {maxSizeMB && (
-            <p className="text-sm text-gray-500 mt-2">
+            <p className="text-sm text-foreground-subtle mt-2">
               Maximum {maxSizeMB} MB
             </p>
           )}
           {accept && (
-            <p className="text-sm text-gray-500 mt-1">
+            <p className="text-sm text-foreground-subtle mt-1">
               Accepted formats: {accept.join(', ')}
             </p>
           )}
