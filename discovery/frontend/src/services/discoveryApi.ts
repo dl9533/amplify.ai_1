@@ -250,14 +250,18 @@ export const onetApi = {
   /**
    * Search O*NET occupations.
    */
-  search: (query: string): Promise<OnetSearchResult[]> =>
-    api.get(`/discovery/onet/search?q=${encodeURIComponent(query)}`),
+  search: async (query: string): Promise<OnetSearchResult[]> => {
+    const response = await api.get<{ results: OnetSearchResult[] }>(
+      `/api/v1/discovery/onet/search?query=${encodeURIComponent(query)}`
+    )
+    return response.results
+  },
 
   /**
    * Get occupation details by O*NET code.
    */
   getOccupation: (code: string): Promise<OnetOccupation> =>
-    api.get(`/discovery/onet/${encodeURIComponent(code)}`),
+    api.get(`/api/v1/discovery/onet/${encodeURIComponent(code)}`),
 }
 
 // ============ Activities API ============

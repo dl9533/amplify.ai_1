@@ -13,6 +13,7 @@ from app.services.handoff_service import HandoffService, get_handoff_service
 from app.services.llm_service import LLMService, get_llm_service
 from app.services.memory_service import AgentMemoryService
 from app.services.onet_client import OnetApiClient
+from app.services.onet_file_sync_service import OnetFileSyncService, SyncResult
 from app.services.roadmap_service import RoadmapService, get_roadmap_service
 from app.services.role_mapping_service import (
     OnetService,
@@ -33,7 +34,9 @@ __all__ = [
     "HandoffService",
     "LLMService",
     "OnetApiClient",
+    "OnetFileSyncService",
     "OnetService",
+    "SyncResult",
     "RoadmapService",
     "RoleMappingService",
     "ScoringService",
