@@ -1,5 +1,9 @@
-# discovery/app/services/role_mapping_service.py
-"""Role mapping service for managing role-to-O*NET mappings."""
+"""Role mapping service for managing role-to-O*NET mappings.
+
+Supports both LLM-powered agent mapping and legacy fuzzy matching.
+"""
+import logging
+from collections.abc import AsyncGenerator
 from typing import Any, List, Optional
 from uuid import UUID
 
@@ -10,9 +14,23 @@ from app.services.upload_service import UploadService
 from app.services.fuzzy_matcher import FuzzyMatcher
 from app.services.file_parser import FileParser
 
+logger = logging.getLogger(__name__)
+
 
 class RoleMappingService:
-    """Service for role-to-O*NET occupation mapping."""
+    """Service for role-to-O*NET occupation mapping.
+
+    Supports two mapping strategies:
+    1. LLM-powered RoleMappingAgent (preferred when available)
+    2. Fuzzy string matching (fallback/legacy)
+
+    Attributes:
+        repository: Repository for role mapping persistence.
+        onet_client: Client for O*NET API calls (used with fuzzy matcher).
+        upload_service: Service for file uploads.
+        fuzzy_matcher: Legacy fuzzy string matcher.
+        role_mapping_agent: LLM-powered mapping agent.
+    """
 
     def __init__(
         self,
@@ -20,11 +38,22 @@ class RoleMappingService:
         onet_client: OnetApiClient | None = None,
         upload_service: UploadService | None = None,
         fuzzy_matcher: FuzzyMatcher | None = None,
+        role_mapping_agent: Any | None = None,  # RoleMappingAgent, avoid circular import
     ) -> None:
+        """Initialize the role mapping service.
+
+        Args:
+            repository: Repository for role mapping persistence.
+            onet_client: Client for O*NET API calls (used with fuzzy matcher).
+            upload_service: Service for file uploads.
+            fuzzy_matcher: Legacy fuzzy string matcher.
+            role_mapping_agent: LLM-powered mapping agent (preferred).
+        """
         self.repository = repository
         self.onet_client = onet_client
         self.upload_service = upload_service
         self.fuzzy_matcher = fuzzy_matcher or FuzzyMatcher()
+        self.role_mapping_agent = role_mapping_agent
         self._file_parser = FileParser()
 
     async def create_mappings_from_upload(
@@ -35,6 +64,9 @@ class RoleMappingService:
     ) -> list[dict[str, Any]]:
         """Create role mappings from uploaded file.
 
+        Uses the LLM-powered agent if available, otherwise falls back
+        to fuzzy string matching.
+
         Args:
             session_id: Discovery session ID.
             upload_id: Upload ID containing the file.
@@ -43,8 +75,8 @@ class RoleMappingService:
         Returns:
             List of created mapping dicts.
         """
-        if not self.upload_service or not self.onet_client:
-            raise ValueError("upload_service and onet_client required")
+        if not self.upload_service:
+            raise ValueError("upload_service required")
 
         # Get file content
         content = await self.upload_service.get_file_content(upload_id)
@@ -57,10 +89,97 @@ class RoleMappingService:
             content, upload.file_name, role_column
         )
 
+        if not unique_roles:
+            return []
+
+        # Get role names and their counts
+        role_names = [r["value"] for r in unique_roles]
+        role_counts = {r["value"]: r["count"] for r in unique_roles}
+
+        # Use agent if available, otherwise fall back to fuzzy matching
+        if self.role_mapping_agent:
+            logger.info(f"Using LLM agent to map {len(role_names)} roles")
+            return await self._create_mappings_with_agent(
+                session_id, role_names, role_counts
+            )
+        else:
+            logger.info(f"Using fuzzy matcher to map {len(role_names)} roles")
+            return await self._create_mappings_with_fuzzy(
+                session_id, role_names, role_counts
+            )
+
+    async def _create_mappings_with_agent(
+        self,
+        session_id: UUID,
+        role_names: list[str],
+        role_counts: dict[str, int],
+    ) -> list[dict[str, Any]]:
+        """Create mappings using the LLM-powered agent.
+
+        Args:
+            session_id: Discovery session ID.
+            role_names: List of role names to map.
+            role_counts: Dict mapping role name to row count.
+
+        Returns:
+            List of created mapping dicts.
+        """
+        # Import here to avoid circular dependency
+        from app.agents.role_mapping_agent import RoleMappingResult
+
+        # Call agent to map all roles
+        results: list[RoleMappingResult] = await self.role_mapping_agent.map_roles(
+            role_names
+        )
+
+        # Create mapping records
         mappings = []
-        for role_data in unique_roles:
-            role_name = role_data["value"]
-            row_count = role_data["count"]
+        for result in results:
+            mapping = await self.repository.create(
+                session_id=session_id,
+                source_role=result.source_role,
+                onet_code=result.onet_code,
+                confidence_score=result.confidence_score,
+                row_count=role_counts.get(result.source_role, 1),
+            )
+
+            mappings.append({
+                "id": str(mapping.id),
+                "source_role": mapping.source_role,
+                "onet_code": mapping.onet_code,
+                "onet_title": result.onet_title,
+                "confidence_score": mapping.confidence_score,
+                "confidence_tier": result.confidence.value,
+                "reasoning": result.reasoning,
+                "row_count": mapping.row_count,
+                "user_confirmed": mapping.user_confirmed,
+            })
+
+        return mappings
+
+    async def _create_mappings_with_fuzzy(
+        self,
+        session_id: UUID,
+        role_names: list[str],
+        role_counts: dict[str, int],
+    ) -> list[dict[str, Any]]:
+        """Create mappings using fuzzy string matching (legacy).
+
+        Args:
+            session_id: Discovery session ID.
+            role_names: List of role names to map.
+            role_counts: Dict mapping role name to row count.
+
+        Returns:
+            List of created mapping dicts.
+        """
+        if not self.onet_client:
+            raise ValueError("onet_client required for fuzzy matching")
+
+        mappings = []
+
+        for role_name in role_names:
+            row_count = role_counts.get(role_name, 1)
 
             # Search O*NET for matches
             search_results = await self.onet_client.search_occupations(role_name)
@@ -230,14 +349,11 @@ class OnetService:
         return await self.client.get_occupation(code)
 
 
-from collections.abc import AsyncGenerator
-
-
 async def get_role_mapping_service() -> AsyncGenerator[RoleMappingService, None]:
     """Get role mapping service dependency for FastAPI.
 
     Yields a fully configured RoleMappingService with repository, O*NET client,
-    and fuzzy matcher.
+    and fuzzy matcher (legacy mode).
     """
     from app.models.base import async_session_maker
     from app.repositories.role_mapping_repository import RoleMappingRepository
@@ -252,6 +368,40 @@ async def get_role_mapping_service() -> AsyncGenerator[RoleMappingService, None]
             repository=repository,
             onet_client=onet_client,
             fuzzy_matcher=fuzzy_matcher,
+        )
+        yield service
+
+
+async def get_role_mapping_service_with_agent() -> AsyncGenerator[RoleMappingService, None]:
+    """Get role mapping service with LLM agent for FastAPI.
+
+    Yields a fully configured RoleMappingService with the LLM-powered
+    RoleMappingAgent for semantic role matching.
+    """
+    from app.models.base import async_session_maker
+    from app.repositories.role_mapping_repository import RoleMappingRepository
+    from app.repositories.onet_repository import OnetRepository
+    from app.agents.role_mapping_agent import RoleMappingAgent
+    from app.services.llm_service import get_llm_service
+
+    settings = get_settings()
+
+    async with async_session_maker() as db:
+        repository = RoleMappingRepository(db)
+        onet_repo = OnetRepository(db)
+
+        # Get LLM service
+        llm_service = await anext(get_llm_service())
+
+        # Create role mapping agent
+        agent = RoleMappingAgent(
+            llm_service=llm_service,
+            onet_repository=onet_repo,
+        )
+
+        service = RoleMappingService(
+            repository=repository,
+            role_mapping_agent=agent,
         )
         yield service
 

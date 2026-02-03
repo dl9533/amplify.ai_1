@@ -26,6 +26,7 @@ from app.services.role_mapping_service import (
     RoleMappingService,
     get_onet_service,
     get_role_mapping_service,
+    get_role_mapping_service_with_agent,
 )
 from app.services.session_service import SessionService, get_session_service
 from app.services.upload_service import UploadService, get_upload_service
@@ -61,6 +62,7 @@ __all__ = [
     "get_onet_service",
     "get_roadmap_service",
     "get_role_mapping_service",
+    "get_role_mapping_service_with_agent",
     "get_scoring_service",
     "get_session_service",
     "get_upload_service",
