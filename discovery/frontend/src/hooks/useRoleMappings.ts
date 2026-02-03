@@ -1,21 +1,26 @@
 import { useState, useCallback, useEffect } from 'react'
-import { roleMappingsApi, ApiError } from '../services'
+import { roleMappingsApi, ApiError, ConfidenceTier } from '../services'
 
 export interface RoleMapping {
   id: string
   roleName: string
-  onetCode: string
-  onetTitle: string
+  onetCode: string | null
+  onetTitle: string | null
   confidence: number
+  confidenceTier?: ConfidenceTier
+  reasoning?: string
   confirmed: boolean
+  rowCount?: number
 }
 
 export interface UseRoleMappingsReturn {
   mappings: RoleMapping[]
   isLoading: boolean
+  isRemapping: boolean
   error: string | null
   confirmMapping: (id: string) => Promise<void>
   bulkConfirm: (threshold: number) => Promise<void>
+  bulkRemap: (threshold?: number, mappingIds?: string[]) => Promise<void>
   remapRole: (id: string, onetCode: string, onetTitle: string) => Promise<void>
   refresh: () => Promise<void>
 }
@@ -23,6 +28,7 @@ export interface UseRoleMappingsReturn {
 export function useRoleMappings(sessionId?: string): UseRoleMappingsReturn {
   const [mappings, setMappings] = useState<RoleMapping[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [isRemapping, setIsRemapping] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const loadMappings = useCallback(async () => {
@@ -44,8 +50,11 @@ export function useRoleMappings(sessionId?: string): UseRoleMappingsReturn {
         roleName: m.source_role,
         onetCode: m.onet_code,
         onetTitle: m.onet_title,
-        confidence: Math.round(m.confidence_score * 100),
+        confidence: m.confidence_score, // Keep as decimal 0-1
+        confidenceTier: m.confidence_tier,
+        reasoning: m.reasoning,
         confirmed: m.is_confirmed,
+        rowCount: m.row_count,
       }))
 
       setMappings(mappedData)
@@ -100,16 +109,17 @@ export function useRoleMappings(sessionId?: string): UseRoleMappingsReturn {
       // Store previous state for rollback
       const previousMappings = [...mappings]
 
-      // Optimistic update
+      // Optimistic update (confidence is now decimal 0-1)
+      const decimalThreshold = threshold > 1 ? threshold / 100 : threshold
       setMappings((prev) =>
         prev.map((mapping) =>
-          mapping.confidence >= threshold ? { ...mapping, confirmed: true } : mapping
+          mapping.confidence >= decimalThreshold ? { ...mapping, confirmed: true } : mapping
         )
       )
 
       try {
         // API expects threshold as decimal (0-1)
-        await roleMappingsApi.bulkConfirm(sessionId, threshold / 100)
+        await roleMappingsApi.bulkConfirm(sessionId, decimalThreshold)
       } catch (err) {
         // Revert on error
         setMappings(previousMappings)
@@ -133,7 +143,7 @@ export function useRoleMappings(sessionId?: string): UseRoleMappingsReturn {
     setMappings((prev) =>
       prev.map((mapping) =>
         mapping.id === id
-          ? { ...mapping, onetCode, onetTitle, confidence: 100, confirmed: true }
+          ? { ...mapping, onetCode, onetTitle, confidence: 1, confirmed: true }
           : mapping
       )
     )
@@ -161,12 +171,57 @@ export function useRoleMappings(sessionId?: string): UseRoleMappingsReturn {
     }
   }, [mappings])
 
+  const bulkRemap = useCallback(
+    async (threshold?: number, mappingIds?: string[]) => {
+      if (!sessionId) return
+
+      try {
+        setIsRemapping(true)
+        setError(null)
+
+        const result = await roleMappingsApi.bulkRemap(sessionId, threshold, mappingIds)
+
+        // Update mappings with new results
+        setMappings((prev) =>
+          prev.map((mapping) => {
+            const updated = result.mappings.find((m) => m.id === mapping.id)
+            if (updated) {
+              return {
+                ...mapping,
+                onetCode: updated.onet_code,
+                onetTitle: updated.onet_title,
+                confidence: updated.confidence_score,
+                confidenceTier: updated.confidence_tier,
+                reasoning: updated.reasoning || undefined,
+                confirmed: updated.is_confirmed,
+              }
+            }
+            return mapping
+          })
+        )
+      } catch (err) {
+        const message =
+          err instanceof ApiError
+            ? err.message
+            : err instanceof Error
+              ? err.message
+              : 'Failed to remap roles'
+        setError(message)
+      } finally {
+        setIsRemapping(false)
+      }
+    },
+    [sessionId]
+  )
+
   return {
     mappings,
     isLoading,
+    isRemapping,
     error,
     confirmMapping,
     bulkConfirm,
+    bulkRemap,
     remapRole,
     refresh: loadMappings,
   }

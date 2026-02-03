@@ -7,10 +7,13 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from app.schemas.role_mapping import (
     BulkConfirmRequest,
     BulkConfirmResponse,
+    BulkRemapRequest,
+    BulkRemapResponse,
     OnetOccupation,
     OnetSearchResult,
     RoleMappingResponse,
     RoleMappingUpdate,
+    RoleMappingWithReasoning,
 )
 from app.services.role_mapping_service import (
     OnetService,
@@ -110,6 +113,47 @@ async def bulk_confirm_mappings(
     )
 
     return BulkConfirmResponse(confirmed_count=result["confirmed_count"])
+
+
+@router.post(
+    "/sessions/{session_id}/role-mappings/remap",
+    response_model=BulkRemapResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Bulk remap low-confidence roles",
+    description="Re-maps low-confidence role mappings using LLM semantic analysis.",
+)
+async def bulk_remap_mappings(
+    session_id: UUID,
+    request: BulkRemapRequest,
+    service: RoleMappingService = Depends(get_role_mapping_service),
+) -> BulkRemapResponse:
+    """Re-map low-confidence roles using LLM agent.
+
+    This endpoint triggers the LLM-powered role mapping agent to re-analyze
+    roles that have low confidence scores and provide improved mappings.
+    """
+    result = await service.bulk_remap(
+        session_id=session_id,
+        threshold=request.threshold,
+        mapping_ids=request.mapping_ids,
+    )
+
+    return BulkRemapResponse(
+        remapped_count=result["remapped_count"],
+        mappings=[
+            RoleMappingWithReasoning(
+                id=m["id"],
+                source_role=m["source_role"],
+                onet_code=m["onet_code"],
+                onet_title=m["onet_title"],
+                confidence_score=m["confidence_score"],
+                confidence_tier=m["confidence_tier"],
+                reasoning=m["reasoning"],
+                is_confirmed=m["is_confirmed"],
+            )
+            for m in result["mappings"]
+        ],
+    )
 
 
 @router.get(

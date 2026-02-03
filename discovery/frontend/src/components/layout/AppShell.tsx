@@ -5,6 +5,7 @@ import {
   IconTarget,
   IconLogout,
   IconUser,
+  IconSettings,
 } from '../ui/Icons'
 
 interface AppShellProps {
@@ -31,6 +32,14 @@ export function AppShell({ children }: AppShellProps) {
 
           {/* User menu */}
           <div className="flex items-center gap-4">
+            <Link
+              to="/admin"
+              className="btn-ghost btn-sm text-muted hover:text-default"
+              title="Admin settings"
+            >
+              <IconSettings size={18} />
+              <span className="hidden sm:inline">Admin</span>
+            </Link>
             <div className="flex items-center gap-2 text-sm">
               <div className="w-7 h-7 rounded-full bg-bg-muted flex items-center justify-center">
                 <IconUser size={14} className="text-muted" />

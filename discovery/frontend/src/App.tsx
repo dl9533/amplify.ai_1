@@ -9,6 +9,7 @@ import {
   AnalysisStep,
   RoadmapStep,
 } from './pages/discovery'
+import { AdminPage } from './pages/admin'
 
 // Protected route wrapper
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -85,6 +86,16 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <RoadmapStep />
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Admin routes */}
+      <Route
+        path="/admin"
+        element={
+          <ProtectedRoute>
+            <AdminPage />
           </ProtectedRoute>
         }
       />

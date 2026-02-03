@@ -107,6 +107,48 @@ class BulkConfirmResponse(BaseModel):
     )
 
 
+class BulkRemapRequest(BaseModel):
+    """Schema for bulk remap request."""
+
+    threshold: float = Field(
+        default=0.6,
+        ge=0.0,
+        le=1.0,
+        description="Maximum confidence score threshold for re-mapping (0-1). Roles at or below this will be re-mapped.",
+    )
+    mapping_ids: Optional[List[UUID]] = Field(
+        default=None,
+        description="Specific mapping IDs to re-map. If None, all mappings below threshold are re-mapped.",
+    )
+
+
+class BulkRemapResponse(BaseModel):
+    """Schema for bulk remap response."""
+
+    remapped_count: int = Field(
+        ...,
+        ge=0,
+        description="Number of mappings re-mapped",
+    )
+    mappings: List["RoleMappingWithReasoning"] = Field(
+        default_factory=list,
+        description="Updated mapping results with new confidence scores",
+    )
+
+
+class RoleMappingWithReasoning(BaseModel):
+    """Role mapping response with LLM reasoning."""
+
+    id: UUID = Field(..., description="Unique role mapping identifier")
+    source_role: str = Field(..., description="Original role title")
+    onet_code: Optional[str] = Field(default=None, description="O*NET SOC code")
+    onet_title: Optional[str] = Field(default=None, description="O*NET occupation title")
+    confidence_score: float = Field(..., ge=0.0, le=1.0, description="Confidence score")
+    confidence_tier: str = Field(..., description="Confidence tier: HIGH, MEDIUM, or LOW")
+    reasoning: Optional[str] = Field(default=None, description="LLM reasoning for the mapping")
+    is_confirmed: bool = Field(..., description="Whether confirmed by user")
+
+
 class OnetSearchResult(BaseModel):
     """Schema for O*NET search result."""
 

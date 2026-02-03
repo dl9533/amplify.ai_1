@@ -95,22 +95,42 @@ export function TierBadge({ tier, showLabel = true }: TierBadgeProps) {
   )
 }
 
+// Confidence tier type matching backend
+export type ConfidenceTier = 'HIGH' | 'MEDIUM' | 'LOW'
+
 // Confidence badge for role mappings
 interface ConfidenceBadgeProps {
-  score: number // 0-1
+  score: number // 0-100 (percentage) or 0-1 (decimal)
+  tier?: ConfidenceTier // Optional tier from backend
+  showTier?: boolean // Show tier label (default: true)
 }
 
-export function ConfidenceBadge({ score }: ConfidenceBadgeProps) {
-  const percentage = Math.round(score * 100)
+export function getConfidenceTier(score: number): ConfidenceTier {
+  // Normalize score to 0-1 if passed as percentage
+  const normalizedScore = score > 1 ? score / 100 : score
+  if (normalizedScore >= 0.85) return 'HIGH'
+  if (normalizedScore >= 0.6) return 'MEDIUM'
+  return 'LOW'
+}
 
-  let variant: BadgeProps['variant'] = 'default'
-  if (score >= 0.85) variant = 'success'
-  else if (score >= 0.6) variant = 'warning'
-  else variant = 'destructive'
+export function ConfidenceBadge({ score, tier, showTier = true }: ConfidenceBadgeProps) {
+  // Normalize score to percentage for display
+  const percentage = score > 1 ? Math.round(score) : Math.round(score * 100)
+
+  // Use provided tier or calculate from score
+  const confidenceTier = tier || getConfidenceTier(score)
+
+  const config: Record<ConfidenceTier, { label: string; variant: BadgeProps['variant'] }> = {
+    HIGH: { label: 'High', variant: 'success' },
+    MEDIUM: { label: 'Medium', variant: 'warning' },
+    LOW: { label: 'Low', variant: 'destructive' },
+  }
+
+  const { label, variant } = config[confidenceTier]
 
   return (
     <Badge variant={variant} size="sm">
-      {percentage}%
+      {showTier ? `${label} · ${percentage}%` : `${percentage}%`}
     </Badge>
   )
 }

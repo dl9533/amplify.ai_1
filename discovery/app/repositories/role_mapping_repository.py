@@ -76,3 +76,36 @@ class RoleMappingRepository:
             await self.session.commit()
             await self.session.refresh(mapping)
         return mapping
+
+    async def update(
+        self,
+        mapping_id: UUID,
+        onet_code: str | None = None,
+        user_confirmed: bool | None = None,
+        confidence_score: float | None = None,
+    ) -> DiscoveryRoleMapping | None:
+        """Update a role mapping.
+
+        Args:
+            mapping_id: The mapping ID to update.
+            onet_code: New O*NET code (optional).
+            user_confirmed: New confirmation status (optional).
+            confidence_score: New confidence score (optional).
+
+        Returns:
+            Updated mapping or None if not found.
+        """
+        stmt = select(DiscoveryRoleMapping).where(DiscoveryRoleMapping.id == mapping_id)
+        result = await self.session.execute(stmt)
+        mapping = result.scalar_one_or_none()
+
+        if mapping:
+            if onet_code is not None:
+                mapping.onet_code = onet_code
+            if user_confirmed is not None:
+                mapping.user_confirmed = user_confirmed
+            if confidence_score is not None:
+                mapping.confidence_score = confidence_score
+            await self.session.commit()
+            await self.session.refresh(mapping)
+        return mapping

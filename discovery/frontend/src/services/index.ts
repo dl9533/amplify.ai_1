@@ -18,13 +18,22 @@ export {
   type ChatHistoryItem,
   // Role Mappings API
   roleMappingsApi,
+  type ConfidenceTier,
   type RoleMappingResponse,
   type RoleMappingUpdate,
   type BulkConfirmResponse,
+  type BulkRemapRequest,
+  type BulkRemapResponse,
+  type RoleMappingWithReasoning,
   // O*NET API
   onetApi,
   type OnetSearchResult,
   type OnetOccupation,
+  // Admin API
+  adminApi,
+  type OnetSyncRequest,
+  type OnetSyncResponse,
+  type OnetSyncStatus,
   // Activities API
   activitiesApi,
   type DWAResponse,

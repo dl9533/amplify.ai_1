@@ -191,13 +191,18 @@ export const chatApi = {
 
 // ============ Role Mappings API ============
 
+export type ConfidenceTier = 'HIGH' | 'MEDIUM' | 'LOW'
+
 export interface RoleMappingResponse {
   id: string
   source_role: string
-  onet_code: string
-  onet_title: string
+  onet_code: string | null
+  onet_title: string | null
   confidence_score: number
+  confidence_tier?: ConfidenceTier
+  reasoning?: string
   is_confirmed: boolean
+  row_count?: number
 }
 
 export interface RoleMappingUpdate {
@@ -208,6 +213,27 @@ export interface RoleMappingUpdate {
 
 export interface BulkConfirmResponse {
   confirmed_count: number
+}
+
+export interface BulkRemapRequest {
+  threshold?: number
+  mapping_ids?: string[]
+}
+
+export interface RoleMappingWithReasoning {
+  id: string
+  source_role: string
+  onet_code: string | null
+  onet_title: string | null
+  confidence_score: number
+  confidence_tier: ConfidenceTier
+  reasoning: string | null
+  is_confirmed: boolean
+}
+
+export interface BulkRemapResponse {
+  remapped_count: number
+  mappings: RoleMappingWithReasoning[]
 }
 
 export const roleMappingsApi = {
@@ -229,6 +255,21 @@ export const roleMappingsApi = {
    */
   bulkConfirm: (sessionId: string, threshold: number): Promise<BulkConfirmResponse> =>
     api.post(`/discovery/sessions/${sessionId}/role-mappings/confirm`, { threshold }),
+
+  /**
+   * Bulk remap low-confidence roles using LLM.
+   * @param threshold - Maximum confidence threshold (roles at or below will be re-mapped)
+   * @param mappingIds - Optional specific mapping IDs to re-map
+   */
+  bulkRemap: (
+    sessionId: string,
+    threshold?: number,
+    mappingIds?: string[]
+  ): Promise<BulkRemapResponse> =>
+    api.post(`/discovery/sessions/${sessionId}/role-mappings/remap`, {
+      threshold: threshold ?? 0.6,
+      mapping_ids: mappingIds,
+    }),
 }
 
 // ============ O*NET API ============
@@ -466,6 +507,43 @@ export interface HandoffStatus {
   intake_request_id?: string
   handed_off_at?: string
 }
+
+// ============ Admin API ============
+
+export interface OnetSyncRequest {
+  version?: string // e.g., "30_1" for v30.1
+}
+
+export interface OnetSyncResponse {
+  version: string
+  occupation_count: number
+  alternate_title_count: number
+  task_count: number
+  status: string
+}
+
+export interface OnetSyncStatus {
+  synced: boolean
+  version: string | null
+  synced_at: string | null
+  occupation_count: number
+}
+
+export const adminApi = {
+  /**
+   * Trigger O*NET database sync.
+   */
+  syncOnet: (version?: string): Promise<OnetSyncResponse> =>
+    api.post('/discovery/admin/onet/sync', { version: version || '30_1' }),
+
+  /**
+   * Get O*NET sync status.
+   */
+  getOnetStatus: (): Promise<OnetSyncStatus> =>
+    api.get('/discovery/admin/onet/status'),
+}
+
+// ============ Handoff API ============
 
 export const handoffApi = {
   /**

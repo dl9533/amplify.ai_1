@@ -223,6 +223,74 @@ class RoleMappingService:
 
         return {"confirmed_count": confirmed}
 
+    async def bulk_remap(
+        self,
+        session_id: UUID,
+        threshold: float = 0.6,
+        mapping_ids: list[UUID] | None = None,
+    ) -> dict[str, Any]:
+        """Re-map low-confidence roles using LLM agent.
+
+        Args:
+            session_id: Discovery session ID.
+            threshold: Maximum confidence threshold - roles at or below this will be re-mapped.
+            mapping_ids: Optional specific mapping IDs to re-map.
+
+        Returns:
+            Dict with remapped_count and updated mappings.
+        """
+        mappings = await self.repository.get_for_session(session_id)
+
+        # Filter to mappings that need re-mapping
+        if mapping_ids:
+            to_remap = [m for m in mappings if m.id in mapping_ids]
+        else:
+            to_remap = [
+                m for m in mappings
+                if not m.user_confirmed and m.confidence_score <= threshold
+            ]
+
+        if not to_remap:
+            return {"remapped_count": 0, "mappings": []}
+
+        # Extract role names for re-mapping
+        role_names = [m.source_role for m in to_remap]
+        mapping_by_role = {m.source_role: m for m in to_remap}
+
+        logger.info(f"Re-mapping {len(role_names)} low-confidence roles via LLM agent")
+
+        # Call agent to re-map roles
+        results = await self.role_mapping_agent.map_roles(role_names)
+
+        # Update mappings with new results
+        updated_mappings = []
+        for result in results:
+            mapping = mapping_by_role.get(result.source_role)
+            if mapping:
+                # Update the mapping in the database
+                updated = await self.repository.update(
+                    mapping.id,
+                    onet_code=result.onet_code,
+                    confidence_score=result.confidence_score,
+                )
+
+                if updated:
+                    updated_mappings.append({
+                        "id": str(updated.id),
+                        "source_role": updated.source_role,
+                        "onet_code": result.onet_code,
+                        "onet_title": result.onet_title,
+                        "confidence_score": result.confidence_score,
+                        "confidence_tier": result.confidence.value,
+                        "reasoning": result.reasoning,
+                        "is_confirmed": updated.user_confirmed,
+                    })
+
+        return {
+            "remapped_count": len(updated_mappings),
+            "mappings": updated_mappings,
+        }
+
 
 class OnetService:
     """O*NET service for searching and retrieving occupation data.

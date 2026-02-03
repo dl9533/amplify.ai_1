@@ -5,11 +5,13 @@ import { DiscoveryWizard, StepContent } from '../../components/layout/DiscoveryW
 import { Button } from '../../components/ui/Button'
 import { ConfidenceBadge } from '../../components/ui/Badge'
 import { LoadingState, ErrorState } from '../../components/ui/EmptyState'
+import { InfoTooltip } from '../../components/ui/Tooltip'
 import {
   IconCheck,
   IconSearch,
   IconRefresh,
   IconCheckCircle,
+  IconZap,
 } from '../../components/ui/Icons'
 import { useRoleMappings } from '../../hooks/useRoleMappings'
 import { useOnetSearch } from '../../hooks/useOnetSearch'
@@ -19,9 +21,11 @@ export function MapRolesStep() {
   const {
     mappings,
     isLoading,
+    isRemapping,
     error,
     confirmMapping,
     bulkConfirm,
+    bulkRemap,
     remapRole,
   } = useRoleMappings(sessionId || '')
 
@@ -29,20 +33,22 @@ export function MapRolesStep() {
   const [activeRemapId, setActiveRemapId] = useState<string | null>(null)
 
   // O*NET search for remapping
-  const { results: searchResults, isSearching } = useOnetSearch(
-    activeRemapId ? searchQuery : ''
-  )
+  const onetSearch = useOnetSearch()
+  const searchResults = activeRemapId ? onetSearch.results : []
+  const isSearching = onetSearch.isLoading
 
   // Count confirmed/total
   const confirmedCount = mappings.filter((m) => m.confirmed).length
   const totalCount = mappings.length
   const allConfirmed = confirmedCount === totalCount && totalCount > 0
 
-  // Group by confidence level
+  // Group by confidence level (confidence is 0-1 decimal)
   const groupedMappings = useMemo(() => {
-    const highConfidence = mappings.filter((m) => m.confidence >= 0.85)
-    const mediumConfidence = mappings.filter((m) => m.confidence >= 0.6 && m.confidence < 0.85)
-    const lowConfidence = mappings.filter((m) => m.confidence < 0.6)
+    const highConfidence = mappings.filter((m) => m.confidence >= 0.85 || m.confidenceTier === 'HIGH')
+    const mediumConfidence = mappings.filter(
+      (m) => (m.confidence >= 0.6 && m.confidence < 0.85) || m.confidenceTier === 'MEDIUM'
+    )
+    const lowConfidence = mappings.filter((m) => m.confidence < 0.6 || m.confidenceTier === 'LOW')
     return { highConfidence, mediumConfidence, lowConfidence }
   }, [mappings])
 
@@ -84,7 +90,25 @@ export function MapRolesStep() {
           description="Review and confirm the O*NET occupation matches for each role."
           actions={
             <div className="flex items-center gap-2">
-              {groupedMappings.highConfidence.length > 0 && (
+              {groupedMappings.lowConfidence.filter((m) => !m.confirmed).length > 0 && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  icon={isRemapping ? undefined : <IconZap size={14} />}
+                  onClick={() => bulkRemap(0.6)}
+                  disabled={isRemapping}
+                >
+                  {isRemapping ? (
+                    <>
+                      <span className="w-3.5 h-3.5 border-2 border-current/30 border-t-current rounded-full animate-spin" />
+                      Re-mapping...
+                    </>
+                  ) : (
+                    `Re-map low confidence (${groupedMappings.lowConfidence.filter((m) => !m.confirmed).length})`
+                  )}
+                </Button>
+              )}
+              {groupedMappings.highConfidence.filter((m) => !m.confirmed).length > 0 && (
                 <Button
                   variant="secondary"
                   size="sm"
@@ -152,8 +176,16 @@ export function MapRolesStep() {
                         </p>
                       </div>
 
-                      {/* Confidence badge */}
-                      <ConfidenceBadge score={mapping.confidence} />
+                      {/* Confidence badge with reasoning tooltip */}
+                      <div className="flex items-center gap-1.5">
+                        <ConfidenceBadge
+                          score={mapping.confidence}
+                          tier={mapping.confidenceTier}
+                        />
+                        {mapping.reasoning && (
+                          <InfoTooltip content={mapping.reasoning} position="left" />
+                        )}
+                      </div>
                     </div>
 
                     {/* O*NET mapping */}
