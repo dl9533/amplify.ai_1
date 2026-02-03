@@ -1,4 +1,5 @@
 """O*NET data repository with full-text search and bulk operations."""
+import logging
 from typing import Any, Sequence
 import uuid
 
@@ -10,12 +11,31 @@ from app.models import OnetOccupation, OnetGWA, OnetIWA, OnetDWA
 from app.models.onet_occupation import OnetAlternateTitle, OnetSyncLog
 from app.models.onet_task import OnetTask
 
+logger = logging.getLogger(__name__)
+
+
+def _escape_ilike(value: str) -> str:
+    """Escape special characters for ILIKE pattern matching.
+
+    Prevents SQL pattern injection by escaping ILIKE wildcards.
+
+    Args:
+        value: The search string to escape.
+
+    Returns:
+        Escaped string safe for ILIKE patterns.
+    """
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
 
 class OnetRepository:
     """Repository for O*NET reference data operations.
 
     Provides methods for searching, retrieving, and bulk importing
     O*NET occupation data, alternate titles, tasks, and work activities.
+
+    Note: This repository does NOT manage transactions. The caller (typically
+    a service layer) is responsible for committing or rolling back transactions.
     """
 
     def __init__(self, session: AsyncSession) -> None:
@@ -38,6 +58,7 @@ class OnetRepository:
         """Search occupations by keyword in title (ILIKE).
 
         Simple keyword search for backwards compatibility.
+        Input is escaped to prevent SQL pattern injection.
 
         Args:
             keyword: Search keyword.
@@ -46,9 +67,10 @@ class OnetRepository:
         Returns:
             Sequence of matching OnetOccupation objects.
         """
+        escaped_keyword = _escape_ilike(keyword)
         stmt = (
             select(OnetOccupation)
-            .where(OnetOccupation.title.ilike(f"%{keyword}%"))
+            .where(OnetOccupation.title.ilike(f"%{escaped_keyword}%", escape="\\"))
             .limit(limit)
         )
         result = await self.session.execute(stmt)
@@ -61,8 +83,12 @@ class OnetRepository:
     ) -> list[OnetOccupation]:
         """Search occupations using PostgreSQL full-text search.
 
-        Searches occupation titles, descriptions, and alternate titles
-        using GIN indexes for efficient matching.
+        Searches occupation titles and descriptions using GIN indexes.
+        If fewer than `limit` results are found, also searches alternate
+        titles to backfill remaining slots.
+
+        Results are ranked by PostgreSQL's text search ranking algorithm
+        based on term frequency and document position.
 
         Args:
             query: Search query string.
@@ -156,6 +182,9 @@ class OnetRepository:
     async def get_all(self) -> Sequence[OnetOccupation]:
         """Get all occupations.
 
+        Note: Returns all ~923 occupations. For large datasets,
+        consider pagination.
+
         Returns:
             Sequence of all OnetOccupation objects.
         """
@@ -221,7 +250,7 @@ class OnetRepository:
         return result.scalar_one()
 
     # ==========================================================================
-    # Bulk Upsert Methods
+    # Bulk Operations (Transaction managed by caller)
     # ==========================================================================
 
     async def bulk_upsert_occupations(
@@ -229,6 +258,8 @@ class OnetRepository:
         occupations: list[dict[str, Any]],
     ) -> int:
         """Bulk upsert occupations using PostgreSQL ON CONFLICT.
+
+        Note: Does NOT commit. Caller must manage transaction.
 
         Args:
             occupations: List of occupation dicts with code, title, description.
@@ -238,6 +269,8 @@ class OnetRepository:
         """
         if not occupations:
             return 0
+
+        logger.info(f"Bulk upserting {len(occupations)} occupations")
 
         stmt = insert(OnetOccupation).values(occupations)
         stmt = stmt.on_conflict_do_update(
@@ -250,14 +283,16 @@ class OnetRepository:
         )
 
         await self.session.execute(stmt)
-        await self.session.commit()
         return len(occupations)
 
-    async def bulk_upsert_alternate_titles(
+    async def bulk_replace_alternate_titles(
         self,
         titles: list[dict[str, Any]],
     ) -> int:
-        """Bulk insert alternate titles (delete existing first).
+        """Replace all alternate titles with new data.
+
+        Deletes all existing alternate titles and inserts new ones.
+        Note: Does NOT commit. Caller must manage transaction.
 
         Args:
             titles: List of title dicts with id, onet_code, title.
@@ -267,6 +302,8 @@ class OnetRepository:
         """
         if not titles:
             return 0
+
+        logger.info(f"Replacing alternate titles with {len(titles)} records")
 
         # Delete existing alternate titles
         await self.session.execute(
@@ -281,14 +318,16 @@ class OnetRepository:
         # Bulk insert new titles
         stmt = insert(OnetAlternateTitle).values(titles)
         await self.session.execute(stmt)
-        await self.session.commit()
         return len(titles)
 
-    async def bulk_upsert_tasks(
+    async def bulk_replace_tasks(
         self,
         tasks: list[dict[str, Any]],
     ) -> int:
-        """Bulk insert tasks (delete existing first).
+        """Replace all tasks with new data.
+
+        Deletes all existing tasks and inserts new ones.
+        Note: Does NOT commit. Caller must manage transaction.
 
         Args:
             tasks: List of task dicts with occupation_code, description, importance.
@@ -299,6 +338,8 @@ class OnetRepository:
         if not tasks:
             return 0
 
+        logger.info(f"Replacing tasks with {len(tasks)} records")
+
         # Delete existing tasks
         await self.session.execute(
             text("DELETE FROM onet_tasks")
@@ -307,11 +348,25 @@ class OnetRepository:
         # Bulk insert new tasks
         stmt = insert(OnetTask).values(tasks)
         await self.session.execute(stmt)
-        await self.session.commit()
         return len(tasks)
 
+    # Backwards compatibility aliases
+    async def bulk_upsert_alternate_titles(
+        self,
+        titles: list[dict[str, Any]],
+    ) -> int:
+        """Alias for bulk_replace_alternate_titles for backwards compatibility."""
+        return await self.bulk_replace_alternate_titles(titles)
+
+    async def bulk_upsert_tasks(
+        self,
+        tasks: list[dict[str, Any]],
+    ) -> int:
+        """Alias for bulk_replace_tasks for backwards compatibility."""
+        return await self.bulk_replace_tasks(tasks)
+
     # ==========================================================================
-    # Sync Log Methods
+    # Sync Log Methods (Transaction managed by caller)
     # ==========================================================================
 
     async def log_sync(
@@ -323,6 +378,8 @@ class OnetRepository:
         status: str,
     ) -> OnetSyncLog:
         """Log a sync operation.
+
+        Note: Does NOT commit. Caller must manage transaction.
 
         Args:
             version: O*NET version synced.
@@ -342,7 +399,7 @@ class OnetRepository:
             status=status,
         )
         self.session.add(log)
-        await self.session.commit()
+        await self.session.flush()
         await self.session.refresh(log)
         return log
 

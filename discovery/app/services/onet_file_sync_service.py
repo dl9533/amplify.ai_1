@@ -18,6 +18,24 @@ from app.repositories.onet_repository import OnetRepository
 logger = logging.getLogger(__name__)
 
 
+class OnetSyncError(Exception):
+    """Base exception for O*NET sync errors."""
+
+    pass
+
+
+class OnetDownloadError(OnetSyncError):
+    """Error downloading O*NET database files."""
+
+    pass
+
+
+class OnetParseError(OnetSyncError):
+    """Error parsing O*NET data files."""
+
+    pass
+
+
 @dataclass
 class SyncResult:
     """Result of an O*NET sync operation."""
@@ -38,6 +56,10 @@ class OnetFileSyncService:
 
     This provides complete O*NET coverage unlike API-based sync which
     is limited by search results.
+
+    Transaction Management:
+    - The sync() method manages transactions, committing on success
+      or rolling back on failure to ensure data integrity.
     """
 
     ONET_BASE_URL = "https://www.onetcenter.org/dl_files/database"
@@ -58,28 +80,49 @@ class OnetFileSyncService:
     async def sync(self, version: str = "30_1") -> SyncResult:
         """Download and import O*NET data.
 
+        This method manages the entire sync transaction:
+        - Downloads the O*NET database zip file
+        - Parses occupation, alternate title, and task data
+        - Upserts all data to the database
+        - Commits on success, rolls back on any failure
+
         Args:
             version: O*NET version to download (e.g., "30_1" for v30.1).
 
         Returns:
             SyncResult with counts and status.
-        """
-        try:
-            logger.info(f"Starting O*NET sync for version {version}")
 
+        Raises:
+            OnetDownloadError: If download fails.
+            OnetParseError: If parsing fails.
+            OnetSyncError: For other sync failures.
+        """
+        display_version = version.replace("_", ".")
+        logger.info(f"Starting O*NET sync for version {display_version}")
+
+        try:
             # Download zip file
-            zip_data = await self._download(version)
+            try:
+                zip_data = await self._download(version)
+            except httpx.HTTPError as e:
+                logger.error(f"Download failed: {e}")
+                raise OnetDownloadError(f"Failed to download O*NET {display_version}") from e
 
             # Extract and parse files
-            occupations, alt_titles, tasks = self._extract_and_parse(zip_data)
+            try:
+                occupations, alt_titles, tasks = self._extract_and_parse(zip_data)
+            except (zipfile.BadZipFile, KeyError) as e:
+                logger.error(f"Parse failed: {e}")
+                raise OnetParseError(f"Invalid O*NET archive for version {display_version}") from e
 
-            # Upsert to database
+            # Upsert to database (within implicit transaction)
+            logger.info(f"Importing {len(occupations)} occupations, {len(alt_titles)} alternate titles, {len(tasks)} tasks")
+
             occ_count = await self.repository.bulk_upsert_occupations(occupations)
-            alt_count = await self.repository.bulk_upsert_alternate_titles(alt_titles)
-            task_count = await self.repository.bulk_upsert_tasks(tasks)
+            alt_count = await self.repository.bulk_replace_alternate_titles(alt_titles)
+            task_count = await self.repository.bulk_replace_tasks(tasks)
 
-            # Log sync
-            display_version = version.replace("_", ".")
+            # Log sync success
             await self.repository.log_sync(
                 version=display_version,
                 occupation_count=occ_count,
@@ -87,6 +130,9 @@ class OnetFileSyncService:
                 task_count=task_count,
                 status="success",
             )
+
+            # Commit the transaction
+            await self.repository.session.commit()
 
             logger.info(
                 f"O*NET sync complete: {occ_count} occupations, "
@@ -101,16 +147,38 @@ class OnetFileSyncService:
                 status="success",
             )
 
+        except OnetSyncError:
+            # Re-raise known sync errors after logging failure
+            await self._log_failure(display_version)
+            raise
+
         except Exception as e:
-            logger.error(f"O*NET sync failed: {e}")
+            # Handle unexpected errors
+            logger.error(f"Unexpected sync error: {e}", exc_info=True)
+            await self._log_failure(display_version)
+            raise OnetSyncError(f"Sync failed unexpectedly: {e}") from e
+
+    async def _log_failure(self, version: str) -> None:
+        """Log a failed sync attempt and rollback.
+
+        Args:
+            version: O*NET version that failed.
+        """
+        try:
+            # Rollback any partial changes
+            await self.repository.session.rollback()
+
+            # Log the failure (in a new transaction)
             await self.repository.log_sync(
-                version=version.replace("_", "."),
+                version=version,
                 occupation_count=0,
                 alternate_title_count=0,
                 task_count=0,
                 status="failed",
             )
-            raise
+            await self.repository.session.commit()
+        except Exception as log_error:
+            logger.error(f"Failed to log sync failure: {log_error}")
 
     async def _download(self, version: str) -> bytes:
         """Download O*NET database zip file.
@@ -120,6 +188,9 @@ class OnetFileSyncService:
 
         Returns:
             Zip file contents as bytes.
+
+        Raises:
+            httpx.HTTPError: On download failure.
         """
         url = f"{self.ONET_BASE_URL}/db_{version}_text.zip"
 
@@ -140,6 +211,10 @@ class OnetFileSyncService:
 
         Returns:
             Tuple of (occupations, alternate_titles, tasks).
+
+        Raises:
+            zipfile.BadZipFile: If zip is invalid.
+            KeyError: If expected files are missing.
         """
         with zipfile.ZipFile(io.BytesIO(zip_data)) as zf:
             # Find the directory prefix (e.g., "db_30_1_text/")
