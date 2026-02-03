@@ -76,6 +76,8 @@ class OnetRepository:
         result = await self.session.execute(stmt)
         return result.scalars().all()
 
+    MAX_QUERY_LENGTH = 500  # Maximum search query length
+
     async def search_with_full_text(
         self,
         query: str,
@@ -91,12 +93,26 @@ class OnetRepository:
         based on term frequency and document position.
 
         Args:
-            query: Search query string.
+            query: Search query string (max 500 characters).
             limit: Maximum number of results to return.
 
         Returns:
             List of matching OnetOccupation objects, ranked by relevance.
+            Returns empty list for empty/whitespace-only queries.
+
+        Raises:
+            ValueError: If query exceeds MAX_QUERY_LENGTH.
         """
+        # Input validation
+        if not query or not query.strip():
+            return []
+
+        query = query.strip()
+        if len(query) > self.MAX_QUERY_LENGTH:
+            raise ValueError(
+                f"Query exceeds maximum length of {self.MAX_QUERY_LENGTH} characters"
+            )
+
         search_query = func.plainto_tsquery("english", query)
 
         # Search main occupations by title and description
@@ -143,12 +159,26 @@ class OnetRepository:
         """Search alternate titles using full-text search.
 
         Args:
-            query: Search query string.
+            query: Search query string (max 500 characters).
             limit: Maximum results to return.
 
         Returns:
             Sequence of matching OnetAlternateTitle objects.
+            Returns empty list for empty/whitespace-only queries.
+
+        Raises:
+            ValueError: If query exceeds MAX_QUERY_LENGTH.
         """
+        # Input validation
+        if not query or not query.strip():
+            return []
+
+        query = query.strip()
+        if len(query) > self.MAX_QUERY_LENGTH:
+            raise ValueError(
+                f"Query exceeds maximum length of {self.MAX_QUERY_LENGTH} characters"
+            )
+
         search_query = func.plainto_tsquery("english", query)
 
         stmt = (

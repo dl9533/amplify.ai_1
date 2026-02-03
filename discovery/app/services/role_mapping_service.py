@@ -4,8 +4,11 @@ Supports both LLM-powered agent mapping and legacy fuzzy matching.
 """
 import logging
 from collections.abc import AsyncGenerator
-from typing import Any, List, Optional
+from typing import TYPE_CHECKING, Any, List, Optional
 from uuid import UUID
+
+if TYPE_CHECKING:
+    from app.agents.role_mapping_agent import RoleMappingAgent
 
 from app.config import get_settings
 from app.repositories.role_mapping_repository import RoleMappingRepository
@@ -38,7 +41,7 @@ class RoleMappingService:
         onet_client: OnetApiClient | None = None,
         upload_service: UploadService | None = None,
         fuzzy_matcher: FuzzyMatcher | None = None,
-        role_mapping_agent: Any | None = None,  # RoleMappingAgent, avoid circular import
+        role_mapping_agent: "RoleMappingAgent | None" = None,
     ) -> None:
         """Initialize the role mapping service.
 
@@ -390,8 +393,8 @@ async def get_role_mapping_service_with_agent() -> AsyncGenerator[RoleMappingSer
         repository = RoleMappingRepository(db)
         onet_repo = OnetRepository(db)
 
-        # Get LLM service
-        llm_service = await anext(get_llm_service())
+        # Get LLM service (synchronous function, takes settings)
+        llm_service = get_llm_service(settings)
 
         # Create role mapping agent
         agent = RoleMappingAgent(

@@ -182,3 +182,90 @@ class TestOnetRepositorySyncLog:
 
         assert hasattr(repo, "count")
         assert callable(repo.count)
+
+
+class TestOnetRepositoryInputValidation:
+    """Tests for input validation in search methods."""
+
+    @pytest.mark.asyncio
+    async def test_search_with_full_text_empty_query_returns_empty_list(self):
+        """Empty query should return empty list without database call."""
+        from app.repositories.onet_repository import OnetRepository
+
+        mock_session = AsyncMock()
+        repo = OnetRepository(mock_session)
+
+        result = await repo.search_with_full_text("")
+        assert result == []
+        mock_session.execute.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_search_with_full_text_whitespace_query_returns_empty_list(self):
+        """Whitespace-only query should return empty list."""
+        from app.repositories.onet_repository import OnetRepository
+
+        mock_session = AsyncMock()
+        repo = OnetRepository(mock_session)
+
+        result = await repo.search_with_full_text("   \t\n  ")
+        assert result == []
+        mock_session.execute.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_search_with_full_text_query_too_long_raises_error(self):
+        """Query exceeding max length should raise ValueError."""
+        from app.repositories.onet_repository import OnetRepository
+
+        mock_session = AsyncMock()
+        repo = OnetRepository(mock_session)
+
+        long_query = "x" * 501  # Exceeds MAX_QUERY_LENGTH of 500
+        with pytest.raises(ValueError, match="exceeds maximum length"):
+            await repo.search_with_full_text(long_query)
+
+    @pytest.mark.asyncio
+    async def test_search_with_full_text_max_length_query_allowed(self):
+        """Query at exactly max length should be allowed."""
+        from app.repositories.onet_repository import OnetRepository
+
+        mock_session = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = []
+        mock_session.execute.return_value = mock_result
+        repo = OnetRepository(mock_session)
+
+        max_query = "x" * 500  # Exactly MAX_QUERY_LENGTH
+        result = await repo.search_with_full_text(max_query)
+        assert result == []
+        mock_session.execute.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_search_alternate_titles_empty_query_returns_empty_list(self):
+        """Empty query should return empty list for alternate titles search."""
+        from app.repositories.onet_repository import OnetRepository
+
+        mock_session = AsyncMock()
+        repo = OnetRepository(mock_session)
+
+        result = await repo.search_alternate_titles("")
+        assert result == []
+        mock_session.execute.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_search_alternate_titles_query_too_long_raises_error(self):
+        """Query exceeding max length should raise ValueError for alternate titles."""
+        from app.repositories.onet_repository import OnetRepository
+
+        mock_session = AsyncMock()
+        repo = OnetRepository(mock_session)
+
+        long_query = "x" * 501
+        with pytest.raises(ValueError, match="exceeds maximum length"):
+            await repo.search_alternate_titles(long_query)
+
+    def test_max_query_length_constant_exists(self):
+        """Repository should have MAX_QUERY_LENGTH constant."""
+        from app.repositories.onet_repository import OnetRepository
+
+        assert hasattr(OnetRepository, "MAX_QUERY_LENGTH")
+        assert OnetRepository.MAX_QUERY_LENGTH == 500
