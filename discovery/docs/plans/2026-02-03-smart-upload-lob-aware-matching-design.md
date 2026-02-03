@@ -438,18 +438,208 @@ Seed ~100 common LOB patterns:
 
 ---
 
-## 9. Implementation Summary
+---
+
+## 9. Frontend - Aggregated Role Mapping UX
+
+### 9.1 Scale Problem
+
+With 1,000+ employees uploading, one-by-one role validation doesn't scale:
+- 1,000 employees → 75 unique (Role, LOB) combinations
+- Need efficient bulk review and confirmation
+
+### 9.2 Grouped Review Interface
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  Step 2: Review Role Mappings                                                │
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────────┐│
+│  │ Summary: 75 roles • 847 auto-matched (93%) • 12 need review             ││
+│  │                                                                          ││
+│  │ [✓ Confirm All High Confidence]  [Filter ▼]  [Group by: LOB ▼]         ││
+│  └─────────────────────────────────────────────────────────────────────────┘│
+│                                                                              │
+│  ▼ Retail Banking (28 roles • 412 employees)                                │
+│  ┌─────────────────────────────────────────────────────────────────────────┐│
+│  │ ☑ Financial Analyst (45 emp)     → Financial Analysts         ✓ 96%    ││
+│  │ ☑ Relationship Manager (38 emp)  → Personal Financial Adv...  ✓ 91%    ││
+│  │ ☐ Client Associate (22 emp)      → Brokerage Clerks           ? 67%    ││
+│  │   └─ [Review] [Search O*NET]                                            ││
+│  │ ☑ Branch Manager (18 emp)        → Financial Managers          ✓ 89%   ││
+│  └─────────────────────────────────────────────────────────────────────────┘│
+│                                                                              │
+│  ▶ Wealth Management (19 roles • 215 employees)                             │
+│  ▶ Technology (15 roles • 198 employees)                                    │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 9.3 Key UX Features
+
+| Feature | Purpose |
+|---------|---------|
+| **Group by LOB** | Logical organization, review similar roles together |
+| **Employee count** | Prioritize high-impact roles |
+| **Bulk confirm** | One click to confirm all HIGH confidence matches |
+| **Confidence tiers** | ✓ HIGH (>85%), ? MEDIUM (60-85%), ✗ LOW (<60%) |
+| **Expand on demand** | Only show details for roles needing attention |
+| **Filter by status** | "Show only needs review" to focus on problems |
+
+### 9.4 Bulk Actions API
+
+```python
+@router.post("/sessions/{session_id}/role-mappings/bulk-confirm")
+async def bulk_confirm_mappings(
+    session_id: UUID,
+    request: BulkConfirmRequest,
+) -> BulkConfirmResponse:
+    """Confirm multiple role mappings at once."""
+
+class BulkConfirmRequest(BaseModel):
+    mapping_ids: list[UUID] | None = None
+    min_confidence: float | None = None
+    lob: str | None = None
+```
+
+---
+
+## 10. Frontend - Aggregated DWA Selection UX
+
+### 10.1 DWA Selection Model
+
+DWA selections are at the **(Role + LOB)** level:
+- Same job title in different LOBs → different O*NET match → different DWAs
+- All employees with same (Role, LOB) share the same DWA selections
+
+### 10.2 Three-Level Hierarchy
+
+```
+LOB Group (collapsible)
+  └── Role + LOB (collapsible)
+        └── GWA Category (collapsible)
+              └── DWA Checkboxes (selectable)
+```
+
+### 10.3 Activities Interface
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  Step 3: Select Work Activities                                              │
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────────┐│
+│  │ Summary: 75 roles • 2,340 activities • 1,847 selected (79%)             ││
+│  │                                                                          ││
+│  │ [Auto-select High Exposure]  [Filter ▼]  [Group by: LOB ▼]              ││
+│  └─────────────────────────────────────────────────────────────────────────┘│
+│                                                                              │
+│  ▼ Retail Banking (28 roles • 412 employees)                    78% selected│
+│  ┌─────────────────────────────────────────────────────────────────────────┐│
+│  │  ▼ Financial Analyst (45 emp)                               82% selected││
+│  │    ┌─────────────────────────────────────────────────────────────────┐  ││
+│  │    │ ▶ Analyzing Data or Information (AI: 85%)           4/5 selected│  ││
+│  │    │ ▶ Processing Information (AI: 82%)                  3/4 selected│  ││
+│  │    │ ▼ Getting Information (AI: 75%)                     2/3 selected│  ││
+│  │    │   ☑ Gather financial data for analysis                    88%   │  ││
+│  │    │   ☑ Research market conditions                            82%   │  ││
+│  │    │   ☐ Interview clients about financial needs               45%   │  ││
+│  │    └─────────────────────────────────────────────────────────────────┘  ││
+│  │  ▶ Relationship Manager (38 emp)                            71% selected││
+│  └─────────────────────────────────────────────────────────────────────────┘│
+│                                                                              │
+│  ▶ Wealth Management (19 roles • 215 employees)                 81% selected│
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 10.4 Bulk Activity Actions
+
+```python
+@router.post("/sessions/{session_id}/activities/bulk-select")
+async def bulk_select_activities(
+    session_id: UUID,
+    request: BulkActivitySelectRequest,
+) -> BulkSelectionResponse:
+    """Bulk select/deselect activities with flexible targeting."""
+
+class BulkActivitySelectRequest(BaseModel):
+    selected: bool
+    activity_ids: list[UUID] | None = None
+    role_mapping_id: UUID | None = None
+    gwa_code: str | None = None
+    lob: str | None = None
+    min_exposure: float | None = None
+```
+
+---
+
+## 11. Frontend Component Inventory
+
+### 11.1 New Components
+
+```
+frontend/src/components/features/discovery/
+├── upload/
+│   ├── ColumnMappingCard.tsx         # Single field mapping row
+│   ├── ColumnMappingPanel.tsx        # All mappings + confidence
+│   └── DataPreviewTable.tsx          # Preview with highlights
+│
+├── role-mapping/
+│   ├── MappingSummaryBar.tsx         # Global stats + bulk actions
+│   ├── MappingControls.tsx           # Filters, search, sort
+│   ├── MappingGroupCard.tsx          # Collapsible LOB group
+│   ├── MappingRowCompact.tsx         # Single role row
+│   ├── MappingRowExpanded.tsx        # Expanded details
+│   ├── ConfidenceBadge.tsx           # HIGH/MEDIUM/LOW indicator
+│   └── IndustryBoostBadge.tsx        # Industry match indicator
+│
+├── activities/
+│   ├── ActivitySummaryBar.tsx        # Global stats + auto-select
+│   ├── ActivityFilters.tsx           # Search, show/hide unselected
+│   ├── LobActivityGroup.tsx          # Collapsible LOB container
+│   ├── RoleActivityCard.tsx          # Collapsible role container
+│   ├── GwaAccordion.tsx              # GWA category accordion
+│   ├── DwaCheckboxRow.tsx            # Individual DWA checkbox
+│   └── ExposureBadge.tsx             # AI exposure indicator
+│
+└── shared/
+    ├── CollapsibleSection.tsx        # Reusable expand/collapse
+    ├── BulkActionBar.tsx             # Floating bulk toolbar
+    └── SelectAllCheckbox.tsx         # Tri-state checkbox
+```
+
+### 11.2 Updated Pages
+
+| Page | Change |
+|------|--------|
+| `UploadStep.tsx` | Major - add column mapping UI |
+| `MapRolesStep.tsx` | Rewrite - grouped view with bulk actions |
+| `ActivitiesStep.tsx` | Rewrite - hierarchical grouped view |
+| `AnalysisStep.tsx` | Minor - no structural changes |
+| `RoadmapStep.tsx` | Minor - no structural changes |
+
+### 11.3 New Hooks
+
+```typescript
+useColumnDetection(uploadId)      // Column detection results
+useGroupedRoleMappings(sessionId) // Grouped mappings with bulk actions
+useGroupedActivities(sessionId)   // Grouped activities with bulk actions
+```
+
+---
+
+## 12. Implementation Summary
 
 | Component | Files | Scope |
 |-----------|-------|-------|
-| Database | 1 migration | 3 new tables, 3 column additions |
-| Backend Services | 3 new, 2 modified | Column detection, LOB mapping, role mapping |
-| API Endpoints | 2 modified | Upload, role mappings |
-| Schemas | 2 modified | Upload, role mapping responses |
-| Frontend | 2 modified | UploadStep, MapRolesStep |
-| Data Import | 3 scripts | NAICS, LOB seed, O*NET industry |
-| Tests | ~15 new tests | Unit + integration |
+| **Database** | 1 migration | 3 new tables, 3 column additions |
+| **Backend Services** | 4 new, 2 modified | Column detection, LOB mapping, role mapping, activity service |
+| **API Endpoints** | 4 new, 2 modified | Grouped endpoints, bulk actions |
+| **Schemas** | 4 new, 2 modified | Grouped responses, bulk requests |
+| **Frontend Components** | 18 new, 5 modified | Full component inventory above |
+| **Frontend Hooks** | 3 new, 2 modified | Grouped data hooks |
+| **Data Import** | 3 scripts | NAICS, LOB seed, O*NET industry |
+| **Tests** | ~25 new tests | Unit + integration + E2E |
 
 ---
 
 *Document created: 2026-02-03*
+*Updated: 2026-02-03 - Added aggregated UX for role mapping and activities*
