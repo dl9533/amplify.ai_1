@@ -1,5 +1,5 @@
 """Role mappings router for the Discovery module."""
-from typing import List
+from typing import Annotated, List
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status

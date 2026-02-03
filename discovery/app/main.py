@@ -10,6 +10,7 @@ from app.middleware.error_handler import add_exception_handlers
 from app.middleware.session_save import AutoSaveMiddleware
 from app.routers import (
     activities_router,
+    admin_router,
     analysis_router,
     chat_router,
     exports_router,
@@ -85,6 +86,7 @@ async def health_check():
 
 
 # Register all routers
+app.include_router(admin_router)
 app.include_router(sessions_router)
 app.include_router(uploads_router)
 app.include_router(role_mappings_router)

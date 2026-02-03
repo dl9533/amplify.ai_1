@@ -7,6 +7,11 @@ from app.schemas.activity import (
     GWAGroupResponse,
     SelectionCountResponse,
 )
+from app.schemas.admin import (
+    OnetSyncRequest,
+    OnetSyncResponse,
+    OnetSyncStatus,
+)
 from app.schemas.analysis import (
     AllDimensionsResponse,
     AnalysisDimension,
@@ -66,6 +71,9 @@ from app.schemas.upload import (
 __all__ = [
     "ActivitySelectionUpdate",
     "AllDimensionsResponse",
+    "OnetSyncRequest",
+    "OnetSyncResponse",
+    "OnetSyncStatus",
     "AnalysisDimension",
     "AnalysisResult",
     "BulkConfirmRequest",

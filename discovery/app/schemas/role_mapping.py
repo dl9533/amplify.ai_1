@@ -29,12 +29,12 @@ class RoleMappingResponse(BaseModel):
         ...,
         description="Original role title from uploaded data",
     )
-    onet_code: str = Field(
-        ...,
+    onet_code: Optional[str] = Field(
+        default=None,
         description="O*NET SOC code for the mapped occupation",
     )
-    onet_title: str = Field(
-        ...,
+    onet_title: Optional[str] = Field(
+        default=None,
         description="O*NET occupation title",
     )
     confidence_score: float = Field(
@@ -50,9 +50,11 @@ class RoleMappingResponse(BaseModel):
 
     @field_validator("onet_code")
     @classmethod
-    def validate_onet_code_format(cls, v: str) -> str:
-        """Validate O*NET code format."""
-        return validate_onet_code(v)
+    def validate_onet_code_format(cls, v: Optional[str]) -> Optional[str]:
+        """Validate O*NET code format if provided."""
+        if v is not None:
+            return validate_onet_code(v)
+        return v
 
     model_config = {
         "from_attributes": True,

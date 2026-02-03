@@ -1,5 +1,6 @@
 """Routers for the Discovery module."""
 from app.routers.activities import router as activities_router
+from app.routers.admin import router as admin_router
 from app.routers.analysis import router as analysis_router
 from app.routers.chat import router as chat_router
 from app.routers.exports import router as exports_router
@@ -11,6 +12,7 @@ from app.routers.uploads import router as uploads_router
 
 __all__ = [
     "activities_router",
+    "admin_router",
     "analysis_router",
     "chat_router",
     "exports_router",

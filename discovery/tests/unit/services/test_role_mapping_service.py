@@ -1,13 +1,11 @@
 """Unit tests for role mapping and O*NET services.
 
-Tests the OnetService class that wraps OnetApiClient, following TDD methodology.
+Tests the OnetService class that uses the local O*NET repository.
 """
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from app.config import Settings
-from app.services.onet_client import OnetApiClient
 from app.services.role_mapping_service import (
     OnetService,
     RoleMappingService,
@@ -17,75 +15,82 @@ from app.services.role_mapping_service import (
 
 
 @pytest.fixture
-def mock_onet_client():
-    """Create a mock OnetApiClient for testing."""
-    client = MagicMock(spec=OnetApiClient)
-    client.search_occupations = AsyncMock()
-    client.get_occupation = AsyncMock()
-    return client
+def mock_onet_repository():
+    """Create a mock OnetRepository for testing."""
+    from app.repositories.onet_repository import OnetRepository
+
+    repo = MagicMock(spec=OnetRepository)
+    repo.search_with_full_text = AsyncMock()
+    repo.get_by_code = AsyncMock()
+    return repo
 
 
 @pytest.fixture
-def onet_service(mock_onet_client):
-    """Create an OnetService instance with mocked client."""
-    return OnetService(client=mock_onet_client)
+def onet_service(mock_onet_repository):
+    """Create an OnetService instance with mocked repository."""
+    return OnetService(repository=mock_onet_repository)
 
 
 class TestOnetServiceInit:
     """Tests for OnetService initialization."""
 
-    def test_init_accepts_onet_api_client(self, mock_onet_client):
-        """OnetService should accept OnetApiClient as dependency."""
-        service = OnetService(client=mock_onet_client)
-        assert service.client is mock_onet_client
+    def test_init_accepts_onet_repository(self, mock_onet_repository):
+        """OnetService should accept OnetRepository as dependency."""
+        service = OnetService(repository=mock_onet_repository)
+        assert service.repository is mock_onet_repository
 
-    def test_init_stores_client_reference(self, mock_onet_client):
-        """OnetService should store client for later use."""
-        service = OnetService(client=mock_onet_client)
-        assert hasattr(service, "client")
-        assert service.client == mock_onet_client
+    def test_init_stores_repository_reference(self, mock_onet_repository):
+        """OnetService should store repository for later use."""
+        service = OnetService(repository=mock_onet_repository)
+        assert hasattr(service, "repository")
+        assert service.repository == mock_onet_repository
 
 
 class TestOnetServiceSearch:
     """Tests for OnetService.search method."""
 
     @pytest.mark.asyncio
-    async def test_search_calls_client_search_occupations(self, onet_service, mock_onet_client):
-        """OnetService.search should delegate to client.search_occupations."""
-        mock_onet_client.search_occupations.return_value = []
+    async def test_search_calls_repository_search(self, onet_service, mock_onet_repository):
+        """OnetService.search should delegate to repository.search_with_full_text."""
+        mock_onet_repository.search_with_full_text.return_value = []
 
         await onet_service.search("software developer")
 
-        mock_onet_client.search_occupations.assert_called_once_with("software developer")
+        mock_onet_repository.search_with_full_text.assert_called_once_with("software developer")
 
     @pytest.mark.asyncio
-    async def test_search_returns_client_results(self, onet_service, mock_onet_client):
-        """OnetService.search should return results from client."""
-        expected_results = [
-            {"code": "15-1252.00", "title": "Software Developers"},
-            {"code": "15-1251.00", "title": "Computer Programmers"},
-        ]
-        mock_onet_client.search_occupations.return_value = expected_results
+    async def test_search_returns_formatted_results(self, onet_service, mock_onet_repository):
+        """OnetService.search should return formatted results from repository."""
+        mock_occupation = MagicMock(
+            code="15-1252.00",
+            title="Software Developers",
+        )
+        mock_onet_repository.search_with_full_text.return_value = [mock_occupation]
 
         results = await onet_service.search("software")
 
-        assert results == expected_results
+        assert len(results) == 1
+        assert results[0]["code"] == "15-1252.00"
+        assert results[0]["title"] == "Software Developers"
+        assert results[0]["score"] == 1.0
 
     @pytest.mark.asyncio
-    async def test_search_returns_empty_list_when_no_matches(self, onet_service, mock_onet_client):
-        """OnetService.search should return empty list when client returns none."""
-        mock_onet_client.search_occupations.return_value = []
+    async def test_search_returns_empty_list_when_no_matches(self, onet_service, mock_onet_repository):
+        """OnetService.search should return empty list when repository returns none."""
+        mock_onet_repository.search_with_full_text.return_value = []
 
         results = await onet_service.search("nonexistent occupation")
 
         assert results == []
 
     @pytest.mark.asyncio
-    async def test_search_returns_list_type(self, onet_service, mock_onet_client):
+    async def test_search_returns_list_type(self, onet_service, mock_onet_repository):
         """OnetService.search should always return a list."""
-        mock_onet_client.search_occupations.return_value = [
-            {"code": "15-1252.00", "title": "Software Developers"}
-        ]
+        mock_occupation = MagicMock(
+            code="15-1252.00",
+            title="Software Developers",
+        )
+        mock_onet_repository.search_with_full_text.return_value = [mock_occupation]
 
         results = await onet_service.search("software")
 
@@ -96,32 +101,34 @@ class TestOnetServiceGetOccupation:
     """Tests for OnetService.get_occupation method."""
 
     @pytest.mark.asyncio
-    async def test_get_occupation_calls_client(self, onet_service, mock_onet_client):
-        """OnetService.get_occupation should delegate to client.get_occupation."""
-        mock_onet_client.get_occupation.return_value = None
+    async def test_get_occupation_calls_repository(self, onet_service, mock_onet_repository):
+        """OnetService.get_occupation should delegate to repository.get_by_code."""
+        mock_onet_repository.get_by_code.return_value = None
 
         await onet_service.get_occupation("15-1252.00")
 
-        mock_onet_client.get_occupation.assert_called_once_with("15-1252.00")
+        mock_onet_repository.get_by_code.assert_called_once_with("15-1252.00")
 
     @pytest.mark.asyncio
-    async def test_get_occupation_returns_occupation_details(self, onet_service, mock_onet_client):
-        """OnetService.get_occupation should return occupation details from client."""
-        expected_occupation = {
-            "code": "15-1252.00",
-            "title": "Software Developers",
-            "description": "Research, design, and develop computer software.",
-        }
-        mock_onet_client.get_occupation.return_value = expected_occupation
+    async def test_get_occupation_returns_occupation_details(self, onet_service, mock_onet_repository):
+        """OnetService.get_occupation should return occupation details from repository."""
+        mock_occupation = MagicMock(
+            code="15-1252.00",
+            title="Software Developers",
+            description="Research, design, and develop computer software.",
+        )
+        mock_onet_repository.get_by_code.return_value = mock_occupation
 
         result = await onet_service.get_occupation("15-1252.00")
 
-        assert result == expected_occupation
+        assert result["code"] == "15-1252.00"
+        assert result["title"] == "Software Developers"
+        assert result["description"] == "Research, design, and develop computer software."
 
     @pytest.mark.asyncio
-    async def test_get_occupation_returns_none_when_not_found(self, onet_service, mock_onet_client):
+    async def test_get_occupation_returns_none_when_not_found(self, onet_service, mock_onet_repository):
         """OnetService.get_occupation should return None when occupation not found."""
-        mock_onet_client.get_occupation.return_value = None
+        mock_onet_repository.get_by_code.return_value = None
 
         result = await onet_service.get_occupation("00-0000.00")
 
@@ -131,49 +138,11 @@ class TestOnetServiceGetOccupation:
 class TestGetOnetServiceDependency:
     """Tests for get_onet_service dependency function."""
 
-    def test_get_onet_service_returns_onet_service(self):
-        """get_onet_service should return an OnetService instance."""
-        with patch("app.services.role_mapping_service.get_settings") as mock_get_settings:
-            mock_settings = MagicMock(spec=Settings)
-            mock_settings.onet_api_key = MagicMock()
-            mock_settings.onet_api_key.get_secret_value.return_value = "test_key"
-            mock_settings.onet_api_base_url = "https://services.onetcenter.org/ws/"
-            mock_get_settings.return_value = mock_settings
+    def test_get_onet_service_is_async_generator(self):
+        """get_onet_service should be an async generator function."""
+        import inspect
 
-            service = get_onet_service()
-
-            assert isinstance(service, OnetService)
-
-    def test_get_onet_service_creates_client(self):
-        """get_onet_service should create OnetApiClient with settings."""
-        with patch("app.services.role_mapping_service.get_settings") as mock_get_settings:
-            with patch("app.services.role_mapping_service.OnetApiClient") as mock_client_class:
-                mock_settings = MagicMock(spec=Settings)
-                mock_settings.onet_api_key = MagicMock()
-                mock_settings.onet_api_key.get_secret_value.return_value = "test_key"
-                mock_settings.onet_api_base_url = "https://services.onetcenter.org/ws/"
-                mock_get_settings.return_value = mock_settings
-                mock_client_class.return_value = MagicMock(spec=OnetApiClient)
-
-                get_onet_service()
-
-                mock_client_class.assert_called_once_with(settings=mock_settings)
-
-    def test_get_onet_service_injects_client_into_service(self):
-        """get_onet_service should inject the created client into OnetService."""
-        with patch("app.services.role_mapping_service.get_settings") as mock_get_settings:
-            with patch("app.services.role_mapping_service.OnetApiClient") as mock_client_class:
-                mock_settings = MagicMock(spec=Settings)
-                mock_settings.onet_api_key = MagicMock()
-                mock_settings.onet_api_key.get_secret_value.return_value = "test_key"
-                mock_settings.onet_api_base_url = "https://services.onetcenter.org/ws/"
-                mock_get_settings.return_value = mock_settings
-                mock_client = MagicMock(spec=OnetApiClient)
-                mock_client_class.return_value = mock_client
-
-                service = get_onet_service()
-
-                assert service.client is mock_client
+        assert inspect.isasyncgenfunction(get_onet_service)
 
 
 class TestRoleMappingServiceDependency:
@@ -184,3 +153,34 @@ class TestRoleMappingServiceDependency:
         import inspect
 
         assert inspect.isasyncgenfunction(get_role_mapping_service)
+
+
+class TestRoleMappingServiceInit:
+    """Tests for RoleMappingService initialization."""
+
+    def test_init_requires_repository_and_agent(self):
+        """RoleMappingService should require repository and agent."""
+        mock_repo = MagicMock()
+        mock_agent = MagicMock()
+
+        service = RoleMappingService(
+            repository=mock_repo,
+            role_mapping_agent=mock_agent,
+        )
+
+        assert service.repository is mock_repo
+        assert service.role_mapping_agent is mock_agent
+
+    def test_init_accepts_optional_upload_service(self):
+        """RoleMappingService should accept optional upload_service."""
+        mock_repo = MagicMock()
+        mock_agent = MagicMock()
+        mock_upload_service = MagicMock()
+
+        service = RoleMappingService(
+            repository=mock_repo,
+            role_mapping_agent=mock_agent,
+            upload_service=mock_upload_service,
+        )
+
+        assert service.upload_service is mock_upload_service
