@@ -1,27 +1,40 @@
-"""Unit tests for OnetOccupation model."""
+"""Unit tests for O*NET occupation model."""
 import pytest
+from sqlalchemy import inspect
+
+from app.models.onet_occupation import OnetOccupation
 
 
-def test_onet_occupation_model_exists():
-    """Test that OnetOccupation model is importable."""
-    from app.models.onet_occupation import OnetOccupation
-    assert OnetOccupation is not None
+class TestOnetOccupationModel:
+    """Tests for OnetOccupation SQLAlchemy model."""
 
+    def test_model_has_correct_tablename(self):
+        """Model should have correct table name."""
+        assert OnetOccupation.__tablename__ == "onet_occupations"
 
-def test_onet_occupation_has_required_columns():
-    """Test that model has all required columns."""
-    from app.models.onet_occupation import OnetOccupation
+    def test_model_has_code_primary_key(self):
+        """Model should have code as primary key."""
+        mapper = inspect(OnetOccupation)
+        pk_columns = [col.name for col in mapper.primary_key]
+        assert pk_columns == ["code"]
 
-    columns = OnetOccupation.__table__.columns.keys()
-    assert "code" in columns
-    assert "title" in columns
-    assert "description" in columns
-    assert "updated_at" in columns
+    def test_model_has_required_columns(self):
+        """Model should have all required columns."""
+        mapper = inspect(OnetOccupation)
+        column_names = [col.name for col in mapper.columns]
+        assert "code" in column_names
+        assert "title" in column_names
+        assert "description" in column_names
+        assert "updated_at" in column_names
 
+    def test_model_code_max_length(self):
+        """Code column should have max length of 10."""
+        mapper = inspect(OnetOccupation)
+        code_col = mapper.columns["code"]
+        assert code_col.type.length == 10
 
-def test_onet_occupation_code_is_primary_key():
-    """Test that code is the primary key."""
-    from app.models.onet_occupation import OnetOccupation
-
-    pk_columns = [c.name for c in OnetOccupation.__table__.primary_key.columns]
-    assert pk_columns == ["code"]
+    def test_model_title_not_nullable(self):
+        """Title column should not be nullable."""
+        mapper = inspect(OnetOccupation)
+        title_col = mapper.columns["title"]
+        assert title_col.nullable is False

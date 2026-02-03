@@ -1,10 +1,16 @@
 """O*NET Task models."""
-from datetime import datetime
+from __future__ import annotations
 
-from sqlalchemy import String, Text, DateTime, Float, ForeignKey, Integer, func
+from datetime import datetime
+from typing import TYPE_CHECKING
+
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
+
+if TYPE_CHECKING:
+    from app.models.onet_occupation import OnetOccupation
 
 
 class OnetTask(Base):
@@ -12,6 +18,7 @@ class OnetTask(Base):
 
     Specific tasks associated with occupations.
     """
+
     __tablename__ = "onet_tasks"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -31,6 +38,10 @@ class OnetTask(Base):
     )
 
     # Relationships
+    occupation: Mapped["OnetOccupation"] = relationship(
+        back_populates="tasks",
+        foreign_keys=[occupation_code],
+    )
     dwas: Mapped[list["OnetTaskToDWA"]] = relationship(back_populates="task", cascade="all, delete-orphan")
 
     def __repr__(self) -> str:
