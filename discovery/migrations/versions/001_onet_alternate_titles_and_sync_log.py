@@ -12,7 +12,7 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision: str = "001_onet_alt_sync"
-down_revision: Union[str, None] = None
+down_revision: Union[str, None] = "000_enums_base"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
