@@ -1,36 +1,13 @@
 import { renderHook, act, waitFor } from '@testing-library/react'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { useFileUpload, MAX_FILE_SIZE } from '@/hooks/useFileUpload'
-
-// Mock FileReader
-class MockFileReader {
-  result: string | null = null
-  onload: ((event: ProgressEvent<FileReader>) => void) | null = null
-  onerror: ((event: ProgressEvent<FileReader>) => void) | null = null
-
-  readAsText(file: File) {
-    // Simulate async read
-    setTimeout(() => {
-      if (this.onload) {
-        this.result = 'Column1, Column2, Column3\nvalue1, value2, value3'
-        this.onload({ target: this } as ProgressEvent<FileReader>)
-      }
-    }, 0)
-  }
-}
-
-// Store original FileReader
-const OriginalFileReader = global.FileReader
+import { mockUploadApi, resetAllMocks } from '../../__mocks__/services'
 
 describe('useFileUpload', () => {
-  beforeEach(() => {
-    vi.resetAllMocks()
-    // @ts-expect-error - Mocking FileReader
-    global.FileReader = MockFileReader
-  })
+  const sessionId = 'test-session-123'
 
-  afterEach(() => {
-    global.FileReader = OriginalFileReader
+  beforeEach(() => {
+    resetAllMocks()
   })
 
   const createMockFile = (
@@ -44,97 +21,89 @@ describe('useFileUpload', () => {
   }
 
   describe('initial state', () => {
-    it('starts with null uploadedFile', () => {
-      const { result } = renderHook(() => useFileUpload())
+    it('starts with null file', () => {
+      const { result } = renderHook(() => useFileUpload(sessionId))
 
-      expect(result.current.uploadedFile).toBeNull()
+      expect(result.current.file).toBeNull()
     })
 
-    it('starts with isUploading as false', () => {
-      const { result } = renderHook(() => useFileUpload())
+    it('starts with uploading as false', () => {
+      const { result } = renderHook(() => useFileUpload(sessionId))
 
-      expect(result.current.isUploading).toBe(false)
+      expect(result.current.uploading).toBe(false)
     })
 
-    it('starts with error as null', () => {
-      const { result } = renderHook(() => useFileUpload())
+    it('starts with uploadProgress at 0', () => {
+      const { result } = renderHook(() => useFileUpload(sessionId))
 
-      expect(result.current.error).toBeNull()
+      expect(result.current.uploadProgress).toBe(0)
+    })
+
+    it('starts with uploadError as null', () => {
+      const { result } = renderHook(() => useFileUpload(sessionId))
+
+      expect(result.current.uploadError).toBeNull()
+    })
+
+    it('starts with uploadResult as null', () => {
+      const { result } = renderHook(() => useFileUpload(sessionId))
+
+      expect(result.current.uploadResult).toBeNull()
     })
 
     it('provides all required functions', () => {
-      const { result } = renderHook(() => useFileUpload())
+      const { result } = renderHook(() => useFileUpload(sessionId))
 
-      expect(typeof result.current.handleFileDrop).toBe('function')
+      expect(typeof result.current.handleDrop).toBe('function')
       expect(typeof result.current.handleFileSelect).toBe('function')
       expect(typeof result.current.clearFile).toBe('function')
     })
   })
 
   describe('successful file upload', () => {
-    it('processes a valid CSV file', async () => {
-      const { result } = renderHook(() => useFileUpload())
+    it('uploads a valid CSV file and returns result', async () => {
+      const { result } = renderHook(() => useFileUpload(sessionId))
       const mockFile = createMockFile('test.csv', 1024, 'text/csv')
 
       await act(async () => {
-        result.current.handleFileDrop([mockFile])
+        result.current.handleDrop(mockFile)
       })
 
       await waitFor(() => {
-        expect(result.current.uploadedFile).not.toBeNull()
+        expect(result.current.uploadResult).not.toBeNull()
       })
 
-      expect(result.current.uploadedFile?.name).toBe('test.csv')
-      expect(result.current.uploadedFile?.size).toBe(1024)
-      expect(result.current.uploadedFile?.type).toBe('text/csv')
-      expect(result.current.isUploading).toBe(false)
-      expect(result.current.error).toBeNull()
-    })
-
-    it('parses column names from CSV', async () => {
-      const { result } = renderHook(() => useFileUpload())
-      const mockFile = createMockFile('test.csv', 1024, 'text/csv')
-
-      await act(async () => {
-        result.current.handleFileDrop([mockFile])
-      })
-
-      await waitFor(() => {
-        expect(result.current.uploadedFile).not.toBeNull()
-      })
-
-      expect(result.current.uploadedFile?.columns).toEqual([
-        'Column1',
-        'Column2',
-        'Column3',
+      expect(result.current.file?.name).toBe('test.csv')
+      expect(result.current.uploadResult?.filename).toBe('workforce.csv')
+      expect(result.current.uploadResult?.row_count).toBe(150)
+      expect(result.current.uploadResult?.detected_schema).toEqual([
+        'Role', 'Department', 'Location', 'Headcount'
       ])
+      expect(result.current.uploading).toBe(false)
+      expect(result.current.uploadError).toBeNull()
     })
 
-    it('calls onUploadComplete callback on success', async () => {
-      const onUploadComplete = vi.fn()
-      const { result } = renderHook(() =>
-        useFileUpload({ onUploadComplete })
-      )
+    it('calls uploadApi.upload with correct parameters', async () => {
+      const { result } = renderHook(() => useFileUpload(sessionId))
       const mockFile = createMockFile('test.csv', 1024, 'text/csv')
 
       await act(async () => {
-        result.current.handleFileDrop([mockFile])
+        result.current.handleDrop(mockFile)
       })
 
       await waitFor(() => {
-        expect(onUploadComplete).toHaveBeenCalled()
+        expect(mockUploadApi.upload).toHaveBeenCalled()
       })
 
-      expect(onUploadComplete).toHaveBeenCalledWith(
-        expect.objectContaining({
-          name: 'test.csv',
-          size: 1024,
-        })
+      expect(mockUploadApi.upload).toHaveBeenCalledWith(
+        sessionId,
+        mockFile,
+        expect.any(Function) // progress callback
       )
     })
 
-    it('accepts XLSX files by extension', async () => {
-      const { result } = renderHook(() => useFileUpload())
+    it('accepts XLSX files', async () => {
+      const { result } = renderHook(() => useFileUpload(sessionId))
       const mockFile = createMockFile(
         'test.xlsx',
         1024,
@@ -142,21 +111,36 @@ describe('useFileUpload', () => {
       )
 
       await act(async () => {
-        result.current.handleFileDrop([mockFile])
+        result.current.handleDrop(mockFile)
       })
 
       await waitFor(() => {
-        expect(result.current.uploadedFile).not.toBeNull()
+        expect(result.current.uploadResult).not.toBeNull()
       })
 
-      expect(result.current.uploadedFile?.name).toBe('test.xlsx')
-      expect(result.current.error).toBeNull()
+      expect(result.current.file?.name).toBe('test.xlsx')
+      expect(result.current.uploadError).toBeNull()
+    })
+
+    it('accepts XLS files by extension', async () => {
+      const { result } = renderHook(() => useFileUpload(sessionId))
+      const mockFile = createMockFile('test.xls', 1024, 'application/octet-stream')
+
+      await act(async () => {
+        result.current.handleFileSelect(mockFile)
+      })
+
+      await waitFor(() => {
+        expect(result.current.uploadResult).not.toBeNull()
+      })
+
+      expect(result.current.uploadError).toBeNull()
     })
   })
 
-  describe('file size validation error', () => {
+  describe('file size validation', () => {
     it('rejects files larger than MAX_FILE_SIZE', async () => {
-      const { result } = renderHook(() => useFileUpload())
+      const { result } = renderHook(() => useFileUpload(sessionId))
       const oversizedFile = createMockFile(
         'large.csv',
         MAX_FILE_SIZE + 1,
@@ -164,299 +148,176 @@ describe('useFileUpload', () => {
       )
 
       await act(async () => {
-        result.current.handleFileDrop([oversizedFile])
+        result.current.handleDrop(oversizedFile)
       })
 
-      await waitFor(() => {
-        expect(result.current.error).not.toBeNull()
-      })
-
-      expect(result.current.error?.message).toContain('File size exceeds')
-      expect(result.current.error?.message).toContain('10MB')
-      expect(result.current.uploadedFile).toBeNull()
-    })
-
-    it('calls onError callback for oversized files', async () => {
-      const onError = vi.fn()
-      const { result } = renderHook(() => useFileUpload({ onError }))
-      const oversizedFile = createMockFile(
-        'large.csv',
-        MAX_FILE_SIZE + 1,
-        'text/csv'
-      )
-
-      await act(async () => {
-        result.current.handleFileDrop([oversizedFile])
-      })
-
-      await waitFor(() => {
-        expect(onError).toHaveBeenCalled()
-      })
-
-      expect(onError).toHaveBeenCalledWith(expect.any(Error))
+      expect(result.current.uploadError).toContain('File size exceeds')
+      expect(result.current.uploadError).toContain('10MB')
+      expect(result.current.uploadResult).toBeNull()
+      expect(mockUploadApi.upload).not.toHaveBeenCalled()
     })
 
     it('accepts files at exactly MAX_FILE_SIZE', async () => {
-      const { result } = renderHook(() => useFileUpload())
+      const { result } = renderHook(() => useFileUpload(sessionId))
       const maxSizeFile = createMockFile('exact.csv', MAX_FILE_SIZE, 'text/csv')
 
       await act(async () => {
-        result.current.handleFileDrop([maxSizeFile])
+        result.current.handleDrop(maxSizeFile)
       })
 
       await waitFor(() => {
-        expect(result.current.uploadedFile).not.toBeNull()
+        expect(result.current.uploadResult).not.toBeNull()
       })
 
-      expect(result.current.error).toBeNull()
+      expect(result.current.uploadError).toBeNull()
     })
   })
 
-  describe('invalid file type error', () => {
+  describe('file type validation', () => {
     it('rejects files with invalid type', async () => {
-      const { result } = renderHook(() => useFileUpload())
+      const { result } = renderHook(() => useFileUpload(sessionId))
       const invalidFile = createMockFile('document.pdf', 1024, 'application/pdf')
 
       await act(async () => {
-        result.current.handleFileDrop([invalidFile])
+        result.current.handleDrop(invalidFile)
       })
 
-      await waitFor(() => {
-        expect(result.current.error).not.toBeNull()
-      })
-
-      expect(result.current.error?.message).toContain('Invalid file type')
-      expect(result.current.uploadedFile).toBeNull()
+      expect(result.current.uploadError).toContain('Invalid file type')
+      expect(result.current.uploadResult).toBeNull()
+      expect(mockUploadApi.upload).not.toHaveBeenCalled()
     })
 
     it('rejects text files that are not CSV', async () => {
-      const { result } = renderHook(() => useFileUpload())
+      const { result } = renderHook(() => useFileUpload(sessionId))
       const textFile = createMockFile('document.txt', 1024, 'text/plain')
 
       await act(async () => {
-        result.current.handleFileDrop([textFile])
+        result.current.handleDrop(textFile)
       })
 
-      await waitFor(() => {
-        expect(result.current.error).not.toBeNull()
-      })
-
-      expect(result.current.error?.message).toContain('Invalid file type')
-    })
-
-    it('calls onError callback for invalid file types', async () => {
-      const onError = vi.fn()
-      const { result } = renderHook(() => useFileUpload({ onError }))
-      const invalidFile = createMockFile('image.png', 1024, 'image/png')
-
-      await act(async () => {
-        result.current.handleFileDrop([invalidFile])
-      })
-
-      await waitFor(() => {
-        expect(onError).toHaveBeenCalled()
-      })
+      expect(result.current.uploadError).toContain('Invalid file type')
     })
 
     it('accepts CSV files with .csv extension regardless of MIME type', async () => {
-      const { result } = renderHook(() => useFileUpload())
-      // Some systems report CSV with different MIME types
+      const { result } = renderHook(() => useFileUpload(sessionId))
       const csvFile = createMockFile('data.csv', 1024, 'application/octet-stream')
 
       await act(async () => {
-        result.current.handleFileDrop([csvFile])
+        result.current.handleDrop(csvFile)
       })
 
       await waitFor(() => {
-        expect(result.current.uploadedFile).not.toBeNull()
+        expect(result.current.uploadResult).not.toBeNull()
       })
 
-      expect(result.current.error).toBeNull()
+      expect(result.current.uploadError).toBeNull()
+    })
+  })
+
+  describe('upload errors', () => {
+    it('handles API errors gracefully', async () => {
+      mockUploadApi.upload.mockRejectedValueOnce(new Error('Network error'))
+
+      const { result } = renderHook(() => useFileUpload(sessionId))
+      const mockFile = createMockFile('test.csv', 1024, 'text/csv')
+
+      await act(async () => {
+        result.current.handleDrop(mockFile)
+      })
+
+      await waitFor(() => {
+        expect(result.current.uploadError).not.toBeNull()
+      })
+
+      expect(result.current.uploadError).toBe('Network error')
+      expect(result.current.uploadResult).toBeNull()
+      expect(result.current.file).toBeNull()
+    })
+
+    it('handles non-Error API rejections', async () => {
+      mockUploadApi.upload.mockRejectedValueOnce('Unknown error')
+
+      const { result } = renderHook(() => useFileUpload(sessionId))
+      const mockFile = createMockFile('test.csv', 1024, 'text/csv')
+
+      await act(async () => {
+        result.current.handleDrop(mockFile)
+      })
+
+      await waitFor(() => {
+        expect(result.current.uploadError).not.toBeNull()
+      })
+
+      expect(result.current.uploadError).toBe('Failed to upload file')
     })
   })
 
   describe('clearFile function', () => {
-    it('clears the uploaded file', async () => {
-      const { result } = renderHook(() => useFileUpload())
+    it('clears the uploaded file and result', async () => {
+      const { result } = renderHook(() => useFileUpload(sessionId))
       const mockFile = createMockFile('test.csv', 1024, 'text/csv')
 
       await act(async () => {
-        result.current.handleFileDrop([mockFile])
+        result.current.handleDrop(mockFile)
       })
 
       await waitFor(() => {
-        expect(result.current.uploadedFile).not.toBeNull()
+        expect(result.current.uploadResult).not.toBeNull()
       })
 
       act(() => {
         result.current.clearFile()
       })
 
-      expect(result.current.uploadedFile).toBeNull()
+      expect(result.current.file).toBeNull()
+      expect(result.current.uploadResult).toBeNull()
+      expect(result.current.uploadProgress).toBe(0)
     })
 
     it('clears any existing error', async () => {
-      const { result } = renderHook(() => useFileUpload())
+      const { result } = renderHook(() => useFileUpload(sessionId))
       const invalidFile = createMockFile('document.pdf', 1024, 'application/pdf')
 
       await act(async () => {
-        result.current.handleFileDrop([invalidFile])
+        result.current.handleDrop(invalidFile)
       })
 
-      await waitFor(() => {
-        expect(result.current.error).not.toBeNull()
-      })
+      expect(result.current.uploadError).not.toBeNull()
 
       act(() => {
         result.current.clearFile()
       })
 
-      expect(result.current.error).toBeNull()
+      expect(result.current.uploadError).toBeNull()
     })
 
     it('can be called when no file is uploaded', () => {
-      const { result } = renderHook(() => useFileUpload())
+      const { result } = renderHook(() => useFileUpload(sessionId))
 
       // Should not throw
       act(() => {
         result.current.clearFile()
       })
 
-      expect(result.current.uploadedFile).toBeNull()
-      expect(result.current.error).toBeNull()
+      expect(result.current.file).toBeNull()
+      expect(result.current.uploadError).toBeNull()
     })
   })
 
   describe('handleFileSelect', () => {
-    it('processes files from input change event', async () => {
-      const { result } = renderHook(() => useFileUpload())
-      const mockFile = createMockFile('input.csv', 1024, 'text/csv')
-
-      const mockEvent = {
-        target: {
-          files: [mockFile],
-        },
-      } as unknown as React.ChangeEvent<HTMLInputElement>
+    it('processes files via handleFileSelect', async () => {
+      const { result } = renderHook(() => useFileUpload(sessionId))
+      const mockFile = createMockFile('selected.csv', 1024, 'text/csv')
 
       await act(async () => {
-        result.current.handleFileSelect(mockEvent)
+        result.current.handleFileSelect(mockFile)
       })
 
       await waitFor(() => {
-        expect(result.current.uploadedFile).not.toBeNull()
+        expect(result.current.uploadResult).not.toBeNull()
       })
 
-      expect(result.current.uploadedFile?.name).toBe('input.csv')
-    })
-
-    it('handles empty file list', async () => {
-      const { result } = renderHook(() => useFileUpload())
-
-      const mockEvent = {
-        target: {
-          files: null,
-        },
-      } as unknown as React.ChangeEvent<HTMLInputElement>
-
-      await act(async () => {
-        result.current.handleFileSelect(mockEvent)
-      })
-
-      expect(result.current.uploadedFile).toBeNull()
-      expect(result.current.error).toBeNull()
-    })
-  })
-
-  describe('handleFileDrop', () => {
-    it('processes files from FileList', async () => {
-      const { result } = renderHook(() => useFileUpload())
-      const mockFile = createMockFile('dropped.csv', 1024, 'text/csv')
-
-      const mockFileList = {
-        0: mockFile,
-        length: 1,
-        item: (index: number) => (index === 0 ? mockFile : null),
-        [Symbol.iterator]: function* () {
-          yield mockFile
-        },
-      } as unknown as FileList
-
-      await act(async () => {
-        result.current.handleFileDrop(mockFileList)
-      })
-
-      await waitFor(() => {
-        expect(result.current.uploadedFile).not.toBeNull()
-      })
-
-      expect(result.current.uploadedFile?.name).toBe('dropped.csv')
-    })
-
-    it('only processes the first file when multiple are dropped', async () => {
-      const { result } = renderHook(() => useFileUpload())
-      const file1 = createMockFile('first.csv', 1024, 'text/csv')
-      const file2 = createMockFile('second.csv', 2048, 'text/csv')
-
-      await act(async () => {
-        result.current.handleFileDrop([file1, file2])
-      })
-
-      await waitFor(() => {
-        expect(result.current.uploadedFile).not.toBeNull()
-      })
-
-      expect(result.current.uploadedFile?.name).toBe('first.csv')
-    })
-
-    it('handles empty file array', async () => {
-      const { result } = renderHook(() => useFileUpload())
-
-      await act(async () => {
-        result.current.handleFileDrop([])
-      })
-
-      expect(result.current.uploadedFile).toBeNull()
-      expect(result.current.error).toBeNull()
-    })
-  })
-
-  describe('column name sanitization', () => {
-    it('sanitizes HTML characters in column names', async () => {
-      // Create custom MockFileReader for this test
-      class HtmlColumnMockFileReader {
-        result: string | null = null
-        onload: ((event: ProgressEvent<FileReader>) => void) | null = null
-        onerror: ((event: ProgressEvent<FileReader>) => void) | null = null
-
-        readAsText() {
-          setTimeout(() => {
-            if (this.onload) {
-              this.result = '<script>alert("xss")</script>, Column&Name, "Quoted"\n'
-              this.onload({ target: this } as ProgressEvent<FileReader>)
-            }
-          }, 0)
-        }
-      }
-
-      // @ts-expect-error - Mocking FileReader
-      global.FileReader = HtmlColumnMockFileReader
-
-      const { result } = renderHook(() => useFileUpload())
-      const mockFile = createMockFile('test.csv', 1024, 'text/csv')
-
-      await act(async () => {
-        result.current.handleFileDrop([mockFile])
-      })
-
-      await waitFor(() => {
-        expect(result.current.uploadedFile).not.toBeNull()
-      })
-
-      // Verify HTML is escaped
-      expect(result.current.uploadedFile?.columns[0]).toBe(
-        '&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;'
-      )
-      expect(result.current.uploadedFile?.columns[1]).toBe('Column&amp;Name')
+      expect(result.current.file?.name).toBe('selected.csv')
     })
   })
 })

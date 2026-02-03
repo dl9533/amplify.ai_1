@@ -1,0 +1,11 @@
+employee_id,name,job_title,department,location,headcount
+E001,Alice Johnson,Customer Service Representative,Customer Support,New York,45
+E002,Bob Smith,Customer Service Representative,Customer Support,Chicago,38
+E003,Carol Williams,Data Entry Clerk,Operations,New York,22
+E004,David Brown,Data Entry Clerk,Operations,Los Angeles,18
+E005,Eva Martinez,Accounts Payable Specialist,Finance,New York,12
+E006,Frank Lee,Accounts Payable Specialist,Finance,Chicago,8
+E007,Grace Kim,HR Coordinator,Human Resources,New York,6
+E008,Henry Wilson,IT Help Desk Technician,IT,Chicago,15
+E009,Iris Chen,IT Help Desk Technician,IT,Los Angeles,12
+E010,Jack Davis,Marketing Coordinator,Marketing,New York,5

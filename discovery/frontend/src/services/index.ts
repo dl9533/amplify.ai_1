@@ -1,5 +1,10 @@
 export { api, ApiError, getStoredToken } from './api'
 export {
+  // Upload API
+  uploadApi,
+  type UploadResponse,
+  type ColumnMapping,
+  type ConfirmUploadResponse,
   // Session API
   sessionsApi,
   type SessionStatus,

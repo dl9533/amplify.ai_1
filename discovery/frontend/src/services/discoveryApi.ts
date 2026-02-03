@@ -14,6 +14,86 @@ export type AnalysisDimension = 'ROLE' | 'DEPARTMENT' | 'GEOGRAPHY' | 'TASK' | '
 export type RoadmapPhase = 'NOW' | 'NEXT' | 'LATER'
 export type EstimatedEffort = 'low' | 'medium' | 'high'
 
+// ============ Upload API ============
+
+export interface UploadResponse {
+  upload_id: string
+  filename: string
+  row_count: number
+  detected_schema: string[]
+  column_types: Record<string, string>
+}
+
+export interface ColumnMapping {
+  source_column: string
+  target_field: string
+}
+
+export interface ConfirmUploadResponse {
+  status: string
+  roles_extracted: number
+}
+
+export const uploadApi = {
+  /**
+   * Upload a workforce data file.
+   */
+  upload: async (
+    sessionId: string,
+    file: File,
+    onProgress?: (progress: number) => void
+  ): Promise<UploadResponse> => {
+    const formData = new FormData()
+    formData.append('file', file)
+
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+
+      xhr.upload.addEventListener('progress', (event) => {
+        if (event.lengthComputable && onProgress) {
+          const progress = Math.round((event.loaded / event.total) * 100)
+          onProgress(progress)
+        }
+      })
+
+      xhr.addEventListener('load', () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            resolve(JSON.parse(xhr.responseText))
+          } catch {
+            reject(new Error('Invalid response from server'))
+          }
+        } else {
+          try {
+            const errorData = JSON.parse(xhr.responseText)
+            reject(new Error(errorData.detail || 'Upload failed'))
+          } catch {
+            reject(new Error(`Upload failed with status ${xhr.status}`))
+          }
+        }
+      })
+
+      xhr.addEventListener('error', () => {
+        reject(new Error('Network error during upload'))
+      })
+
+      const baseUrl = import.meta.env.VITE_API_URL || ''
+      xhr.open('POST', `${baseUrl}/discovery/sessions/${sessionId}/upload`)
+      xhr.send(formData)
+    })
+  },
+
+  /**
+   * Confirm column mappings and process the upload.
+   */
+  confirmMappings: (
+    sessionId: string,
+    uploadId: string,
+    mappings: ColumnMapping[]
+  ): Promise<ConfirmUploadResponse> =>
+    api.post(`/discovery/sessions/${sessionId}/upload/${uploadId}/confirm`, { mappings }),
+}
+
 // ============ Sessions API ============
 
 export interface SessionResponse {

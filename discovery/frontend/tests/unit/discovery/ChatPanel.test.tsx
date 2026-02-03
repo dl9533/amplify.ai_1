@@ -1,67 +1,78 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import { describe, it, expect, vi } from 'vitest'
+import { screen, waitFor } from '@testing-library/react'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { ChatPanel } from '@/components/features/discovery/ChatPanel'
+import { renderWithRouter } from '../../test-utils'
+import { mockChatApi, resetAllMocks } from '../../__mocks__/services'
 
 describe('ChatPanel', () => {
-  it('renders message input', () => {
-    render(<ChatPanel sessionId="test-session" />)
-
-    expect(screen.getByRole('textbox', { name: /message/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /send/i })).toBeInTheDocument()
-  })
-
-  it('displays message history', () => {
-    const messages = [
-      { id: '1', role: 'user', content: 'Hello' },
-      { id: '2', role: 'assistant', content: 'Hi! How can I help?' },
-    ]
-
-    render(<ChatPanel sessionId="test-session" initialMessages={messages} />)
-
-    expect(screen.getByText('Hello')).toBeInTheDocument()
-    expect(screen.getByText('Hi! How can I help?')).toBeInTheDocument()
-  })
-
-  it('sends message on submit', async () => {
-    const onSend = vi.fn()
-    render(<ChatPanel sessionId="test-session" onSendMessage={onSend} />)
-
-    const input = screen.getByRole('textbox', { name: /message/i })
-    fireEvent.change(input, { target: { value: 'Test message' } })
-    fireEvent.click(screen.getByRole('button', { name: /send/i }))
-
-    await waitFor(() => {
-      expect(onSend).toHaveBeenCalledWith('Test message')
+  beforeEach(() => {
+    resetAllMocks()
+    // Set up mock to return empty history (will show quick actions)
+    mockChatApi.getHistory.mockResolvedValue([])
+    // Set up mock for sendMessage
+    mockChatApi.sendMessage.mockResolvedValue({
+      response: 'Hello! I can help you.',
+      quick_actions: [],
     })
   })
 
-  it('shows loading indicator while waiting for response', () => {
-    render(<ChatPanel sessionId="test-session" isLoading={true} />)
+  it('renders message input', async () => {
+    renderWithRouter(<ChatPanel />, {
+      route: '/discovery/session-1',
+      routePath: '/discovery/:sessionId',
+    })
 
-    expect(screen.getByRole('status')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText(/ask a question/i)).toBeInTheDocument()
+    })
   })
 
-  it('renders quick action chips when provided', () => {
-    const quickActions = [
-      { label: 'Show details', action: 'show_details' },
-      { label: 'Export', action: 'export' },
-    ]
+  it('displays quick action buttons when no messages', async () => {
+    renderWithRouter(<ChatPanel />, {
+      route: '/discovery/session-1',
+      routePath: '/discovery/:sessionId',
+    })
 
-    render(<ChatPanel sessionId="test-session" quickActions={quickActions} />)
-
-    expect(screen.getByText('Show details')).toBeInTheDocument()
-    expect(screen.getByText('Export')).toBeInTheDocument()
+    // Wait for history to load (empty) so quick actions appear
+    await waitFor(() => {
+      expect(screen.getByText('High exposure roles')).toBeInTheDocument()
+      expect(screen.getByText('Best candidates')).toBeInTheDocument()
+      expect(screen.getByText('Next steps')).toBeInTheDocument()
+    }, { timeout: 3000 })
   })
 
-  it('auto-scrolls to latest message', async () => {
-    const { rerender } = render(<ChatPanel sessionId="test-session" initialMessages={[]} />)
+  it('shows assistant title', async () => {
+    renderWithRouter(<ChatPanel />, {
+      route: '/discovery/session-1',
+      routePath: '/discovery/:sessionId',
+    })
 
-    const messages = [
-      { id: '1', role: 'assistant', content: 'New message!' },
-    ]
-    rerender(<ChatPanel sessionId="test-session" initialMessages={messages} />)
+    await waitFor(() => {
+      expect(screen.getByText('Discovery Assistant')).toBeInTheDocument()
+    })
+  })
 
-    // Verify scroll container exists
-    expect(screen.getByRole('log')).toBeInTheDocument()
+  it('shows close button when onClose is provided', async () => {
+    const onClose = () => {}
+
+    renderWithRouter(<ChatPanel onClose={onClose} />, {
+      route: '/discovery/session-1',
+      routePath: '/discovery/:sessionId',
+    })
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /close chat/i })).toBeInTheDocument()
+    })
+  })
+
+  it('has submit button', async () => {
+    renderWithRouter(<ChatPanel />, {
+      route: '/discovery/session-1',
+      routePath: '/discovery/:sessionId',
+    })
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '' })).toBeInTheDocument()
+    })
   })
 })

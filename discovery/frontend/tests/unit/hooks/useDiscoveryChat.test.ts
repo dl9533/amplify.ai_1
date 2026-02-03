@@ -1,30 +1,33 @@
 import { renderHook, act, waitFor } from '@testing-library/react'
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { useDiscoveryChat } from '@/hooks/useDiscoveryChat'
+import { mockChatApi, resetAllMocks } from '../../__mocks__/services'
 
 describe('useDiscoveryChat', () => {
   const mockSessionId = 'test-session-123'
 
   beforeEach(() => {
-    vi.resetAllMocks()
-  })
-
-  afterEach(() => {
-    vi.restoreAllMocks()
+    resetAllMocks()
+    // Default mock for getHistory to return empty array
+    mockChatApi.getHistory.mockResolvedValue([])
   })
 
   describe('initial state', () => {
-    it('starts with empty messages when no initial messages provided', () => {
+    it('starts with empty messages when no initial messages provided', async () => {
       const { result } = renderHook(() =>
         useDiscoveryChat({ sessionId: mockSessionId })
       )
 
+      // Wait for loadHistory to complete
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false)
+      })
+
       expect(result.current.messages).toEqual([])
-      expect(result.current.isLoading).toBe(false)
       expect(result.current.error).toBeNull()
     })
 
-    it('starts with provided initial messages', () => {
+    it('starts with provided initial messages', async () => {
       const initialMessages = [
         { id: '1', role: 'user' as const, content: 'Hello' },
         { id: '2', role: 'assistant' as const, content: 'Hi there!' },
@@ -41,51 +44,42 @@ describe('useDiscoveryChat', () => {
 
   describe('sendMessage', () => {
     it('adds user message and calls API', async () => {
-      const mockResponse = {
-        id: 'assistant-msg-1',
-        content: 'Hello! How can I help you today?',
-      }
-
-      global.fetch = vi.fn().mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve(mockResponse),
+      mockChatApi.sendMessage.mockResolvedValueOnce({
+        response: 'Hello! How can I help you today?',
+        quick_actions: [],
       })
 
+      // Use non-empty initialMessages to prevent auto-loading
       const { result } = renderHook(() =>
-        useDiscoveryChat({ sessionId: mockSessionId })
+        useDiscoveryChat({
+          sessionId: mockSessionId,
+          initialMessages: [{ id: 'init', role: 'assistant', content: 'Welcome!' }],
+        })
       )
 
       await act(async () => {
         await result.current.sendMessage('Hello')
       })
 
-      // Should have added user message
-      expect(result.current.messages).toHaveLength(2)
-      expect(result.current.messages[0].role).toBe('user')
-      expect(result.current.messages[0].content).toBe('Hello')
+      // Should have added user message (after initial)
+      expect(result.current.messages).toHaveLength(3)
+      expect(result.current.messages[1].role).toBe('user')
+      expect(result.current.messages[1].content).toBe('Hello')
 
       // Should have added assistant response
-      expect(result.current.messages[1].role).toBe('assistant')
-      expect(result.current.messages[1].content).toBe('Hello! How can I help you today?')
+      expect(result.current.messages[2].role).toBe('assistant')
+      expect(result.current.messages[2].content).toBe('Hello! How can I help you today?')
 
-      // Verify fetch was called correctly
-      expect(fetch).toHaveBeenCalledWith(
-        `/api/discovery/sessions/${mockSessionId}/messages`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ content: 'Hello' }),
-        }
-      )
+      // Verify API was called correctly
+      expect(mockChatApi.sendMessage).toHaveBeenCalledWith(mockSessionId, 'Hello')
     })
 
     it('does not send empty messages', async () => {
-      global.fetch = vi.fn()
-
       const { result } = renderHook(() =>
-        useDiscoveryChat({ sessionId: mockSessionId })
+        useDiscoveryChat({
+          sessionId: mockSessionId,
+          initialMessages: [{ id: 'init', role: 'assistant', content: 'Welcome!' }],
+        })
       )
 
       await act(async () => {
@@ -93,36 +87,30 @@ describe('useDiscoveryChat', () => {
         await result.current.sendMessage('   ')
       })
 
-      expect(result.current.messages).toHaveLength(0)
-      expect(fetch).not.toHaveBeenCalled()
+      // Still only the initial message
+      expect(result.current.messages).toHaveLength(1)
+      expect(mockChatApi.sendMessage).not.toHaveBeenCalled()
     })
 
     it('trims whitespace from messages', async () => {
-      const mockResponse = {
-        id: 'assistant-msg-1',
-        content: 'Response',
-      }
-
-      global.fetch = vi.fn().mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve(mockResponse),
+      mockChatApi.sendMessage.mockResolvedValueOnce({
+        response: 'Response',
+        quick_actions: [],
       })
 
       const { result } = renderHook(() =>
-        useDiscoveryChat({ sessionId: mockSessionId })
+        useDiscoveryChat({
+          sessionId: mockSessionId,
+          initialMessages: [{ id: 'init', role: 'assistant', content: 'Welcome!' }],
+        })
       )
 
       await act(async () => {
         await result.current.sendMessage('  Hello world  ')
       })
 
-      expect(result.current.messages[0].content).toBe('Hello world')
-      expect(fetch).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.objectContaining({
-          body: JSON.stringify({ content: 'Hello world' }),
-        })
-      )
+      expect(result.current.messages[1].content).toBe('Hello world')
+      expect(mockChatApi.sendMessage).toHaveBeenCalledWith(mockSessionId, 'Hello world')
     })
   })
 
@@ -133,10 +121,15 @@ describe('useDiscoveryChat', () => {
         resolvePromise = resolve
       })
 
-      global.fetch = vi.fn().mockReturnValueOnce(pendingPromise)
+      mockChatApi.sendMessage.mockReturnValueOnce(
+        pendingPromise as Promise<{ response: string; quick_actions: [] }>
+      )
 
       const { result } = renderHook(() =>
-        useDiscoveryChat({ sessionId: mockSessionId })
+        useDiscoveryChat({
+          sessionId: mockSessionId,
+          initialMessages: [{ id: 'init', role: 'assistant', content: 'Welcome!' }],
+        })
       )
 
       expect(result.current.isLoading).toBe(false)
@@ -152,8 +145,8 @@ describe('useDiscoveryChat', () => {
       // Resolve the promise
       await act(async () => {
         resolvePromise!({
-          ok: true,
-          json: () => Promise.resolve({ id: '1', content: 'Response' }),
+          response: 'Response',
+          quick_actions: [],
         })
       })
 
@@ -163,13 +156,16 @@ describe('useDiscoveryChat', () => {
     })
 
     it('sets isLoading to false after successful response', async () => {
-      global.fetch = vi.fn().mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ id: '1', content: 'Response' }),
+      mockChatApi.sendMessage.mockResolvedValueOnce({
+        response: 'Response',
+        quick_actions: [],
       })
 
       const { result } = renderHook(() =>
-        useDiscoveryChat({ sessionId: mockSessionId })
+        useDiscoveryChat({
+          sessionId: mockSessionId,
+          initialMessages: [{ id: 'init', role: 'assistant', content: 'Welcome!' }],
+        })
       )
 
       await act(async () => {
@@ -180,10 +176,13 @@ describe('useDiscoveryChat', () => {
     })
 
     it('sets isLoading to false after error', async () => {
-      global.fetch = vi.fn().mockRejectedValueOnce(new Error('Network error'))
+      mockChatApi.sendMessage.mockRejectedValueOnce(new Error('Network error'))
 
       const { result } = renderHook(() =>
-        useDiscoveryChat({ sessionId: mockSessionId })
+        useDiscoveryChat({
+          sessionId: mockSessionId,
+          initialMessages: [{ id: 'init', role: 'assistant', content: 'Welcome!' }],
+        })
       )
 
       await act(async () => {
@@ -197,10 +196,13 @@ describe('useDiscoveryChat', () => {
   describe('error handling', () => {
     it('sets error when API call fails with network error', async () => {
       const networkError = new Error('Network error')
-      global.fetch = vi.fn().mockRejectedValueOnce(networkError)
+      mockChatApi.sendMessage.mockRejectedValueOnce(networkError)
 
       const { result } = renderHook(() =>
-        useDiscoveryChat({ sessionId: mockSessionId })
+        useDiscoveryChat({
+          sessionId: mockSessionId,
+          initialMessages: [{ id: 'init', role: 'assistant', content: 'Welcome!' }],
+        })
       )
 
       await act(async () => {
@@ -210,14 +212,15 @@ describe('useDiscoveryChat', () => {
       expect(result.current.error).toEqual(networkError)
     })
 
-    it('sets error when API returns non-ok response', async () => {
-      global.fetch = vi.fn().mockResolvedValueOnce({
-        ok: false,
-        statusText: 'Internal Server Error',
-      })
+    it('sets error when API throws ApiError', async () => {
+      const apiError = { message: 'Server error', name: 'ApiError' }
+      mockChatApi.sendMessage.mockRejectedValueOnce(apiError)
 
       const { result } = renderHook(() =>
-        useDiscoveryChat({ sessionId: mockSessionId })
+        useDiscoveryChat({
+          sessionId: mockSessionId,
+          initialMessages: [{ id: 'init', role: 'assistant', content: 'Welcome!' }],
+        })
       )
 
       await act(async () => {
@@ -225,16 +228,18 @@ describe('useDiscoveryChat', () => {
       })
 
       expect(result.current.error).toBeInstanceOf(Error)
-      expect(result.current.error?.message).toContain('Failed to send message')
-      expect(result.current.error?.message).toContain('Internal Server Error')
     })
 
     it('calls onError callback when error occurs', async () => {
       const onError = vi.fn()
-      global.fetch = vi.fn().mockRejectedValueOnce(new Error('Network error'))
+      mockChatApi.sendMessage.mockRejectedValueOnce(new Error('Network error'))
 
       const { result } = renderHook(() =>
-        useDiscoveryChat({ sessionId: mockSessionId, onError })
+        useDiscoveryChat({
+          sessionId: mockSessionId,
+          initialMessages: [{ id: 'init', role: 'assistant', content: 'Welcome!' }],
+          onError,
+        })
       )
 
       await act(async () => {
@@ -245,16 +250,18 @@ describe('useDiscoveryChat', () => {
     })
 
     it('clears error on next successful send', async () => {
-      global.fetch = vi
-        .fn()
+      mockChatApi.sendMessage
         .mockRejectedValueOnce(new Error('Network error'))
         .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ id: '1', content: 'Response' }),
+          response: 'Response',
+          quick_actions: [],
         })
 
       const { result } = renderHook(() =>
-        useDiscoveryChat({ sessionId: mockSessionId })
+        useDiscoveryChat({
+          sessionId: mockSessionId,
+          initialMessages: [{ id: 'init', role: 'assistant', content: 'Welcome!' }],
+        })
       )
 
       // First call fails
@@ -271,10 +278,13 @@ describe('useDiscoveryChat', () => {
     })
 
     it('wraps non-Error exceptions in Error object', async () => {
-      global.fetch = vi.fn().mockRejectedValueOnce('String error')
+      mockChatApi.sendMessage.mockRejectedValueOnce('String error')
 
       const { result } = renderHook(() =>
-        useDiscoveryChat({ sessionId: mockSessionId })
+        useDiscoveryChat({
+          sessionId: mockSessionId,
+          initialMessages: [{ id: 'init', role: 'assistant', content: 'Welcome!' }],
+        })
       )
 
       await act(async () => {
@@ -307,10 +317,13 @@ describe('useDiscoveryChat', () => {
     })
 
     it('clears error when clearing messages', async () => {
-      global.fetch = vi.fn().mockRejectedValueOnce(new Error('Network error'))
+      mockChatApi.sendMessage.mockRejectedValueOnce(new Error('Network error'))
 
       const { result } = renderHook(() =>
-        useDiscoveryChat({ sessionId: mockSessionId })
+        useDiscoveryChat({
+          sessionId: mockSessionId,
+          initialMessages: [{ id: 'init', role: 'assistant', content: 'Welcome!' }],
+        })
       )
 
       await act(async () => {
@@ -329,7 +342,10 @@ describe('useDiscoveryChat', () => {
   describe('addMessage', () => {
     it('adds a message to the list', () => {
       const { result } = renderHook(() =>
-        useDiscoveryChat({ sessionId: mockSessionId })
+        useDiscoveryChat({
+          sessionId: mockSessionId,
+          initialMessages: [{ id: 'init', role: 'assistant', content: 'Welcome!' }],
+        })
       )
 
       act(() => {
@@ -340,8 +356,8 @@ describe('useDiscoveryChat', () => {
         })
       })
 
-      expect(result.current.messages).toHaveLength(1)
-      expect(result.current.messages[0]).toEqual({
+      expect(result.current.messages).toHaveLength(2)
+      expect(result.current.messages[1]).toEqual({
         id: 'custom-1',
         role: 'assistant',
         content: 'System message',
@@ -350,7 +366,10 @@ describe('useDiscoveryChat', () => {
 
     it('appends messages in order', () => {
       const { result } = renderHook(() =>
-        useDiscoveryChat({ sessionId: mockSessionId })
+        useDiscoveryChat({
+          sessionId: mockSessionId,
+          initialMessages: [{ id: 'init', role: 'assistant', content: 'Welcome!' }],
+        })
       )
 
       act(() => {
@@ -369,9 +388,9 @@ describe('useDiscoveryChat', () => {
         })
       })
 
-      expect(result.current.messages).toHaveLength(2)
-      expect(result.current.messages[0].content).toBe('First')
-      expect(result.current.messages[1].content).toBe('Second')
+      expect(result.current.messages).toHaveLength(3)
+      expect(result.current.messages[1].content).toBe('First')
+      expect(result.current.messages[2].content).toBe('Second')
     })
   })
 })

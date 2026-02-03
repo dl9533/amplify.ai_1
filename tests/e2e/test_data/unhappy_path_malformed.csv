@@ -1,0 +1,8 @@
+employee_id,name,job_title,department,location,headcount
+E001,Alice Johnson,Customer Service Representative,Customer Support,New York,45
+E002,Bob Smith,"Customer Service Representative,Customer Support,Chicago,38
+E003,Carol Williams,Data Entry Clerk,Operations,New York,22
+E004,David Brown,Data Entry Clerk,Operations,Los Angeles,INVALID_NUMBER
+E005,Eva Martinez,Accounts Payable Specialist,Finance,New York,
+E006,,Accounts Payable Specialist,Finance,Chicago,8
+E007,Grace Kim,,Human Resources,New York,6

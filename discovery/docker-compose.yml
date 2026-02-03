@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: discovery-postgres
+    environment:
+      POSTGRES_USER: discovery_user
+      POSTGRES_PASSWORD: discovery_dev
+      POSTGRES_DB: discovery_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - discovery_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U discovery_user -d discovery_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7
+    container_name: discovery-redis
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  localstack:
+    image: localstack/localstack:latest
+    container_name: discovery-localstack
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=s3
+      - DEFAULT_REGION=us-east-1
+    volumes:
+      - discovery_localstack_data:/var/lib/localstack
+
+volumes:
+  discovery_postgres_data:
+  discovery_localstack_data:
