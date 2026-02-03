@@ -17,6 +17,11 @@ from app.agents.message_formatter import (
 )
 from app.agents.orchestrator import DiscoveryOrchestrator
 from app.agents.roadmap_agent import RoadmapSubagent
+from app.agents.role_mapping_agent import (
+    ConfidenceTier,
+    RoleMappingAgent,
+    RoleMappingResult,
+)
 from app.agents.upload_agent import UploadSubagent
 
 __all__ = [
@@ -26,6 +31,7 @@ __all__ = [
     "BrainstormingHandler",
     "ChatMessageFormatter",
     "Chip",
+    "ConfidenceTier",
     "ConversationTurn",
     "DiscoveryOrchestrator",
     "FormattedMessage",
@@ -35,5 +41,7 @@ __all__ = [
     "QuickAction",
     "QuickActionChipGenerator",
     "RoadmapSubagent",
+    "RoleMappingAgent",
+    "RoleMappingResult",
     "UploadSubagent",
 ]
