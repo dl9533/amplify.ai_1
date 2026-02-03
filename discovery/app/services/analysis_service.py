@@ -3,12 +3,16 @@
 from typing import Any, Optional
 from uuid import UUID
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.repositories.analysis_repository import AnalysisRepository
 from app.repositories.role_mapping_repository import RoleMappingRepository
 from app.repositories.activity_selection_repository import ActivitySelectionRepository
 from app.services.scoring_engine import ScoringEngine
 from app.schemas.analysis import AnalysisDimension, PriorityTier
 from app.models.discovery_analysis import AnalysisDimension as DBDimension
+from app.models.onet_work_activities import OnetDWA, OnetIWA, OnetGWA
 
 
 class AnalysisService:
@@ -20,16 +24,67 @@ class AnalysisService:
         role_mapping_repository: RoleMappingRepository | None = None,
         activity_selection_repository: ActivitySelectionRepository | None = None,
         scoring_engine: ScoringEngine | None = None,
+        db: AsyncSession | None = None,
     ) -> None:
         self.analysis_repository = analysis_repository
         self.role_mapping_repository = role_mapping_repository
         self.activity_selection_repository = activity_selection_repository
         self.scoring_engine = scoring_engine or ScoringEngine()
+        self.db = db
+
+    async def _get_dwa_exposure_scores(
+        self,
+        dwa_ids: list[str],
+    ) -> list[float]:
+        """Get AI exposure scores for DWAs from the O*NET hierarchy.
+
+        For each DWA, uses ai_exposure_override if set, otherwise
+        inherits from the parent GWA's ai_exposure_score.
+
+        Args:
+            dwa_ids: List of DWA IDs to get scores for.
+
+        Returns:
+            List of exposure scores (0-1). Returns 0.5 for missing data.
+        """
+        if not self.db or not dwa_ids:
+            return [0.5] * len(dwa_ids) if dwa_ids else [0.5]
+
+        # Query DWA -> IWA -> GWA to get exposure scores
+        stmt = (
+            select(
+                OnetDWA.id,
+                OnetDWA.ai_exposure_override,
+                OnetGWA.ai_exposure_score,
+            )
+            .select_from(OnetDWA)
+            .join(OnetIWA, OnetDWA.iwa_id == OnetIWA.id)
+            .join(OnetGWA, OnetIWA.gwa_id == OnetGWA.id)
+            .where(OnetDWA.id.in_(dwa_ids))
+        )
+
+        result = await self.db.execute(stmt)
+        rows = result.all()
+
+        # Build lookup of DWA ID -> exposure score
+        score_lookup: dict[str, float] = {}
+        for row in rows:
+            # Use DWA override if available, otherwise GWA score
+            if row.ai_exposure_override is not None:
+                score_lookup[row.id] = row.ai_exposure_override
+            elif row.ai_exposure_score is not None:
+                score_lookup[row.id] = row.ai_exposure_score
+            else:
+                score_lookup[row.id] = 0.5  # Default if no score available
+
+        # Return scores in order of input dwa_ids
+        return [score_lookup.get(dwa_id, 0.5) for dwa_id in dwa_ids]
 
     async def trigger_analysis(self, session_id: UUID) -> dict[str, Any] | None:
         """Trigger scoring analysis for a session.
 
         Calculates scores for all role mappings and stores results.
+        Uses real AI exposure scores from O*NET GWA/DWA data.
         """
         if not self.role_mapping_repository or not self.activity_selection_repository:
             return {"status": "error", "message": "Missing dependencies"}
@@ -50,8 +105,12 @@ class AnalysisService:
             )
             selected_dwas = [s for s in selections if s.selected]
 
-            # For now, use placeholder exposure scores (would come from DWA model)
-            dwa_scores = [0.7] * len(selected_dwas) if selected_dwas else [0.5]
+            # Get real AI exposure scores from O*NET hierarchy
+            if selected_dwas:
+                dwa_ids = [s.dwa_id for s in selected_dwas]
+                dwa_scores = await self._get_dwa_exposure_scores(dwa_ids)
+            else:
+                dwa_scores = [0.5]  # Default when no activities selected
 
             # Calculate scores
             scores = self.scoring_engine.score_role(
@@ -76,6 +135,7 @@ class AnalysisService:
                 "breakdown": {
                     "dwa_count": len(selected_dwas),
                     "priority_tier": priority_tier,
+                    "dwa_scores": dwa_scores[:5],  # Include first 5 for debugging
                 },
             })
 
@@ -187,6 +247,7 @@ async def get_analysis_service() -> AsyncGenerator[AnalysisService, None]:
             role_mapping_repository=role_mapping_repository,
             activity_selection_repository=activity_selection_repository,
             scoring_engine=scoring_engine,
+            db=db,  # Pass db session for DWA exposure queries
         )
         yield service
 

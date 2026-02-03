@@ -14,10 +14,11 @@ async def test_send_message_with_llm():
     mock_llm_service.generate_response.return_value = "Hello! How can I help?"
 
     mock_context_service = MagicMock()
-    mock_context_service.build_context.return_value = {
+    # Use AsyncMock for async method
+    mock_context_service.build_context = AsyncMock(return_value={
         "step_name": "Upload",
         "session_id": str(uuid4()),
-    }
+    })
 
     service = ChatService(
         llm_service=mock_llm_service,

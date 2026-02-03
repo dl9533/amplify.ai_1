@@ -27,7 +27,8 @@ def mock_llm_service():
 def mock_context_service():
     """Create mock context service for testing."""
     service = MagicMock(spec=ContextService)
-    service.build_context = MagicMock(return_value={
+    # Use AsyncMock for the async build_context method
+    service.build_context = AsyncMock(return_value={
         "current_step": 1,
         "step_name": "Upload",
         "session_id": str(uuid4()),
@@ -496,10 +497,19 @@ class TestDefaultCurrentStep:
 class TestGetChatService:
     """Tests for the get_chat_service dependency function."""
 
-    def test_get_chat_service_returns_chat_service(self):
-        """get_chat_service should return a ChatService instance."""
+    @pytest.mark.asyncio
+    async def test_get_chat_service_is_async_generator(self):
+        """get_chat_service should be an async generator."""
+        import inspect
+        assert inspect.isasyncgenfunction(get_chat_service)
+
+    @pytest.mark.asyncio
+    async def test_get_chat_service_yields_chat_service(self):
+        """get_chat_service should yield a ChatService instance."""
         with patch("app.services.chat_service.LLMService") as mock_llm_class, \
-             patch("app.services.chat_service.ContextService") as mock_context_class, \
+             patch("app.services.chat_service.get_context_service") as mock_get_context, \
+             patch("app.services.chat_service.ChatMessageRepository") as mock_repo_class, \
+             patch("app.services.chat_service.async_session_maker") as mock_session_maker, \
              patch("app.services.chat_service.get_settings") as mock_get_settings:
 
             mock_settings = MagicMock()
@@ -508,41 +518,18 @@ class TestGetChatService:
             mock_settings.anthropic_model = "claude-sonnet-4-20250514"
             mock_get_settings.return_value = mock_settings
 
-            service = get_chat_service()
+            # Mock the async context manager
+            mock_db = MagicMock()
+            mock_session_cm = MagicMock()
+            mock_session_cm.__aenter__ = AsyncMock(return_value=mock_db)
+            mock_session_cm.__aexit__ = AsyncMock(return_value=None)
+            mock_session_maker.return_value = mock_session_cm
 
-            assert isinstance(service, ChatService)
+            mock_get_context.return_value = MagicMock(spec=ContextService)
 
-    def test_get_chat_service_creates_llm_service(self):
-        """get_chat_service should create an LLMService."""
-        with patch("app.services.chat_service.LLMService") as mock_llm_class, \
-             patch("app.services.chat_service.ContextService") as mock_context_class, \
-             patch("app.services.chat_service.get_settings") as mock_get_settings:
-
-            mock_settings = MagicMock()
-            mock_settings.anthropic_api_key = MagicMock()
-            mock_settings.anthropic_api_key.get_secret_value.return_value = "test_key"
-            mock_settings.anthropic_model = "claude-sonnet-4-20250514"
-            mock_get_settings.return_value = mock_settings
-
-            get_chat_service()
-
-            mock_llm_class.assert_called_once()
-
-    def test_get_chat_service_creates_context_service(self):
-        """get_chat_service should create a ContextService."""
-        with patch("app.services.chat_service.LLMService") as mock_llm_class, \
-             patch("app.services.chat_service.ContextService") as mock_context_class, \
-             patch("app.services.chat_service.get_settings") as mock_get_settings:
-
-            mock_settings = MagicMock()
-            mock_settings.anthropic_api_key = MagicMock()
-            mock_settings.anthropic_api_key.get_secret_value.return_value = "test_key"
-            mock_settings.anthropic_model = "claude-sonnet-4-20250514"
-            mock_get_settings.return_value = mock_settings
-
-            get_chat_service()
-
-            mock_context_class.assert_called_once()
+            async for service in get_chat_service():
+                assert isinstance(service, ChatService)
+                break
 
 
 class TestConversationHistory:

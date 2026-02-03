@@ -1,7 +1,8 @@
 # discovery/app/services/handoff_service.py
 """Handoff service for Build intake integration."""
+from datetime import datetime, timezone
 from typing import Any, Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from app.repositories.candidate_repository import CandidateRepository
 from app.repositories.session_repository import SessionRepository
@@ -23,6 +24,8 @@ class HandoffService:
     ) -> None:
         self.candidate_repository = candidate_repository
         self.session_repository = session_repository
+        # In-memory tracking of handoffs (would be DB in production)
+        self._handoff_records: dict[UUID, dict[str, Any]] = {}
 
     async def create_handoff_bundle(
         self,
@@ -70,8 +73,12 @@ class HandoffService:
         Returns:
             Summary of completed handoffs.
         """
-        # Would update candidates with intake_request_id
-        # and mark session as completed
+        # Update handoff record
+        if session_id in self._handoff_records:
+            self._handoff_records[session_id]["status"] = "completed"
+            self._handoff_records[session_id]["intake_request_ids"] = intake_request_ids
+            self._handoff_records[session_id]["completed_at"] = datetime.now(timezone.utc).isoformat()
+
         return {
             "status": "completed",
             "handoffs": len(intake_request_ids),
@@ -82,14 +89,31 @@ class HandoffService:
         session_id: UUID,
         request: HandoffRequest,
     ) -> Optional[HandoffResponse]:
-        """Submit candidates to the intake system."""
+        """Submit candidates to the intake system.
+
+        In production, this would call the Build intake API.
+        Currently generates a tracking ID and stores handoff metadata.
+        """
         bundle = await self.create_handoff_bundle(session_id)
         if "error" in bundle:
             return None
 
-        # Would integrate with intake API here
+        # Generate a unique intake request ID
+        intake_request_id = uuid4()
+
+        # Store handoff record for tracking
+        self._handoff_records[session_id] = {
+            "intake_request_id": intake_request_id,
+            "session_id": session_id,
+            "status": "submitted",
+            "candidates_count": bundle["count"],
+            "submitted_at": datetime.now(timezone.utc).isoformat(),
+            "notes": request.notes if request else None,
+            "candidate_ids": request.candidate_ids if request else None,
+        }
+
         return HandoffResponse(
-            intake_request_id=session_id,  # placeholder
+            intake_request_id=intake_request_id,
             status="submitted",
             candidates_count=bundle["count"],
         )
@@ -110,6 +134,19 @@ class HandoffService:
         elif len(selected) > 10:
             warnings.append("Large number of candidates may take longer to process")
 
+        # Check for candidates without descriptions
+        missing_desc = [c for c in selected if not c.description]
+        if missing_desc:
+            warnings.append(f"{len(missing_desc)} candidates are missing descriptions")
+
+        # Check for already handed-off session
+        if session_id in self._handoff_records:
+            existing = self._handoff_records[session_id]
+            if existing.get("status") == "completed":
+                errors.append("Session has already been handed off")
+            elif existing.get("status") == "submitted":
+                warnings.append("A handoff is already in progress for this session")
+
         return ValidationResult(
             is_ready=len(errors) == 0,
             warnings=warnings,
@@ -121,13 +158,22 @@ class HandoffService:
         session_id: UUID,
     ) -> Optional[HandoffStatus]:
         """Get the handoff status for a session."""
-        all_candidates = await self.candidate_repository.get_for_session(session_id)
-        selected = [c for c in all_candidates if c.selected_for_build]
+        # Check if we have a handoff record
+        if session_id in self._handoff_records:
+            record = self._handoff_records[session_id]
+            return HandoffStatus(
+                session_id=session_id,
+                handed_off=record.get("status") in ("submitted", "completed"),
+                intake_request_id=record.get("intake_request_id"),
+                handed_off_at=record.get("submitted_at"),
+            )
 
+        # No handoff yet
         return HandoffStatus(
-            handed_off=len(selected) > 0,
+            session_id=session_id,
+            handed_off=False,
             intake_request_id=None,
-            candidates_count=len(selected),
+            handed_off_at=None,
         )
 
 
