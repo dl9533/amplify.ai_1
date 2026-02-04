@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { uploadApi, UploadResponse, ColumnMappingUpdate } from '../services/discoveryApi'
 
 // Maximum file size: 10MB
@@ -15,6 +15,7 @@ export interface UseFileUploadReturn {
   uploadResult: UploadResponse | null
   uploadId: string | null
   savingMappings: boolean
+  isLoadingExisting: boolean
   handleDrop: (file: File) => void
   handleFileSelect: (file: File) => void
   clearFile: () => void
@@ -24,6 +25,7 @@ export interface UseFileUploadReturn {
 /**
  * Hook for handling file uploads in the Discovery workflow.
  * Uploads files to the backend and returns schema detection results.
+ * Also fetches existing uploads when navigating back to the upload step.
  */
 export function useFileUpload(sessionId: string): UseFileUploadReturn {
   const [file, setFile] = useState<File | null>(null)
@@ -33,6 +35,42 @@ export function useFileUpload(sessionId: string): UseFileUploadReturn {
   const [uploadResult, setUploadResult] = useState<UploadResponse | null>(null)
   const [uploadId, setUploadId] = useState<string | null>(null)
   const [savingMappings, setSavingMappings] = useState(false)
+  const [isLoadingExisting, setIsLoadingExisting] = useState(true)
+
+  // Fetch existing uploads on mount
+  useEffect(() => {
+    if (!sessionId) {
+      setIsLoadingExisting(false)
+      return
+    }
+
+    const fetchExistingUploads = async () => {
+      try {
+        const uploads = await uploadApi.listBySession(sessionId)
+        if (uploads.length > 0) {
+          // Use the most recent upload
+          const existing = uploads[0]
+          setUploadId(existing.id)
+          // Convert to UploadResponse format
+          setUploadResult({
+            id: existing.id,
+            file_name: existing.file_name,
+            row_count: existing.row_count,
+            detected_schema: existing.detected_schema,
+            created_at: existing.created_at,
+            column_mappings: existing.column_mappings as Record<string, string> | null,
+          })
+        }
+      } catch (err) {
+        // Silent fail - if we can't fetch existing, user can re-upload
+        console.warn('Failed to fetch existing uploads:', err)
+      } finally {
+        setIsLoadingExisting(false)
+      }
+    }
+
+    fetchExistingUploads()
+  }, [sessionId])
 
   const validateFile = useCallback((file: File): string | null => {
     // Validate file size
@@ -148,6 +186,7 @@ export function useFileUpload(sessionId: string): UseFileUploadReturn {
     uploadResult,
     uploadId,
     savingMappings,
+    isLoadingExisting,
     handleDrop,
     handleFileSelect,
     clearFile,

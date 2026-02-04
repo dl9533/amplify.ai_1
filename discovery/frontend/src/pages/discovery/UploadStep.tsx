@@ -41,6 +41,7 @@ export function UploadStep() {
     uploadResult,
     uploadId,
     savingMappings,
+    isLoadingExisting,
     handleDrop,
     handleFileSelect,
     clearFile,
@@ -49,6 +50,7 @@ export function UploadStep() {
 
   const [dragActive, setDragActive] = useState(false)
   const [columnMappings, setColumnMappings] = useState<Record<string, string>>({})
+  const [hasInitializedMappings, setHasInitializedMappings] = useState(false)
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -93,9 +95,9 @@ export function UploadStep() {
   const hasSavedMappings = useRef(false)
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Pre-populate column mappings from detected mappings
+  // Pre-populate column mappings from detected mappings (new upload)
   useEffect(() => {
-    if (detectedMappings.length > 0) {
+    if (detectedMappings.length > 0 && !hasInitializedMappings) {
       const initialMappings: Record<string, string> = {}
       detectedMappings.forEach((dm) => {
         if (dm.column && dm.confidence >= 0.7) {
@@ -104,9 +106,27 @@ export function UploadStep() {
       })
       if (Object.keys(initialMappings).length > 0) {
         setColumnMappings(initialMappings)
+        setHasInitializedMappings(true)
       }
     }
-  }, [detectedMappings])
+  }, [detectedMappings, hasInitializedMappings])
+
+  // Pre-populate column mappings from existing upload (navigating back)
+  useEffect(() => {
+    if (uploadResult?.column_mappings && !hasInitializedMappings) {
+      // Backend stores as { fieldType: columnName }, convert to { columnName: fieldType }
+      const existingMappings: Record<string, string> = {}
+      Object.entries(uploadResult.column_mappings).forEach(([field, column]) => {
+        if (column) {
+          existingMappings[column] = field
+        }
+      })
+      if (Object.keys(existingMappings).length > 0) {
+        setColumnMappings(existingMappings)
+        setHasInitializedMappings(true)
+      }
+    }
+  }, [uploadResult?.column_mappings, hasInitializedMappings])
 
   // Auto-save column mappings to backend when they change
   // Uses debouncing to avoid excessive API calls
@@ -162,6 +182,27 @@ export function UploadStep() {
   // Can proceed if we have an upload, a role mapping, and we're not currently saving
   const hasRoleMapping = Object.values(columnMappings).includes('role')
   const canProceed = !!uploadResult && hasRoleMapping && !savingMappings
+
+  // Show loading state while fetching existing uploads
+  if (isLoadingExisting) {
+    return (
+      <AppShell>
+        <DiscoveryWizard currentStep={1} canProceed={false}>
+          <StepContent
+            title="Upload Workforce Data"
+            description="Import your organization's workforce data to identify automation opportunities."
+          >
+            <div className="flex items-center justify-center py-12">
+              <div className="text-center">
+                <div className="w-10 h-10 rounded-full border-2 border-accent border-t-transparent animate-spin mx-auto mb-3" />
+                <p className="text-sm text-muted">Loading...</p>
+              </div>
+            </div>
+          </StepContent>
+        </DiscoveryWizard>
+      </AppShell>
+    )
+  }
 
   return (
     <AppShell>
@@ -249,7 +290,7 @@ export function UploadStep() {
                     </div>
                     <div>
                       <h4 className="font-display font-medium text-default">
-                        {file?.name || 'Uploaded file'}
+                        {file?.name || uploadResult.file_name || 'Uploaded file'}
                       </h4>
                       <p className="text-sm text-muted">
                         {uploadResult.row_count?.toLocaleString() || 0} rows detected
