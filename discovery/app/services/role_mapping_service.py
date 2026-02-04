@@ -195,7 +195,8 @@ class RoleMappingService:
             "id": str(mapping.id),
             "source_role": mapping.source_role,
             "onet_code": mapping.onet_code,
-            "onet_title": onet_title,
+            "onet_title": getattr(mapping, "onet_title", None) or onet_title,
+            "confidence_score": mapping.confidence_score,
             "is_confirmed": mapping.user_confirmed,
         }
 
