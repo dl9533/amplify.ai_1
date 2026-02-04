@@ -5,6 +5,17 @@ pydantic>=2.12.0
 pydantic-settings>=2.12.0
 httpx>=0.28.0
 anthropic>=0.52.0
+python-multipart>=0.0.9  # For file uploads
+
+# Data processing
+pandas>=2.0.0
+openpyxl>=3.1.0  # For Excel file support
+
+# AWS / S3
+aioboto3>=13.0.0
+
+# Scheduling
+apscheduler>=3.10.0
 
 # Database
 sqlalchemy[asyncio]>=2.0.0

@@ -1,5 +1,6 @@
 """Services for the Discovery module."""
 from app.services.activity_service import ActivityService, get_activity_service
+from app.services.column_detection_service import ColumnDetectionService, DetectedMapping
 from app.services.analysis_service import (
     AnalysisService,
     ScoringService,
@@ -11,6 +12,7 @@ from app.services.context_service import ContextService, get_context_service
 from app.services.export_service import ExportService, get_export_service
 from app.services.handoff_service import HandoffService, get_handoff_service
 from app.services.llm_service import LLMService, get_llm_service
+from app.services.lob_mapping_service import LobMappingService, LobNaicsResult
 from app.services.memory_service import AgentMemoryService
 from app.services.onet_client import OnetApiClient
 from app.services.onet_file_sync_service import (
@@ -33,12 +35,16 @@ from app.services.upload_service import UploadService, get_upload_service
 __all__ = [
     "ActivityService",
     "AgentMemoryService",
+    "ColumnDetectionService",
+    "DetectedMapping",
     "AnalysisService",
     "ChatService",
     "ContextService",
     "ExportService",
     "HandoffService",
     "LLMService",
+    "LobMappingService",
+    "LobNaicsResult",
     "OnetApiClient",
     "OnetDownloadError",
     "OnetFileSyncService",

@@ -13,7 +13,7 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
     messages,
     isLoading,
     sendMessage,
-  } = useDiscoveryChat(sessionId || '')
+  } = useDiscoveryChat({ sessionId: sessionId || '' })
 
   const [input, setInput] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)

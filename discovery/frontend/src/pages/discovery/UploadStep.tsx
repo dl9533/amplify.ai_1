@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
 import { AppShell } from '../../components/layout/AppShell'
 import { DiscoveryWizard, StepContent } from '../../components/layout/DiscoveryWizard'
@@ -9,8 +9,17 @@ import {
   IconCheck,
   IconX,
   IconAlertCircle,
+  IconZap,
 } from '../../components/ui/Icons'
 import { useFileUpload } from '../../hooks/useFileUpload'
+
+interface DetectedMapping {
+  field: string
+  column: string | null
+  confidence: number
+  alternatives: string[]
+  required: boolean
+}
 
 export function UploadStep() {
   const { sessionId } = useParams()
@@ -62,9 +71,30 @@ export function UploadStep() {
 
   // Detected columns from upload
   const detectedColumns = uploadResult?.detected_schema || []
+  const detectedMappings: DetectedMapping[] = (uploadResult as { detected_mappings?: DetectedMapping[] })?.detected_mappings || []
 
-  // Column mapping options
-  const mappingOptions = ['role', 'department', 'geography', 'headcount']
+  // Column mapping options - now includes LOB
+  const mappingOptions = ['role', 'lob', 'department', 'geography', 'headcount']
+
+  // Pre-populate column mappings from detected mappings
+  useEffect(() => {
+    if (detectedMappings.length > 0) {
+      const initialMappings: Record<string, string> = {}
+      detectedMappings.forEach((dm) => {
+        if (dm.column && dm.confidence >= 0.7) {
+          initialMappings[dm.column] = dm.field
+        }
+      })
+      if (Object.keys(initialMappings).length > 0) {
+        setColumnMappings(initialMappings)
+      }
+    }
+  }, [detectedMappings])
+
+  // Get detected mapping for a column
+  const getDetectedMapping = (column: string): DetectedMapping | undefined => {
+    return detectedMappings.find((dm) => dm.column === column)
+  }
 
   const handleColumnMapping = (column: string, mapping: string) => {
     setColumnMappings((prev) => {
@@ -76,7 +106,7 @@ export function UploadStep() {
     })
   }
 
-  const canProceed = !!uploadResult && !!columnMappings['role']
+  const canProceed = !!uploadResult && Object.values(columnMappings).includes('role')
 
   return (
     <AppShell>
@@ -184,55 +214,80 @@ export function UploadStep() {
 
               {/* Column mapping */}
               <div className="surface p-5">
-                <h4 className="font-display font-medium text-default mb-1">
-                  Map Your Columns
-                </h4>
+                <div className="flex items-center justify-between mb-1">
+                  <h4 className="font-display font-medium text-default">
+                    Map Your Columns
+                  </h4>
+                  {detectedMappings.length > 0 && (
+                    <span className="inline-flex items-center gap-1 text-xs text-accent">
+                      <IconZap size={12} />
+                      Auto-detected
+                    </span>
+                  )}
+                </div>
                 <p className="text-sm text-muted mb-4">
                   Tell us which columns contain the key information. Role column is required.
+                  {detectedMappings.length > 0 && ' We\'ve pre-filled some mappings based on your column names.'}
                 </p>
 
                 <div className="space-y-3">
-                  {detectedColumns.map((column) => (
-                    <div
-                      key={column}
-                      className="flex items-center gap-4 p-3 bg-bg-muted rounded-lg"
-                    >
-                      <div className="flex-1 min-w-0">
-                        <span className="text-sm font-medium text-default truncate block">
-                          {column}
-                        </span>
-                      </div>
-                      <select
-                        value={columnMappings[column] || ''}
-                        onChange={(e) => handleColumnMapping(column, e.target.value)}
-                        className="
-                          px-3 py-1.5 text-sm
-                          bg-bg-surface text-default
-                          border border-border rounded-md
-                          focus:border-accent focus:ring-1 focus:ring-accent/30
-                        "
+                  {detectedColumns.map((column) => {
+                    const detected = getDetectedMapping(column)
+                    const isAutoDetected = detected && detected.confidence >= 0.7
+
+                    return (
+                      <div
+                        key={column}
+                        className={`flex items-center gap-4 p-3 rounded-lg ${
+                          isAutoDetected ? 'bg-accent/5 border border-accent/20' : 'bg-bg-muted'
+                        }`}
                       >
-                        <option value="">Skip column</option>
-                        {mappingOptions.map((opt) => (
-                          <option
-                            key={opt}
-                            value={opt}
-                            disabled={
-                              Object.values(columnMappings).includes(opt) &&
-                              columnMappings[column] !== opt
-                            }
-                          >
-                            {opt.charAt(0).toUpperCase() + opt.slice(1)}
-                            {opt === 'role' ? ' (required)' : ''}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  ))}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium text-default truncate">
+                              {column}
+                            </span>
+                            {isAutoDetected && (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-xs rounded bg-accent/10 text-accent">
+                                <IconZap size={10} />
+                                {Math.round(detected.confidence * 100)}%
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <select
+                          value={columnMappings[column] || ''}
+                          onChange={(e) => handleColumnMapping(column, e.target.value)}
+                          className={`
+                            px-3 py-1.5 text-sm
+                            bg-bg-surface text-default
+                            border rounded-md
+                            focus:border-accent focus:ring-1 focus:ring-accent/30
+                            ${isAutoDetected ? 'border-accent/30' : 'border-border'}
+                          `}
+                        >
+                          <option value="">Skip column</option>
+                          {mappingOptions.map((opt) => (
+                            <option
+                              key={opt}
+                              value={opt}
+                              disabled={
+                                Object.values(columnMappings).includes(opt) &&
+                                columnMappings[column] !== opt
+                              }
+                            >
+                              {opt === 'lob' ? 'Line of Business' : opt.charAt(0).toUpperCase() + opt.slice(1)}
+                              {opt === 'role' ? ' (required)' : ''}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )
+                  })}
                 </div>
 
                 {/* Mapping status */}
-                {!columnMappings['role'] && (
+                {!Object.values(columnMappings).includes('role') && (
                   <div className="mt-4 p-3 bg-warning/10 border border-warning/20 rounded-lg flex items-start gap-3">
                     <IconAlertCircle size={18} className="text-warning shrink-0 mt-0.5" />
                     <p className="text-sm text-warning">

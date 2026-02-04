@@ -291,9 +291,8 @@ export function DiscoverySessionList() {
   const [sessionToDelete, setSessionToDelete] = useState<DiscoverySession | null>(null)
 
   const handleCreateSession = useCallback(async () => {
-    const name = `New Discovery ${new Date().toLocaleDateString()}`
     try {
-      await createSession(name)
+      await createSession()
     } catch (err) {
       console.error('Failed to create session:', err)
       // Error state is already set by the hook

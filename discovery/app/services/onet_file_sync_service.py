@@ -44,6 +44,7 @@ class SyncResult:
     occupation_count: int
     alternate_title_count: int
     task_count: int
+    industry_count: int
     status: str
 
 
@@ -68,6 +69,7 @@ class OnetFileSyncService:
     OCCUPATION_FILE = "Occupation Data.txt"
     ALTERNATE_TITLES_FILE = "Alternate Titles.txt"
     TASKS_FILE = "Task Statements.txt"
+    INDUSTRY_FILE = "Industry.txt"
 
     def __init__(self, repository: OnetRepository) -> None:
         """Initialize sync service.
@@ -110,17 +112,21 @@ class OnetFileSyncService:
 
             # Extract and parse files
             try:
-                occupations, alt_titles, tasks = self._extract_and_parse(zip_data)
+                occupations, alt_titles, tasks, industries = self._extract_and_parse(zip_data)
             except (zipfile.BadZipFile, KeyError) as e:
                 logger.error(f"Parse failed: {e}")
                 raise OnetParseError(f"Invalid O*NET archive for version {display_version}") from e
 
             # Upsert to database (within implicit transaction)
-            logger.info(f"Importing {len(occupations)} occupations, {len(alt_titles)} alternate titles, {len(tasks)} tasks")
+            logger.info(
+                f"Importing {len(occupations)} occupations, {len(alt_titles)} alternate titles, "
+                f"{len(tasks)} tasks, {len(industries)} industries"
+            )
 
             occ_count = await self.repository.bulk_upsert_occupations(occupations)
             alt_count = await self.repository.bulk_replace_alternate_titles(alt_titles)
             task_count = await self.repository.bulk_replace_tasks(tasks)
+            ind_count = await self.repository.bulk_upsert_industries(industries)
 
             # Log sync success
             await self.repository.log_sync(
@@ -136,7 +142,7 @@ class OnetFileSyncService:
 
             logger.info(
                 f"O*NET sync complete: {occ_count} occupations, "
-                f"{alt_count} alternate titles, {task_count} tasks"
+                f"{alt_count} alternate titles, {task_count} tasks, {ind_count} industries"
             )
 
             return SyncResult(
@@ -144,6 +150,7 @@ class OnetFileSyncService:
                 occupation_count=occ_count,
                 alternate_title_count=alt_count,
                 task_count=task_count,
+                industry_count=ind_count,
                 status="success",
             )
 
@@ -203,14 +210,14 @@ class OnetFileSyncService:
     def _extract_and_parse(
         self,
         zip_data: bytes,
-    ) -> tuple[list[dict], list[dict], list[dict]]:
+    ) -> tuple[list[dict], list[dict], list[dict], list[dict]]:
         """Extract and parse O*NET data files from zip.
 
         Args:
             zip_data: Zip file contents.
 
         Returns:
-            Tuple of (occupations, alternate_titles, tasks).
+            Tuple of (occupations, alternate_titles, tasks, industries).
 
         Raises:
             zipfile.BadZipFile: If zip is invalid.
@@ -226,11 +233,18 @@ class OnetFileSyncService:
             alt_content = zf.read(f"{prefix}{self.ALTERNATE_TITLES_FILE}").decode("utf-8")
             task_content = zf.read(f"{prefix}{self.TASKS_FILE}").decode("utf-8")
 
+            # Try to read industry file (may not exist in all versions)
+            try:
+                ind_content = zf.read(f"{prefix}{self.INDUSTRY_FILE}").decode("utf-8")
+            except KeyError:
+                ind_content = ""
+
         occupations = self._parse_occupations(occ_content)
         alt_titles = self._parse_alternate_titles(alt_content)
         tasks = self._parse_tasks(task_content)
+        industries = self._parse_industries(ind_content) if ind_content else []
 
-        return occupations, alt_titles, tasks
+        return occupations, alt_titles, tasks, industries
 
     def _parse_occupations(self, content: str) -> list[dict[str, Any]]:
         """Parse occupation data from tab-separated content.
@@ -302,6 +316,38 @@ class OnetFileSyncService:
             })
 
         return tasks
+
+    def _parse_industries(self, content: str) -> list[dict[str, Any]]:
+        """Parse industry data from tab-separated content.
+
+        Args:
+            content: Tab-separated industry data.
+
+        Returns:
+            List of industry dicts.
+        """
+        if not content or not content.strip():
+            return []
+
+        reader = csv.DictReader(io.StringIO(content), delimiter="\t")
+        industries = []
+
+        for row in reader:
+            employment = None
+            if row.get("Employment"):
+                try:
+                    employment = float(row["Employment"])
+                except (ValueError, TypeError):
+                    pass
+
+            industries.append({
+                "occupation_code": row["O*NET-SOC Code"],
+                "naics_code": row["Industry Code"],
+                "naics_title": row["Industry Title"],
+                "employment_percent": employment,
+            })
+
+        return industries
 
     async def get_sync_status(self) -> dict[str, Any]:
         """Get current sync status.

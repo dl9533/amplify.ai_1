@@ -15,6 +15,7 @@ from app.routers import (
     chat_router,
     exports_router,
     handoff_router,
+    lob_mappings_router,
     roadmap_router,
     role_mappings_router,
     sessions_router,
@@ -90,6 +91,7 @@ app.include_router(admin_router)
 app.include_router(sessions_router)
 app.include_router(uploads_router)
 app.include_router(role_mappings_router)
+app.include_router(lob_mappings_router)
 app.include_router(activities_router)
 app.include_router(analysis_router)
 app.include_router(roadmap_router)

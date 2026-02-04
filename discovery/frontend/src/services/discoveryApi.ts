@@ -236,6 +236,52 @@ export interface BulkRemapResponse {
   mappings: RoleMappingWithReasoning[]
 }
 
+// Grouped role mappings types
+export interface GroupedMappingSummary {
+  total_roles: number
+  confirmed_count: number
+  pending_count: number
+  low_confidence_count: number
+  total_employees: number
+}
+
+export interface RoleMappingCompact {
+  id: string
+  source_role: string
+  onet_code: string | null
+  onet_title: string | null
+  confidence_score: number
+  is_confirmed: boolean
+  employee_count: number
+}
+
+export interface LobGroup {
+  lob: string
+  summary: GroupedMappingSummary
+  mappings: RoleMappingCompact[]
+}
+
+export interface GroupedRoleMappingsResponse {
+  session_id: string
+  overall_summary: GroupedMappingSummary
+  lob_groups: LobGroup[]
+  ungrouped_mappings: RoleMappingCompact[]
+}
+
+export interface BulkConfirmRequest {
+  threshold?: number
+  lob?: string
+  mapping_ids?: string[]
+}
+
+// LOB mapping lookup types
+export interface LobNaicsLookupResponse {
+  lob: string
+  naics_codes: string[]
+  confidence: number
+  source: 'curated' | 'fuzzy' | 'llm' | 'none'
+}
+
 export const roleMappingsApi = {
   /**
    * Get all role mappings for a session.
@@ -251,10 +297,28 @@ export const roleMappingsApi = {
 
   /**
    * Bulk confirm mappings above a confidence threshold.
-   * @param threshold - Confidence threshold (0-1)
+   * Optionally filter by LOB or specific mapping IDs.
+   * @param threshold - Confidence threshold (0-1), defaults to 0.85
+   * @param lob - Optional LOB filter
+   * @param mappingIds - Optional specific mapping IDs
    */
-  bulkConfirm: (sessionId: string, threshold: number): Promise<BulkConfirmResponse> =>
-    api.post(`/discovery/sessions/${sessionId}/role-mappings/confirm`, { threshold }),
+  bulkConfirm: (
+    sessionId: string,
+    threshold?: number,
+    lob?: string,
+    mappingIds?: string[]
+  ): Promise<BulkConfirmResponse> =>
+    api.post(`/discovery/sessions/${sessionId}/role-mappings/confirm`, {
+      threshold: threshold ?? 0.85,
+      lob,
+      mapping_ids: mappingIds,
+    }),
+
+  /**
+   * Get role mappings grouped by LOB.
+   */
+  getGroupedBySession: (sessionId: string): Promise<GroupedRoleMappingsResponse> =>
+    api.get(`/discovery/sessions/${sessionId}/role-mappings/grouped`),
 
   /**
    * Bulk remap low-confidence roles using LLM.
@@ -303,6 +367,16 @@ export const onetApi = {
    */
   getOccupation: (code: string): Promise<OnetOccupation> =>
     api.get(`/api/v1/discovery/onet/${encodeURIComponent(code)}`),
+}
+
+// ============ LOB Mapping API ============
+
+export const lobMappingApi = {
+  /**
+   * Lookup NAICS codes for a Line of Business.
+   */
+  lookup: (lob: string): Promise<LobNaicsLookupResponse> =>
+    api.get(`/discovery/lob/lookup?lob=${encodeURIComponent(lob)}`),
 }
 
 // ============ Activities API ============

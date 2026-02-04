@@ -90,10 +90,18 @@ class BulkConfirmRequest(BaseModel):
     """Schema for bulk confirm request."""
 
     threshold: float = Field(
-        ...,
+        default=0.85,
         ge=0.0,
         le=1.0,
-        description="Minimum confidence score threshold for auto-confirmation (0-1)",
+        description="Minimum confidence score threshold for auto-confirmation (0-1). Defaults to 0.85.",
+    )
+    lob: Optional[str] = Field(
+        default=None,
+        description="Optional Line of Business filter to confirm only mappings in this LOB",
+    )
+    mapping_ids: Optional[List[UUID]] = Field(
+        default=None,
+        description="Optional specific mapping IDs to confirm. If provided, only these mappings are considered.",
     )
 
 
@@ -191,3 +199,111 @@ class OnetOccupation(BaseModel):
     model_config = {
         "from_attributes": True,
     }
+
+
+class GroupedMappingSummary(BaseModel):
+    """Summary statistics for a group of role mappings."""
+
+    total_roles: int = Field(
+        ...,
+        ge=0,
+        description="Total number of unique roles in the group",
+    )
+    confirmed_count: int = Field(
+        ...,
+        ge=0,
+        description="Number of confirmed mappings",
+    )
+    pending_count: int = Field(
+        ...,
+        ge=0,
+        description="Number of pending (unconfirmed) mappings",
+    )
+    low_confidence_count: int = Field(
+        ...,
+        ge=0,
+        description="Number of low confidence mappings (below 0.6)",
+    )
+    total_employees: int = Field(
+        ...,
+        ge=0,
+        description="Total employee count across all roles in the group",
+    )
+
+
+class RoleMappingCompact(BaseModel):
+    """Compact role mapping for grouped display."""
+
+    id: UUID = Field(
+        ...,
+        description="Unique role mapping identifier",
+    )
+    source_role: str = Field(
+        ...,
+        description="Original role title from uploaded data",
+    )
+    onet_code: Optional[str] = Field(
+        default=None,
+        description="O*NET SOC code for the mapped occupation",
+    )
+    onet_title: Optional[str] = Field(
+        default=None,
+        description="O*NET occupation title",
+    )
+    confidence_score: float = Field(
+        ...,
+        ge=0.0,
+        le=1.0,
+        description="Confidence score of the mapping (0-1)",
+    )
+    is_confirmed: bool = Field(
+        ...,
+        description="Whether the mapping has been confirmed by user",
+    )
+    employee_count: int = Field(
+        ...,
+        ge=0,
+        description="Number of employees with this role",
+    )
+
+    model_config = {
+        "from_attributes": True,
+    }
+
+
+class LobGroup(BaseModel):
+    """Group of role mappings by Line of Business."""
+
+    lob: str = Field(
+        ...,
+        description="Line of Business name",
+    )
+    summary: GroupedMappingSummary = Field(
+        ...,
+        description="Summary statistics for this LOB group",
+    )
+    mappings: List[RoleMappingCompact] = Field(
+        default_factory=list,
+        description="Role mappings in this LOB group",
+    )
+
+
+class GroupedRoleMappingsResponse(BaseModel):
+    """Response for grouped role mappings endpoint."""
+
+    session_id: UUID = Field(
+        ...,
+        description="Discovery session ID",
+    )
+    overall_summary: GroupedMappingSummary = Field(
+        ...,
+        description="Summary statistics across all groups",
+    )
+    lob_groups: List[LobGroup] = Field(
+        default_factory=list,
+        description="Role mappings grouped by Line of Business",
+    )
+    ungrouped_mappings: List[RoleMappingCompact] = Field(
+        default_factory=list,
+        description="Role mappings without LOB assignment",
+    )

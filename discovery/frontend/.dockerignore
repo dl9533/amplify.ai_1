@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+
+# Build output (we build fresh in Docker)
+dist/
+
+# Test files
+tests/
+coverage/
+*.test.ts
+*.test.tsx
+*.spec.ts
+*.spec.tsx
+
+# IDE
+.idea/
+.vscode/
+
+# Git
+.git/
+.gitignore
+
+# Docker
+Dockerfile
+.dockerignore
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Misc
+*.log
+*.md
+.DS_Store

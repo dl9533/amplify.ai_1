@@ -13,6 +13,7 @@ from app.models.base import Base
 
 if TYPE_CHECKING:
     from app.models.onet_task import OnetTask
+    from app.models.onet_occupation_industry import OnetOccupationIndustry
 
 
 class OnetOccupation(Base):
@@ -43,6 +44,10 @@ class OnetOccupation(Base):
         back_populates="occupation",
         cascade="all, delete-orphan",
         foreign_keys="OnetTask.occupation_code",
+    )
+    industries: Mapped[list["OnetOccupationIndustry"]] = relationship(
+        back_populates="occupation",
+        cascade="all, delete-orphan",
     )
 
     def __repr__(self) -> str:

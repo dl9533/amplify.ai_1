@@ -1,6 +1,9 @@
 """SQLAlchemy models package."""
 from app.models.base import Base, async_session_maker, get_async_session
 from app.models.onet_occupation import OnetAlternateTitle, OnetOccupation, OnetSyncLog
+from app.models.onet_occupation_industry import OnetOccupationIndustry
+from app.models.naics_code import NaicsCode
+from app.models.lob_naics_mapping import LobNaicsMapping
 from app.models.onet_work_activities import OnetGWA, OnetIWA, OnetDWA
 from app.models.onet_task import OnetTask, OnetTaskToDWA
 from app.models.onet_skills import OnetSkill, OnetTechnologySkill
@@ -20,6 +23,9 @@ __all__ = [
     "OnetOccupation",
     "OnetAlternateTitle",
     "OnetSyncLog",
+    "OnetOccupationIndustry",
+    "NaicsCode",
+    "LobNaicsMapping",
     "OnetGWA",
     "OnetIWA",
     "OnetDWA",

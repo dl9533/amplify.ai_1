@@ -15,6 +15,7 @@ from app.services.upload_service import UploadService
 
 if TYPE_CHECKING:
     from app.agents.role_mapping_agent import RoleMappingAgent
+    from app.services.lob_mapping_service import LobMappingService
 
 logger = logging.getLogger(__name__)
 
@@ -23,18 +24,25 @@ class RoleMappingService:
     """Service for role-to-O*NET occupation mapping.
 
     Uses LLM-powered RoleMappingAgent for semantic role matching.
+    Supports industry-aware matching when LOB context is available.
 
     Attributes:
         repository: Repository for role mapping persistence.
         upload_service: Service for file uploads.
         role_mapping_agent: LLM-powered mapping agent.
+        onet_repository: Repository for O*NET data (optional).
+        lob_service: Service for LOB-to-NAICS mapping (optional).
     """
+
+    INDUSTRY_BOOST_FACTOR = 0.25  # Max 25% boost for industry match
 
     def __init__(
         self,
         repository: RoleMappingRepository,
         role_mapping_agent: "RoleMappingAgent",
         upload_service: UploadService | None = None,
+        onet_repository: OnetRepository | None = None,
+        lob_service: "LobMappingService | None" = None,
     ) -> None:
         """Initialize the role mapping service.
 
@@ -42,10 +50,14 @@ class RoleMappingService:
             repository: Repository for role mapping persistence.
             role_mapping_agent: LLM-powered mapping agent.
             upload_service: Service for file uploads.
+            onet_repository: Repository for O*NET data (optional, for industry matching).
+            lob_service: Service for LOB-to-NAICS mapping (optional).
         """
         self.repository = repository
         self.role_mapping_agent = role_mapping_agent
         self.upload_service = upload_service
+        self.onet_repository = onet_repository
+        self.lob_service = lob_service
         self._file_parser = FileParser()
 
     async def create_mappings_from_upload(
@@ -207,12 +219,33 @@ class RoleMappingService:
         self,
         session_id: UUID,
         threshold: float = 0.85,
+        lob: str | None = None,
+        mapping_ids: list[UUID] | None = None,
     ) -> dict[str, Any]:
-        """Bulk confirm mappings above confidence threshold."""
+        """Bulk confirm mappings above confidence threshold.
+
+        Args:
+            session_id: Discovery session ID.
+            threshold: Minimum confidence threshold for auto-confirmation.
+            lob: Optional LOB filter to confirm only mappings in this LOB.
+            mapping_ids: Optional specific mapping IDs to confirm.
+
+        Returns:
+            Dict with confirmed_count.
+        """
         mappings = await self.repository.get_for_session(session_id)
         confirmed = 0
 
         for mapping in mappings:
+            # Skip if specific mapping_ids provided and this isn't one of them
+            if mapping_ids is not None and mapping.id not in mapping_ids:
+                continue
+
+            # Skip if LOB filter provided and mapping doesn't match
+            mapping_lob = getattr(mapping, "lob_value", None)
+            if lob is not None and mapping_lob != lob:
+                continue
+
             if (
                 not mapping.user_confirmed
                 and mapping.onet_code
@@ -291,6 +324,159 @@ class RoleMappingService:
             "mappings": updated_mappings,
         }
 
+    async def match_role_with_industry(
+        self,
+        job_title: str,
+        lob: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Match job title to O*NET occupations with industry context.
+
+        Uses LOB-to-NAICS mapping to boost occupations that are more
+        commonly employed in the target industry.
+
+        Args:
+            job_title: The job title to match.
+            lob: Optional Line of Business for industry-aware boosting.
+
+        Returns:
+            List of occupation matches with scores and industry data.
+        """
+        if not self.onet_repository:
+            return []
+
+        # Get candidate occupations from title search
+        candidates = await self.onet_repository.search_occupations(job_title)
+
+        if not candidates:
+            return []
+
+        # Convert to dict format
+        results = [
+            {
+                "code": occ.code,
+                "title": occ.title,
+                "score": 1.0,  # Base score
+            }
+            for occ in candidates
+        ]
+
+        if not lob or not self.lob_service:
+            return results
+
+        # Get NAICS codes for the LOB
+        lob_result = await self.lob_service.map_lob_to_naics(lob)
+        naics_codes = lob_result.naics_codes
+
+        if not naics_codes:
+            return results
+
+        # Score candidates with industry boost
+        for result in results:
+            industry_score = await self.onet_repository.calculate_industry_score(
+                result["code"],
+                naics_codes,
+            )
+
+            original_score = result["score"]
+            boosted_score = original_score * (1 + self.INDUSTRY_BOOST_FACTOR * industry_score)
+
+            result["score"] = boosted_score
+            result["industry_match"] = industry_score
+            result["original_score"] = original_score
+
+        # Re-sort by boosted score
+        return sorted(results, key=lambda x: x["score"], reverse=True)
+
+    async def get_grouped_mappings(
+        self,
+        session_id: UUID,
+        low_confidence_threshold: float = 0.6,
+    ) -> dict[str, Any]:
+        """Get role mappings grouped by Line of Business.
+
+        Organizes role mappings by LOB with summary statistics for each group.
+        Mappings without LOB assignment are returned separately.
+
+        Args:
+            session_id: Discovery session ID.
+            low_confidence_threshold: Threshold below which mappings are considered low confidence.
+
+        Returns:
+            Dict with session_id, overall_summary, lob_groups, and ungrouped_mappings.
+        """
+        mappings = await self.repository.get_for_session(session_id)
+
+        # Build mapping data with employee counts
+        mapping_data = []
+        for m in mappings:
+            mapping_data.append({
+                "id": str(m.id),
+                "source_role": m.source_role,
+                "onet_code": m.onet_code,
+                "onet_title": getattr(m, "onet_title", None),
+                "confidence_score": m.confidence_score,
+                "is_confirmed": m.user_confirmed,
+                "employee_count": getattr(m, "row_count", 1),
+                "lob": getattr(m, "lob_value", None),
+            })
+
+        # Calculate overall summary
+        total_roles = len(mapping_data)
+        confirmed_count = sum(1 for m in mapping_data if m["is_confirmed"])
+        pending_count = sum(1 for m in mapping_data if not m["is_confirmed"])
+        low_confidence_count = sum(
+            1 for m in mapping_data
+            if m["confidence_score"] < low_confidence_threshold and not m["is_confirmed"]
+        )
+        total_employees = sum(m["employee_count"] for m in mapping_data)
+
+        overall_summary = {
+            "total_roles": total_roles,
+            "confirmed_count": confirmed_count,
+            "pending_count": pending_count,
+            "low_confidence_count": low_confidence_count,
+            "total_employees": total_employees,
+        }
+
+        # Group by LOB
+        lob_groups_dict: dict[str, list[dict]] = {}
+        ungrouped = []
+
+        for m in mapping_data:
+            lob = m.get("lob")
+            if lob:
+                if lob not in lob_groups_dict:
+                    lob_groups_dict[lob] = []
+                lob_groups_dict[lob].append(m)
+            else:
+                ungrouped.append(m)
+
+        # Build LOB group summaries
+        lob_groups = []
+        for lob, group_mappings in sorted(lob_groups_dict.items()):
+            group_summary = {
+                "total_roles": len(group_mappings),
+                "confirmed_count": sum(1 for m in group_mappings if m["is_confirmed"]),
+                "pending_count": sum(1 for m in group_mappings if not m["is_confirmed"]),
+                "low_confidence_count": sum(
+                    1 for m in group_mappings
+                    if m["confidence_score"] < low_confidence_threshold and not m["is_confirmed"]
+                ),
+                "total_employees": sum(m["employee_count"] for m in group_mappings),
+            }
+            lob_groups.append({
+                "lob": lob,
+                "summary": group_summary,
+                "mappings": group_mappings,
+            })
+
+        return {
+            "session_id": str(session_id),
+            "overall_summary": overall_summary,
+            "lob_groups": lob_groups,
+            "ungrouped_mappings": ungrouped,
+        }
+
 
 class OnetService:
     """O*NET service for searching and retrieving occupation data.
@@ -351,20 +537,29 @@ async def get_role_mapping_service() -> AsyncGenerator[RoleMappingService, None]
     """Get role mapping service dependency for FastAPI.
 
     Yields a fully configured RoleMappingService with the LLM-powered
-    RoleMappingAgent for semantic role matching.
+    RoleMappingAgent for semantic role matching and industry-aware boosting.
     """
     from app.agents.role_mapping_agent import RoleMappingAgent
     from app.models.base import async_session_maker
+    from app.repositories.lob_mapping_repository import LobMappingRepository
     from app.services.llm_service import get_llm_service
+    from app.services.lob_mapping_service import LobMappingService
 
     settings = get_settings()
 
     async with async_session_maker() as db:
         repository = RoleMappingRepository(db)
         onet_repo = OnetRepository(db)
+        lob_repo = LobMappingRepository(db)
 
         # Get LLM service
         llm_service = get_llm_service(settings)
+
+        # Create LOB mapping service for industry-aware matching
+        lob_service = LobMappingService(
+            repository=lob_repo,
+            llm_service=llm_service,
+        )
 
         # Create role mapping agent
         agent = RoleMappingAgent(
@@ -375,6 +570,8 @@ async def get_role_mapping_service() -> AsyncGenerator[RoleMappingService, None]
         service = RoleMappingService(
             repository=repository,
             role_mapping_agent=agent,
+            onet_repository=onet_repo,
+            lob_service=lob_service,
         )
         yield service
 

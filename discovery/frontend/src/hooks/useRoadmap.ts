@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
 import { roadmapApi, handoffApi, ApiError } from '../services'
-import type { RoadmapPhase as ApiPhase, PriorityTier as ApiTier } from '../services'
+import type { RoadmapPhase as ApiPhase } from '../services'
 
 export type Phase = 'NOW' | 'NEXT' | 'LATER'
 export type PriorityTier = 'HIGH' | 'MEDIUM' | 'LOW'

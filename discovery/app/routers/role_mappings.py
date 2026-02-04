@@ -9,8 +9,12 @@ from app.schemas.role_mapping import (
     BulkConfirmResponse,
     BulkRemapRequest,
     BulkRemapResponse,
+    GroupedMappingSummary,
+    GroupedRoleMappingsResponse,
+    LobGroup,
     OnetOccupation,
     OnetSearchResult,
+    RoleMappingCompact,
     RoleMappingResponse,
     RoleMappingUpdate,
     RoleMappingWithReasoning,
@@ -65,6 +69,61 @@ async def get_role_mappings(
     return [_dict_to_role_mapping_response(item) for item in result]
 
 
+@router.get(
+    "/sessions/{session_id}/role-mappings/grouped",
+    response_model=GroupedRoleMappingsResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get grouped role mappings for session",
+    description="Retrieves role mappings grouped by Line of Business for aggregated review.",
+)
+async def get_grouped_mappings(
+    session_id: UUID,
+    service: RoleMappingService = Depends(get_role_mapping_service),
+) -> GroupedRoleMappingsResponse:
+    """Get role mappings grouped by LOB for aggregated review.
+
+    Returns role mappings organized by Line of Business with summary statistics
+    for each group, enabling efficient review of large datasets.
+    """
+    result = await service.get_grouped_mappings(session_id=session_id)
+
+    return GroupedRoleMappingsResponse(
+        session_id=UUID(result["session_id"]) if isinstance(result["session_id"], str) else result["session_id"],
+        overall_summary=GroupedMappingSummary(**result["overall_summary"]),
+        lob_groups=[
+            LobGroup(
+                lob=group["lob"],
+                summary=GroupedMappingSummary(**group["summary"]),
+                mappings=[
+                    RoleMappingCompact(
+                        id=UUID(m["id"]) if isinstance(m["id"], str) else m["id"],
+                        source_role=m["source_role"],
+                        onet_code=m.get("onet_code"),
+                        onet_title=m.get("onet_title"),
+                        confidence_score=m["confidence_score"],
+                        is_confirmed=m["is_confirmed"],
+                        employee_count=m["employee_count"],
+                    )
+                    for m in group["mappings"]
+                ],
+            )
+            for group in result["lob_groups"]
+        ],
+        ungrouped_mappings=[
+            RoleMappingCompact(
+                id=UUID(m["id"]) if isinstance(m["id"], str) else m["id"],
+                source_role=m["source_role"],
+                onet_code=m.get("onet_code"),
+                onet_title=m.get("onet_title"),
+                confidence_score=m["confidence_score"],
+                is_confirmed=m["is_confirmed"],
+                employee_count=m["employee_count"],
+            )
+            for m in result["ungrouped_mappings"]
+        ],
+    )
+
+
 @router.put(
     "/role-mappings/{mapping_id}",
     response_model=RoleMappingResponse,
@@ -99,17 +158,22 @@ async def update_role_mapping(
     response_model=BulkConfirmResponse,
     status_code=status.HTTP_200_OK,
     summary="Bulk confirm role mappings",
-    description="Confirms all role mappings with confidence scores at or above the threshold.",
+    description="Confirms role mappings with confidence scores at or above the threshold. Optionally filter by LOB or specific mapping IDs.",
 )
 async def bulk_confirm_mappings(
     session_id: UUID,
     request: BulkConfirmRequest,
     service: RoleMappingService = Depends(get_role_mapping_service),
 ) -> BulkConfirmResponse:
-    """Bulk confirm mappings above a confidence threshold."""
+    """Bulk confirm mappings above a confidence threshold.
+
+    Supports filtering by LOB group or specific mapping IDs for grouped review.
+    """
     result = await service.bulk_confirm(
         session_id=session_id,
         threshold=request.threshold,
+        lob=request.lob,
+        mapping_ids=request.mapping_ids,
     )
 
     return BulkConfirmResponse(confirmed_count=result["confirmed_count"])

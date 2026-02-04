@@ -12,7 +12,7 @@ import {
   IconChevronUp,
   IconChevronDown,
 } from '../../components/ui/Icons'
-import { useAnalysisResults, Dimension, PriorityTier, AnalysisResult } from '../../hooks/useAnalysisResults'
+import { useAnalysisResults, Dimension, PriorityTier } from '../../hooks/useAnalysisResults'
 
 const DIMENSIONS: { key: Dimension; label: string }[] = [
   { key: 'ROLE', label: 'By Role' },

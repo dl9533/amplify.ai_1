@@ -7,7 +7,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 
-from app.schemas.upload import ColumnMappingUpdate, UploadResponse
+from app.schemas.upload import ColumnMappingUpdate, DetectedMappingResponse, UploadResponse
+from app.services.column_detection_service import ColumnDetectionService
 from app.services.upload_service import UploadService, get_upload_service
 
 
@@ -146,6 +147,13 @@ async def upload_file(
         content=content,
     )
 
+    # Auto-detect column mappings
+    column_detector = ColumnDetectionService()
+    detected = column_detector.detect_mappings_sync(
+        columns=result["detected_schema"],
+        sample_rows=result.get("preview", []),
+    )
+
     return UploadResponse(
         id=UUID(result["id"]),
         file_name=result["file_name"],
@@ -153,6 +161,16 @@ async def upload_file(
         detected_schema=result["detected_schema"],
         created_at=datetime.fromisoformat(result["created_at"]),
         column_mappings=result.get("column_mappings"),
+        detected_mappings=[
+            DetectedMappingResponse(
+                field=m.field,
+                column=m.column,
+                confidence=m.confidence,
+                alternatives=m.alternatives,
+                required=m.required,
+            )
+            for m in detected
+        ],
     )
 
 

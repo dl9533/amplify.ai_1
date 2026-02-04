@@ -12,22 +12,46 @@ import {
   IconRefresh,
   IconCheckCircle,
   IconZap,
+  IconList,
+  IconGrid,
 } from '../../components/ui/Icons'
 import { useRoleMappings } from '../../hooks/useRoleMappings'
+import { useGroupedRoleMappings } from '../../hooks/useGroupedRoleMappings'
 import { useOnetSearch } from '../../hooks/useOnetSearch'
+import { GroupedRoleMappingsView } from '../../components/features/discovery/GroupedRoleMappingsView'
+
+type ViewMode = 'flat' | 'grouped'
 
 export function MapRolesStep() {
   const { sessionId } = useParams()
+  const [viewMode, setViewMode] = useState<ViewMode>('grouped')
+
+  // Flat view hooks
   const {
     mappings,
-    isLoading,
+    isLoading: isFlatLoading,
     isRemapping,
-    error,
+    error: flatError,
     confirmMapping,
     bulkConfirm,
     bulkRemap,
     remapRole,
   } = useRoleMappings(sessionId || '')
+
+  // Grouped view hooks
+  const {
+    data: groupedData,
+    isLoading: isGroupedLoading,
+    isConfirming,
+    error: groupedError,
+    confirmMapping: confirmMappingGrouped,
+    bulkConfirmLob,
+    bulkConfirmAll,
+    refresh: refreshGrouped,
+  } = useGroupedRoleMappings(sessionId || '')
+
+  const isLoading = viewMode === 'grouped' ? isGroupedLoading : isFlatLoading
+  const error = viewMode === 'grouped' ? groupedError : flatError
 
   const [searchQuery, setSearchQuery] = useState('')
   const [activeRemapId, setActiveRemapId] = useState<string | null>(null)
@@ -37,10 +61,17 @@ export function MapRolesStep() {
   const searchResults = activeRemapId ? onetSearch.results : []
   const isSearching = onetSearch.isLoading
 
-  // Count confirmed/total
+  // Count confirmed/total (for flat view)
   const confirmedCount = mappings.filter((m) => m.confirmed).length
   const totalCount = mappings.length
-  const allConfirmed = confirmedCount === totalCount && totalCount > 0
+
+  // For grouped view, use the summary
+  const groupedConfirmedCount = groupedData?.overall_summary.confirmed_count ?? 0
+  const groupedTotalCount = groupedData?.overall_summary.total_roles ?? 0
+
+  const allConfirmed = viewMode === 'grouped'
+    ? groupedConfirmedCount === groupedTotalCount && groupedTotalCount > 0
+    : confirmedCount === totalCount && totalCount > 0
 
   // Group by confidence level (confidence is 0-1 decimal)
   const groupedMappings = useMemo(() => {
@@ -90,53 +121,99 @@ export function MapRolesStep() {
           description="Review and confirm the O*NET occupation matches for each role."
           actions={
             <div className="flex items-center gap-2">
-              {groupedMappings.lowConfidence.filter((m) => !m.confirmed).length > 0 && (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  icon={isRemapping ? undefined : <IconZap size={14} />}
-                  onClick={() => bulkRemap(0.6)}
-                  disabled={isRemapping}
+              {/* View mode toggle */}
+              <div className="flex items-center border border-border rounded-md overflow-hidden mr-2">
+                <button
+                  onClick={() => setViewMode('grouped')}
+                  className={`px-3 py-1.5 text-sm ${
+                    viewMode === 'grouped'
+                      ? 'bg-bg-muted text-default'
+                      : 'text-muted hover:bg-bg-muted/50'
+                  }`}
+                  title="Grouped by LOB"
                 >
-                  {isRemapping ? (
-                    <>
-                      <span className="w-3.5 h-3.5 border-2 border-current/30 border-t-current rounded-full animate-spin" />
-                      Re-mapping...
-                    </>
-                  ) : (
-                    `Re-map low confidence (${groupedMappings.lowConfidence.filter((m) => !m.confirmed).length})`
+                  <IconGrid size={16} />
+                </button>
+                <button
+                  onClick={() => setViewMode('flat')}
+                  className={`px-3 py-1.5 text-sm ${
+                    viewMode === 'flat'
+                      ? 'bg-bg-muted text-default'
+                      : 'text-muted hover:bg-bg-muted/50'
+                  }`}
+                  title="Flat list"
+                >
+                  <IconList size={16} />
+                </button>
+              </div>
+
+              {/* Flat view actions */}
+              {viewMode === 'flat' && (
+                <>
+                  {groupedMappings.lowConfidence.filter((m) => !m.confirmed).length > 0 && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      icon={isRemapping ? undefined : <IconZap size={14} />}
+                      onClick={() => bulkRemap(0.6)}
+                      disabled={isRemapping}
+                    >
+                      {isRemapping ? (
+                        <>
+                          <span className="w-3.5 h-3.5 border-2 border-current/30 border-t-current rounded-full animate-spin" />
+                          Re-mapping...
+                        </>
+                      ) : (
+                        `Re-map low confidence (${groupedMappings.lowConfidence.filter((m) => !m.confirmed).length})`
+                      )}
+                    </Button>
                   )}
-                </Button>
-              )}
-              {groupedMappings.highConfidence.filter((m) => !m.confirmed).length > 0 && (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => handleBulkConfirm(0.85)}
-                >
-                  Confirm all {'>'}85%
-                </Button>
+                  {groupedMappings.highConfidence.filter((m) => !m.confirmed).length > 0 && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => handleBulkConfirm(0.85)}
+                    >
+                      Confirm all {'>'}85%
+                    </Button>
+                  )}
+                </>
               )}
             </div>
           }
         >
-          {/* Progress indicator */}
-          <div className="surface p-4 mb-6">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm text-muted">Mapping Progress</span>
-              <span className="text-sm font-medium text-default">
-                {confirmedCount} / {totalCount} confirmed
-              </span>
-            </div>
-            <div className="h-2 bg-bg-muted rounded-full overflow-hidden">
-              <div
-                className="h-full bg-success rounded-full transition-all duration-500"
-                style={{ width: `${totalCount > 0 ? (confirmedCount / totalCount) * 100 : 0}%` }}
-              />
-            </div>
-          </div>
+          {/* Grouped view */}
+          {viewMode === 'grouped' && groupedData && (
+            <GroupedRoleMappingsView
+              data={groupedData}
+              onBulkConfirmLob={bulkConfirmLob}
+              onBulkConfirmAll={bulkConfirmAll}
+              onConfirmMapping={confirmMappingGrouped}
+              onRemapMapping={(id) => setActiveRemapId(id)}
+              isConfirming={isConfirming}
+            />
+          )}
 
-          {/* Mappings list */}
+          {/* Flat view */}
+          {viewMode === 'flat' && (
+            <>
+              {/* Progress indicator */}
+              <div className="surface p-4 mb-6">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm text-muted">Mapping Progress</span>
+                  <span className="text-sm font-medium text-default">
+                    {confirmedCount} / {totalCount} confirmed
+                  </span>
+                </div>
+                <div className="h-2 bg-bg-muted rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-success rounded-full transition-all duration-500"
+                    style={{ width: `${totalCount > 0 ? (confirmedCount / totalCount) * 100 : 0}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Mappings list */}
           <div className="space-y-3">
             {mappings.map((mapping, index) => (
               <div
@@ -288,11 +365,13 @@ export function MapRolesStep() {
             ))}
           </div>
 
-          {/* Empty state */}
-          {mappings.length === 0 && (
-            <div className="text-center py-12">
-              <p className="text-muted">No roles found. Please upload workforce data first.</p>
-            </div>
+              {/* Empty state for flat view */}
+              {mappings.length === 0 && (
+                <div className="text-center py-12">
+                  <p className="text-muted">No roles found. Please upload workforce data first.</p>
+                </div>
+              )}
+            </>
           )}
         </StepContent>
       </DiscoveryWizard>

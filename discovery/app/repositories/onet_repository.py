@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import OnetOccupation, OnetGWA, OnetIWA, OnetDWA
 from app.models.onet_occupation import OnetAlternateTitle, OnetSyncLog
+from app.models.onet_occupation_industry import OnetOccupationIndustry
 from app.models.onet_task import OnetTask
 
 logger = logging.getLogger(__name__)
@@ -447,3 +448,122 @@ class OnetRepository:
         )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
+
+    # ==========================================================================
+    # Industry Methods
+    # ==========================================================================
+
+    async def get_industries_for_occupation(
+        self,
+        occupation_code: str,
+    ) -> list[OnetOccupationIndustry]:
+        """Get all industries for an occupation.
+
+        Args:
+            occupation_code: O*NET occupation code.
+
+        Returns:
+            List of OnetOccupationIndustry objects, ordered by employment percent.
+        """
+        stmt = select(OnetOccupationIndustry).where(
+            OnetOccupationIndustry.occupation_code == occupation_code
+        ).order_by(OnetOccupationIndustry.employment_percent.desc().nulls_last())
+
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def calculate_industry_score(
+        self,
+        occupation_code: str,
+        naics_codes: list[str],
+    ) -> float:
+        """Calculate industry match score for occupation and NAICS codes.
+
+        Returns 0-1 score based on how well the occupation matches
+        the provided industry codes.
+
+        Args:
+            occupation_code: O*NET occupation code.
+            naics_codes: List of NAICS codes to match against.
+
+        Returns:
+            Score from 0.0 (no match) to 1.0 (exact match).
+        """
+        if not naics_codes:
+            return 0.0
+
+        industries = await self.get_industries_for_occupation(occupation_code)
+        if not industries:
+            return 0.0
+
+        best_score = 0.0
+        for industry in industries:
+            for target_code in naics_codes:
+                score = self._naics_match_score(industry.naics_code, target_code)
+                if score > best_score:
+                    best_score = score
+
+        return best_score
+
+    def _naics_match_score(self, code1: str, code2: str) -> float:
+        """Calculate similarity between two NAICS codes.
+
+        Args:
+            code1: First NAICS code.
+            code2: Second NAICS code.
+
+        Returns:
+            Score from 0.0 to 1.0 based on matching prefix length.
+        """
+        # Exact match
+        if code1 == code2:
+            return 1.0
+
+        # Check prefix matching (longer prefix = better match)
+        min_len = min(len(code1), len(code2))
+        for i in range(min_len, 0, -1):
+            if code1[:i] == code2[:i]:
+                # Score based on matching prefix length
+                if i >= 4:
+                    return 0.8
+                elif i >= 3:
+                    return 0.6
+                elif i >= 2:
+                    return 0.4
+
+        return 0.0
+
+    async def bulk_upsert_industries(
+        self,
+        industries: list[dict[str, Any]],
+    ) -> int:
+        """Bulk upsert occupation-industry mappings.
+
+        Uses PostgreSQL ON CONFLICT for upsert behavior on the
+        unique constraint (occupation_code, naics_code).
+
+        Note: Does NOT commit. Caller must manage transaction.
+
+        Args:
+            industries: List of industry dicts with occupation_code,
+                naics_code, naics_title, employment_percent.
+
+        Returns:
+            Number of records upserted.
+        """
+        if not industries:
+            return 0
+
+        logger.info(f"Bulk upserting {len(industries)} industry records")
+
+        stmt = insert(OnetOccupationIndustry).values(industries)
+        stmt = stmt.on_conflict_do_update(
+            constraint="uq_occ_naics",
+            set_={
+                "naics_title": stmt.excluded.naics_title,
+                "employment_percent": stmt.excluded.employment_percent,
+            },
+        )
+
+        await self.session.execute(stmt)
+        return len(industries)

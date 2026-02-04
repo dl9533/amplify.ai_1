@@ -3,7 +3,7 @@ from datetime import datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy import String, DateTime, Float, Boolean, Integer, ForeignKey, func
-from sqlalchemy.dialects.postgresql import UUID as PGUUID
+from sqlalchemy.dialects.postgresql import UUID as PGUUID, ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -34,6 +34,10 @@ class DiscoveryRoleMapping(Base):
     confidence_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     user_confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
     row_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # LOB-aware matching fields
+    lob_value: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    naics_codes: Mapped[list[str] | None] = mapped_column(ARRAY(String(6)), nullable=True)
+    industry_match_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

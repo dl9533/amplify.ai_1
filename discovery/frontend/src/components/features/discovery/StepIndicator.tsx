@@ -14,7 +14,7 @@ export interface StepIndicatorProps {
 
 export function StepIndicator({
   steps,
-  currentStep,
+  currentStep: _currentStep,
   orientation = 'horizontal',
 }: StepIndicatorProps): React.ReactElement {
   const isVertical = orientation === 'vertical'

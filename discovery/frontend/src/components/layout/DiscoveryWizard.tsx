@@ -10,7 +10,6 @@ import {
   IconArrowLeft,
   IconArrowRight,
   IconChat,
-  IconX,
 } from '../ui/Icons'
 import { ChatPanel } from '../features/discovery/ChatPanel'
 

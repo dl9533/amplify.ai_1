@@ -3,7 +3,6 @@ import { useParams } from 'react-router-dom'
 import { AppShell } from '../../components/layout/AppShell'
 import { DiscoveryWizard, StepContent } from '../../components/layout/DiscoveryWizard'
 import { Button } from '../../components/ui/Button'
-import { Badge } from '../../components/ui/Badge'
 import { ScoreBar, ScorePill } from '../../components/ui/ScoreBar'
 import { LoadingState, ErrorState } from '../../components/ui/EmptyState'
 import {
@@ -12,7 +11,7 @@ import {
   IconZap,
   IconCheck,
 } from '../../components/ui/Icons'
-import { useActivitySelections, GWA, DWA } from '../../hooks/useActivitySelections'
+import { useActivitySelections } from '../../hooks/useActivitySelections'
 
 export function ActivitiesStep() {
   const { sessionId } = useParams()

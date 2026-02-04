@@ -7,6 +7,9 @@ export type { UseFileUploadReturn } from './useFileUpload'
 export { useRoleMappings } from './useRoleMappings'
 export type { RoleMapping, UseRoleMappingsReturn } from './useRoleMappings'
 
+export { useGroupedRoleMappings } from './useGroupedRoleMappings'
+export type { UseGroupedRoleMappingsReturn } from './useGroupedRoleMappings'
+
 export { useOnetSearch } from './useOnetSearch'
 export type { OnetOccupation, UseOnetSearchReturn } from './useOnetSearch'
 

@@ -209,7 +209,7 @@ export function SessionsDashboard() {
           description="This will permanently delete the session and all its data. This action cannot be undone."
           confirmLabel="Delete"
           variant="destructive"
-          loading={isDeleting}
+          loading={!!isDeleting}
         />
       </PageContainer>
     </AppShell>

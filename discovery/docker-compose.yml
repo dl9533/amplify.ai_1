@@ -1,6 +1,9 @@
 version: '3.8'
 
 services:
+  # =============================================================================
+  # Infrastructure Services
+  # =============================================================================
   postgres:
     image: postgres:16
     container_name: discovery-postgres
@@ -39,6 +42,87 @@ services:
       - DEFAULT_REGION=us-east-1
     volumes:
       - discovery_localstack_data:/var/lib/localstack
+
+  # =============================================================================
+  # Application Services
+  # =============================================================================
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: discovery-backend
+    ports:
+      - "8001:8001"
+    environment:
+      # Database settings (individual vars used by app/config.py)
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=discovery_user
+      - POSTGRES_PASSWORD=discovery_dev
+      - POSTGRES_DB=discovery_db
+      # Redis
+      - REDIS_URL=redis://redis:6379
+      # AWS/S3 (LocalStack)
+      - S3_ENDPOINT_URL=http://localstack:4566
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_REGION=us-east-1
+      - S3_BUCKET=discovery-uploads
+      # Anthropic
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      # Application
+      - DEBUG=true
+      - LOG_LEVEL=DEBUG
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      localstack:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8001/health')"]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: discovery-frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # =============================================================================
+  # Database Migrations (run once)
+  # =============================================================================
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: discovery-migrate
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=discovery_user
+      - POSTGRES_PASSWORD=discovery_dev
+      - POSTGRES_DB=discovery_db
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles:
+      - migrate
 
 volumes:
   discovery_postgres_data:

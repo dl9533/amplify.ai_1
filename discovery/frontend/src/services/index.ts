@@ -22,9 +22,18 @@ export {
   type RoleMappingResponse,
   type RoleMappingUpdate,
   type BulkConfirmResponse,
+  type BulkConfirmRequest,
   type BulkRemapRequest,
   type BulkRemapResponse,
   type RoleMappingWithReasoning,
+  // Grouped Role Mappings types
+  type GroupedMappingSummary,
+  type RoleMappingCompact,
+  type LobGroup,
+  type GroupedRoleMappingsResponse,
+  // LOB Mapping API
+  lobMappingApi,
+  type LobNaicsLookupResponse,
   // O*NET API
   onetApi,
   type OnetSearchResult,

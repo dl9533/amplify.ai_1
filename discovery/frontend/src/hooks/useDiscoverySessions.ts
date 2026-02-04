@@ -39,7 +39,7 @@ export function useDiscoverySessions() {
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [isCreating, setIsCreating] = useState(false)
-  const [isDeleting, setIsDeleting] = useState(false)
+  const [isDeleting, setIsDeleting] = useState<string | null>(null)
 
   const fetchSessions = useCallback(async () => {
     try {
@@ -117,7 +117,7 @@ export function useDiscoverySessions() {
 
   const deleteSession = useCallback(async (id: string): Promise<void> => {
     try {
-      setIsDeleting(true)
+      setIsDeleting(id)
       setError(null)
 
       await sessionsApi.delete(id)
@@ -134,7 +134,7 @@ export function useDiscoverySessions() {
       setError(errorMessage)
       throw err
     } finally {
-      setIsDeleting(false)
+      setIsDeleting(null)
     }
   }, [])
 

@@ -6,6 +6,33 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 
+class DetectedMappingResponse(BaseModel):
+    """Column detection result for a field."""
+
+    field: str = Field(
+        ...,
+        description="Field type (role, lob, department, geography)",
+    )
+    column: Optional[str] = Field(
+        default=None,
+        description="Detected column name, or null if not detected",
+    )
+    confidence: float = Field(
+        ...,
+        ge=0,
+        le=1,
+        description="Confidence score (0-1)",
+    )
+    alternatives: List[str] = Field(
+        default_factory=list,
+        description="Alternative column choices",
+    )
+    required: bool = Field(
+        ...,
+        description="Whether this field is required",
+    )
+
+
 class UploadResponse(BaseModel):
     """Schema for upload response."""
 
@@ -33,6 +60,10 @@ class UploadResponse(BaseModel):
         default=None,
         description="Column mappings for role, department, geography",
     )
+    detected_mappings: Optional[List[DetectedMappingResponse]] = Field(
+        default=None,
+        description="Auto-detected column mappings with confidence scores",
+    )
 
     model_config = {
         "from_attributes": True,
@@ -45,6 +76,10 @@ class ColumnMappingUpdate(BaseModel):
     role: Optional[str] = Field(
         default=None,
         description="Column name to map as role",
+    )
+    lob: Optional[str] = Field(
+        default=None,
+        description="Column name to map as line of business",
     )
     department: Optional[str] = Field(
         default=None,

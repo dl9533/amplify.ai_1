@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { AppShell, PageContainer, PageHeader } from '../../components/layout/AppShell'
 import { Button } from '../../components/ui/Button'
 import { Badge } from '../../components/ui/Badge'
-import { LoadingState, ErrorState } from '../../components/ui/EmptyState'
+import { LoadingState } from '../../components/ui/EmptyState'
 import { IconRefresh, IconCheck, IconDatabase } from '../../components/ui/Icons'
 import { useOnetSync } from '../../hooks/useOnetSync'
 

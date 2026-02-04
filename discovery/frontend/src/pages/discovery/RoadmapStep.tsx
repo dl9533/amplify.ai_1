@@ -1,10 +1,10 @@
 import { useState, useMemo } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import { AppShell } from '../../components/layout/AppShell'
 import { DiscoveryWizard, StepContent } from '../../components/layout/DiscoveryWizard'
 import { Button } from '../../components/ui/Button'
-import { Modal, ConfirmDialog } from '../../components/ui/Modal'
-import { TierBadge, PhaseBadge } from '../../components/ui/Badge'
+import { Modal } from '../../components/ui/Modal'
+import { TierBadge } from '../../components/ui/Badge'
 import { ScorePill } from '../../components/ui/ScoreBar'
 import { LoadingState, ErrorState, EmptyState } from '../../components/ui/EmptyState'
 import {
@@ -12,8 +12,6 @@ import {
   IconGripVertical,
   IconArrowRight,
   IconCheckCircle,
-  IconDownload,
-  IconExternalLink,
 } from '../../components/ui/Icons'
 import { useRoadmap, RoadmapItem, Phase } from '../../hooks/useRoadmap'
 
@@ -40,7 +38,6 @@ const PHASES: { key: Phase; label: string; description: string; color: string }[
 
 export function RoadmapStep() {
   const { sessionId } = useParams()
-  const navigate = useNavigate()
 
   const {
     items,

@@ -29,6 +29,7 @@ class DiscoveryUpload(Base):
     row_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     column_mappings: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     detected_schema: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    lob_column: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
