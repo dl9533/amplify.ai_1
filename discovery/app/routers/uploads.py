@@ -147,10 +147,23 @@ async def upload_file(
         content=content,
     )
 
+    # Extract column names from detected_schema dict
+    # schema_data has format: {"columns": [{"name": "col1", ...}, ...], "dtypes": {...}}
+    schema_data = result["detected_schema"]
+    if isinstance(schema_data, dict):
+        raw_columns = schema_data.get("columns", [])
+        # Columns may be list of dicts with "name" key, or list of strings
+        column_names = [
+            col["name"] if isinstance(col, dict) else col
+            for col in raw_columns
+        ]
+    else:
+        column_names = schema_data
+
     # Auto-detect column mappings
     column_detector = ColumnDetectionService()
     detected = column_detector.detect_mappings_sync(
-        columns=result["detected_schema"],
+        columns=column_names,
         sample_rows=result.get("preview", []),
     )
 
@@ -158,7 +171,7 @@ async def upload_file(
         id=UUID(result["id"]),
         file_name=result["file_name"],
         row_count=result["row_count"],
-        detected_schema=result["detected_schema"],
+        detected_schema=column_names,
         created_at=datetime.fromisoformat(result["created_at"]),
         column_mappings=result.get("column_mappings"),
         detected_mappings=[
@@ -188,17 +201,28 @@ async def list_uploads(
     """List all uploads for a discovery session."""
     results = await service.get_by_session_id(session_id=session_id)
 
-    return [
-        UploadResponse(
-            id=UUID(item["id"]),
-            file_name=item["file_name"],
-            row_count=item["row_count"],
-            detected_schema=item["detected_schema"],
-            created_at=datetime.fromisoformat(item["created_at"]),
-            column_mappings=item.get("column_mappings"),
+    uploads = []
+    for item in results:
+        schema_data = item["detected_schema"]
+        if isinstance(schema_data, dict):
+            raw_columns = schema_data.get("columns", [])
+            column_names = [
+                col["name"] if isinstance(col, dict) else col
+                for col in raw_columns
+            ]
+        else:
+            column_names = schema_data
+        uploads.append(
+            UploadResponse(
+                id=UUID(item["id"]),
+                file_name=item["file_name"],
+                row_count=item["row_count"],
+                detected_schema=column_names,
+                created_at=datetime.fromisoformat(item["created_at"]),
+                column_mappings=item.get("column_mappings"),
+            )
         )
-        for item in results
-    ]
+    return uploads
 
 
 @router.put(
@@ -230,11 +254,21 @@ async def update_mappings(
             detail=f"Upload with ID {upload_id} not found",
         )
 
+    schema_data = result["detected_schema"]
+    if isinstance(schema_data, dict):
+        raw_columns = schema_data.get("columns", [])
+        column_names = [
+            col["name"] if isinstance(col, dict) else col
+            for col in raw_columns
+        ]
+    else:
+        column_names = schema_data
+
     return UploadResponse(
         id=UUID(result["id"]),
         file_name=result["file_name"],
         row_count=result["row_count"],
-        detected_schema=result["detected_schema"],
+        detected_schema=column_names,
         created_at=datetime.fromisoformat(result["created_at"]),
         column_mappings=result.get("column_mappings"),
     )

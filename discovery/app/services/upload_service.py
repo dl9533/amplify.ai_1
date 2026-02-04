@@ -125,7 +125,10 @@ class UploadService:
         return {
             "id": str(upload.id),
             "file_name": upload.file_name,
+            "row_count": upload.row_count,
+            "detected_schema": upload.detected_schema,
             "column_mappings": upload.column_mappings,
+            "created_at": upload.created_at.isoformat(),
         }
 
     async def get_file_content(self, upload_id: UUID) -> bytes | None:
