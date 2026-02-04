@@ -4,6 +4,7 @@ import { onetApi, ApiError } from '../services'
 export interface OnetOccupation {
   code: string
   title: string
+  score?: number
 }
 
 export interface UseOnetSearchReturn {
@@ -46,6 +47,7 @@ export function useOnetSearch(): UseOnetSearchReturn {
         const searchResults: OnetOccupation[] = response.map((r) => ({
           code: r.code,
           title: r.title,
+          score: r.score,
         }))
 
         setResults(searchResults)

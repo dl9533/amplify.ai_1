@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { roleMappingsApi, ApiError, ConfidenceTier } from '../services'
 
 export interface RoleMapping {
@@ -16,20 +16,59 @@ export interface RoleMapping {
 export interface UseRoleMappingsReturn {
   mappings: RoleMapping[]
   isLoading: boolean
+  isGenerating: boolean
   isRemapping: boolean
   error: string | null
   confirmMapping: (id: string) => Promise<void>
   bulkConfirm: (threshold: number) => Promise<void>
   bulkRemap: (threshold?: number, mappingIds?: string[]) => Promise<void>
   remapRole: (id: string, onetCode: string, onetTitle: string) => Promise<void>
+  generateMappings: () => Promise<void>
   refresh: () => Promise<void>
 }
 
 export function useRoleMappings(sessionId?: string): UseRoleMappingsReturn {
   const [mappings, setMappings] = useState<RoleMapping[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [isGenerating, setIsGenerating] = useState(false)
   const [isRemapping, setIsRemapping] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const hasAttemptedGeneration = useRef(false)
+
+  const generateMappings = useCallback(async () => {
+    if (!sessionId) return
+
+    try {
+      setIsGenerating(true)
+      setError(null)
+
+      const response = await roleMappingsApi.generateMappings(sessionId)
+
+      // Map the created mappings to frontend interface
+      const mappedData: RoleMapping[] = response.mappings.map((m) => ({
+        id: m.id,
+        roleName: m.source_role,
+        onetCode: m.onet_code,
+        onetTitle: m.onet_title,
+        confidence: m.confidence_score,
+        confidenceTier: m.confidence_tier,
+        reasoning: m.reasoning || undefined,
+        confirmed: m.is_confirmed,
+      }))
+
+      setMappings(mappedData)
+    } catch (err) {
+      const message =
+        err instanceof ApiError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : 'Failed to generate role mappings'
+      setError(message)
+    } finally {
+      setIsGenerating(false)
+    }
+  }, [sessionId])
 
   const loadMappings = useCallback(async () => {
     if (!sessionId) {
@@ -57,6 +96,14 @@ export function useRoleMappings(sessionId?: string): UseRoleMappingsReturn {
         rowCount: m.row_count,
       }))
 
+      // If no mappings exist and we haven't tried generating yet, auto-generate
+      if (mappedData.length === 0 && !hasAttemptedGeneration.current) {
+        hasAttemptedGeneration.current = true
+        setIsLoading(false)
+        await generateMappings()
+        return
+      }
+
       setMappings(mappedData)
     } catch (err) {
       const message =
@@ -69,9 +116,11 @@ export function useRoleMappings(sessionId?: string): UseRoleMappingsReturn {
     } finally {
       setIsLoading(false)
     }
-  }, [sessionId])
+  }, [sessionId, generateMappings])
 
   useEffect(() => {
+    // Reset generation attempt flag when session changes
+    hasAttemptedGeneration.current = false
     loadMappings()
   }, [loadMappings])
 
@@ -217,12 +266,14 @@ export function useRoleMappings(sessionId?: string): UseRoleMappingsReturn {
   return {
     mappings,
     isLoading,
+    isGenerating,
     isRemapping,
     error,
     confirmMapping,
     bulkConfirm,
     bulkRemap,
     remapRole,
+    generateMappings,
     refresh: loadMappings,
   }
 }

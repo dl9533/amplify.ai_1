@@ -307,3 +307,26 @@ class GroupedRoleMappingsResponse(BaseModel):
         default_factory=list,
         description="Role mappings without LOB assignment",
     )
+
+
+class CreateMappingsRequest(BaseModel):
+    """Schema for create mappings request."""
+
+    upload_id: UUID = Field(
+        ...,
+        description="ID of the upload containing workforce data",
+    )
+
+
+class CreateMappingsResponse(BaseModel):
+    """Schema for create mappings response."""
+
+    created_count: int = Field(
+        ...,
+        ge=0,
+        description="Number of role mappings created",
+    )
+    mappings: List[RoleMappingWithReasoning] = Field(
+        default_factory=list,
+        description="Created role mappings with LLM reasoning",
+    )

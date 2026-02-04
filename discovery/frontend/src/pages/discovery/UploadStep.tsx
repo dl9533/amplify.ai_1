@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useParams } from 'react-router-dom'
 import { AppShell } from '../../components/layout/AppShell'
 import { DiscoveryWizard, StepContent } from '../../components/layout/DiscoveryWizard'
@@ -12,6 +12,7 @@ import {
   IconZap,
 } from '../../components/ui/Icons'
 import { useFileUpload } from '../../hooks/useFileUpload'
+import { ColumnMappingUpdate } from '../../services/discoveryApi'
 
 interface DetectedMapping {
   field: string
@@ -19,6 +20,15 @@ interface DetectedMapping {
   confidence: number
   alternatives: string[]
   required: boolean
+}
+
+// Tooltip definitions for each column mapping field
+const FIELD_TOOLTIPS: Record<string, string> = {
+  role: 'The job title or position name. This is the primary field used for O*NET occupation matching.',
+  lob: 'Line of Business - the business unit or division (e.g., "Retail Banking", "Insurance", "Wealth Management").',
+  department: 'The organizational department (e.g., "Engineering", "Sales", "HR").',
+  geography: 'The location or region (e.g., "New York", "EMEA", "Remote").',
+  headcount: 'The number of employees in this role. Used to calculate impact and prioritization.',
 }
 
 export function UploadStep() {
@@ -29,9 +39,12 @@ export function UploadStep() {
     uploadProgress,
     uploadError,
     uploadResult,
+    uploadId,
+    savingMappings,
     handleDrop,
     handleFileSelect,
     clearFile,
+    saveMappings,
   } = useFileUpload(sessionId || '')
 
   const [dragActive, setDragActive] = useState(false)
@@ -76,6 +89,10 @@ export function UploadStep() {
   // Column mapping options - now includes LOB
   const mappingOptions = ['role', 'lob', 'department', 'geography', 'headcount']
 
+  // Track whether mappings have been modified by user (to avoid re-saving on initial detection)
+  const hasSavedMappings = useRef(false)
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   // Pre-populate column mappings from detected mappings
   useEffect(() => {
     if (detectedMappings.length > 0) {
@@ -90,6 +107,42 @@ export function UploadStep() {
       }
     }
   }, [detectedMappings])
+
+  // Auto-save column mappings to backend when they change
+  // Uses debouncing to avoid excessive API calls
+  useEffect(() => {
+    // Skip if no upload ID or no role mapping yet
+    if (!uploadId || !Object.values(columnMappings).includes('role')) {
+      return
+    }
+
+    // Clear any pending save
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current)
+    }
+
+    // Debounce the save by 500ms
+    saveTimeoutRef.current = setTimeout(async () => {
+      // Convert from { columnName: fieldType } to { fieldType: columnName }
+      const backendMappings: ColumnMappingUpdate = {}
+      Object.entries(columnMappings).forEach(([column, field]) => {
+        if (field && column) {
+          (backendMappings as Record<string, string>)[field] = column
+        }
+      })
+
+      const success = await saveMappings(backendMappings)
+      if (success) {
+        hasSavedMappings.current = true
+      }
+    }, 500)
+
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current)
+      }
+    }
+  }, [columnMappings, uploadId, saveMappings])
 
   // Get detected mapping for a column
   const getDetectedMapping = (column: string): DetectedMapping | undefined => {
@@ -106,7 +159,9 @@ export function UploadStep() {
     })
   }
 
-  const canProceed = !!uploadResult && Object.values(columnMappings).includes('role')
+  // Can proceed if we have an upload, a role mapping, and we're not currently saving
+  const hasRoleMapping = Object.values(columnMappings).includes('role')
+  const canProceed = !!uploadResult && hasRoleMapping && !savingMappings
 
   return (
     <AppShell>
@@ -218,17 +273,40 @@ export function UploadStep() {
                   <h4 className="font-display font-medium text-default">
                     Map Your Columns
                   </h4>
-                  {detectedMappings.length > 0 && (
-                    <span className="inline-flex items-center gap-1 text-xs text-accent">
-                      <IconZap size={12} />
-                      Auto-detected
-                    </span>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {savingMappings && (
+                      <span className="inline-flex items-center gap-1 text-xs text-muted">
+                        <span className="w-3 h-3 border-2 border-current/30 border-t-current rounded-full animate-spin" />
+                        Saving...
+                      </span>
+                    )}
+                    {detectedMappings.length > 0 && (
+                      <span className="inline-flex items-center gap-1 text-xs text-accent">
+                        <IconZap size={12} />
+                        Auto-detected
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <p className="text-sm text-muted mb-4">
                   Tell us which columns contain the key information. Role column is required.
                   {detectedMappings.length > 0 && ' We\'ve pre-filled some mappings based on your column names.'}
                 </p>
+
+                {/* Field definitions legend */}
+                <div className="mb-4 p-3 bg-bg-muted/50 rounded-lg">
+                  <p className="text-xs font-medium text-muted mb-2">Column definitions:</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-subtle">
+                    {mappingOptions.map((opt) => (
+                      <div key={opt} className="flex items-start gap-1.5">
+                        <span className="font-medium text-default">
+                          {opt === 'lob' ? 'LOB' : opt.charAt(0).toUpperCase() + opt.slice(1)}:
+                        </span>
+                        <span className="text-muted">{FIELD_TOOLTIPS[opt]?.split('.')[0]}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
 
                 <div className="space-y-3">
                   {detectedColumns.map((column) => {

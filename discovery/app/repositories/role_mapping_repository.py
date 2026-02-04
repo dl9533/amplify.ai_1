@@ -2,7 +2,7 @@
 from typing import Sequence
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.discovery_role_mapping import DiscoveryRoleMapping
@@ -109,3 +109,22 @@ class RoleMappingRepository:
             await self.session.commit()
             await self.session.refresh(mapping)
         return mapping
+
+    async def delete_for_session(
+        self,
+        session_id: UUID,
+    ) -> int:
+        """Delete all mappings for a session.
+
+        Args:
+            session_id: Session ID to delete mappings for.
+
+        Returns:
+            Number of mappings deleted.
+        """
+        stmt = delete(DiscoveryRoleMapping).where(
+            DiscoveryRoleMapping.session_id == session_id
+        )
+        result = await self.session.execute(stmt)
+        await self.session.commit()
+        return result.rowcount or 0

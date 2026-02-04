@@ -9,6 +9,8 @@ from app.schemas.role_mapping import (
     BulkConfirmResponse,
     BulkRemapRequest,
     BulkRemapResponse,
+    CreateMappingsRequest,
+    CreateMappingsResponse,
     GroupedMappingSummary,
     GroupedRoleMappingsResponse,
     LobGroup,
@@ -67,6 +69,183 @@ async def get_role_mappings(
     result = await service.get_by_session_id(session_id=session_id)
 
     return [_dict_to_role_mapping_response(item) for item in result]
+
+
+@router.post(
+    "/sessions/{session_id}/role-mappings/generate",
+    response_model=CreateMappingsResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Auto-generate role mappings from session upload",
+    description="Automatically finds the session's upload and triggers LLM-powered role mapping. Use this when you don't have the upload_id handy.",
+)
+async def generate_role_mappings(
+    session_id: UUID,
+    force: bool = Query(
+        default=False,
+        description="If true, regenerate mappings even if they already exist",
+    ),
+    service: RoleMappingService = Depends(get_role_mapping_service),
+) -> CreateMappingsResponse:
+    """Auto-generate role mappings from the session's upload.
+
+    This endpoint:
+    1. Checks if mappings already exist (returns existing if not forced)
+    2. Finds the most recent upload for the session
+    3. Extracts the role column from column_mappings
+    4. Triggers the LLM-powered role mapping process
+    """
+    # Check if mappings already exist for this session
+    if not force:
+        existing = await service.get_by_session_id(session_id)
+        if existing:
+            return CreateMappingsResponse(
+                created_count=0,
+                mappings=[
+                    RoleMappingWithReasoning(
+                        id=m["id"],
+                        source_role=m["source_role"],
+                        onet_code=m["onet_code"],
+                        onet_title=m.get("onet_title"),
+                        confidence_score=m["confidence_score"],
+                        confidence_tier="HIGH" if m["confidence_score"] >= 0.85 else "MEDIUM" if m["confidence_score"] >= 0.6 else "LOW",
+                        reasoning=None,
+                        is_confirmed=m["is_confirmed"],
+                    )
+                    for m in existing
+                ],
+            )
+
+    if not service.upload_service:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Upload service not configured",
+        )
+
+    # If force=true, delete existing mappings first
+    if force:
+        await service.repository.delete_for_session(session_id)
+
+    # Find the most recent upload for this session
+    uploads = await service.upload_service.repository.get_for_session(session_id)
+    if not uploads:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No uploads found for this session. Please upload a file first.",
+        )
+
+    # Use the most recent upload
+    upload = uploads[0]
+
+    # Find the role column from column_mappings
+    # Format is { "role": "Job Title", "department": "Department", ... }
+    column_mappings = upload.column_mappings or {}
+    role_column = column_mappings.get("role")
+
+    if not role_column:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No role column mapped in upload. Please map a column to 'Role' first.",
+        )
+
+    # Create mappings using LLM agent
+    result = await service.create_mappings_from_upload(
+        session_id=session_id,
+        upload_id=upload.id,
+        role_column=role_column,
+    )
+
+    return CreateMappingsResponse(
+        created_count=len(result),
+        mappings=[
+            RoleMappingWithReasoning(
+                id=m["id"],
+                source_role=m["source_role"],
+                onet_code=m["onet_code"],
+                onet_title=m["onet_title"],
+                confidence_score=m["confidence_score"],
+                confidence_tier=m["confidence_tier"],
+                reasoning=m.get("reasoning"),
+                is_confirmed=m["is_confirmed"],
+            )
+            for m in result
+        ],
+    )
+
+
+@router.post(
+    "/sessions/{session_id}/role-mappings",
+    response_model=CreateMappingsResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create role mappings from upload",
+    description="Triggers LLM-powered role mapping for roles in the uploaded file. Extracts unique roles and maps them to O*NET occupations.",
+)
+async def create_role_mappings(
+    session_id: UUID,
+    request: CreateMappingsRequest,
+    service: RoleMappingService = Depends(get_role_mapping_service),
+) -> CreateMappingsResponse:
+    """Create role mappings from uploaded workforce data.
+
+    This endpoint triggers the LLM-powered role mapping process:
+    1. Reads the uploaded file content
+    2. Extracts unique role titles from the mapped role column
+    3. Uses Claude to semantically map each role to O*NET occupations
+    4. Persists the mappings with confidence scores and reasoning
+    """
+    # Get upload to find the role column mapping
+    if not service.upload_service:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Upload service not configured",
+        )
+
+    upload = await service.upload_service.repository.get_by_id(request.upload_id)
+    if not upload:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Upload with ID {request.upload_id} not found",
+        )
+
+    if upload.session_id != session_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Upload does not belong to this session",
+        )
+
+    # Find the role column from column_mappings
+    # Format is { "role": "Job Title", "department": "Department", ... }
+    column_mappings = upload.column_mappings or {}
+    role_column = column_mappings.get("role")
+
+    if not role_column:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No role column mapped in upload. Please map a column to 'Role' first.",
+        )
+
+    # Create mappings using LLM agent
+    result = await service.create_mappings_from_upload(
+        session_id=session_id,
+        upload_id=request.upload_id,
+        role_column=role_column,
+    )
+
+    return CreateMappingsResponse(
+        created_count=len(result),
+        mappings=[
+            RoleMappingWithReasoning(
+                id=m["id"],
+                source_role=m["source_role"],
+                onet_code=m["onet_code"],
+                onet_title=m["onet_title"],
+                confidence_score=m["confidence_score"],
+                confidence_tier=m["confidence_tier"],
+                reasoning=m.get("reasoning"),
+                is_confirmed=m["is_confirmed"],
+            )
+            for m in result
+        ],
+    )
 
 
 @router.get(

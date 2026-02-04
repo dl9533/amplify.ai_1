@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { uploadApi, UploadResponse } from '../services/discoveryApi'
+import { uploadApi, UploadResponse, ColumnMappingUpdate } from '../services/discoveryApi'
 
 // Maximum file size: 10MB
 export const MAX_FILE_SIZE = 10 * 1024 * 1024
@@ -13,9 +13,12 @@ export interface UseFileUploadReturn {
   uploadProgress: number
   uploadError: string | null
   uploadResult: UploadResponse | null
+  uploadId: string | null
+  savingMappings: boolean
   handleDrop: (file: File) => void
   handleFileSelect: (file: File) => void
   clearFile: () => void
+  saveMappings: (mappings: ColumnMappingUpdate) => Promise<boolean>
 }
 
 /**
@@ -28,6 +31,8 @@ export function useFileUpload(sessionId: string): UseFileUploadReturn {
   const [uploadProgress, setUploadProgress] = useState(0)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [uploadResult, setUploadResult] = useState<UploadResponse | null>(null)
+  const [uploadId, setUploadId] = useState<string | null>(null)
+  const [savingMappings, setSavingMappings] = useState(false)
 
   const validateFile = useCallback((file: File): string | null => {
     // Validate file size
@@ -70,10 +75,16 @@ export function useFileUpload(sessionId: string): UseFileUploadReturn {
         })
 
         setUploadResult(result)
+        // Capture the upload ID from the response
+        // Backend returns 'id' field
+        if (result.id) {
+          setUploadId(result.id)
+        }
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'Failed to upload file'
         setUploadError(errorMessage)
         setFile(null)
+        setUploadId(null)
       } finally {
         setUploading(false)
       }
@@ -100,7 +111,34 @@ export function useFileUpload(sessionId: string): UseFileUploadReturn {
     setUploadProgress(0)
     setUploadError(null)
     setUploadResult(null)
+    setUploadId(null)
   }, [])
+
+  /**
+   * Save column mappings for the current upload.
+   * This must be called before navigating to the Map Roles step.
+   * @param mappings - Maps field types (role, lob, etc.) to column names
+   * @returns true if successful, false otherwise
+   */
+  const saveMappings = useCallback(async (mappings: ColumnMappingUpdate): Promise<boolean> => {
+    if (!uploadId) {
+      setUploadError('No upload to save mappings for')
+      return false
+    }
+
+    try {
+      setSavingMappings(true)
+      setUploadError(null)
+      await uploadApi.saveMappings(uploadId, mappings)
+      return true
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to save column mappings'
+      setUploadError(errorMessage)
+      return false
+    } finally {
+      setSavingMappings(false)
+    }
+  }, [uploadId])
 
   return {
     file,
@@ -108,8 +146,11 @@ export function useFileUpload(sessionId: string): UseFileUploadReturn {
     uploadProgress,
     uploadError,
     uploadResult,
+    uploadId,
+    savingMappings,
     handleDrop,
     handleFileSelect,
     clearFile,
+    saveMappings,
   }
 }

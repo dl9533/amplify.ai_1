@@ -542,8 +542,11 @@ async def get_role_mapping_service() -> AsyncGenerator[RoleMappingService, None]
     from app.agents.role_mapping_agent import RoleMappingAgent
     from app.models.base import async_session_maker
     from app.repositories.lob_mapping_repository import LobMappingRepository
+    from app.repositories.upload_repository import UploadRepository
     from app.services.llm_service import get_llm_service
     from app.services.lob_mapping_service import LobMappingService
+    from app.services.s3_client import S3Client
+    from app.services.upload_service import UploadService
 
     settings = get_settings()
 
@@ -551,9 +554,25 @@ async def get_role_mapping_service() -> AsyncGenerator[RoleMappingService, None]
         repository = RoleMappingRepository(db)
         onet_repo = OnetRepository(db)
         lob_repo = LobMappingRepository(db)
+        upload_repo = UploadRepository(db)
 
         # Get LLM service
         llm_service = get_llm_service(settings)
+
+        # Create S3 client for upload content retrieval
+        s3_client = S3Client(
+            endpoint_url=settings.s3_endpoint_url,
+            bucket=settings.s3_bucket,
+            access_key=settings.aws_access_key_id,
+            secret_key=settings.aws_secret_access_key.get_secret_value() if settings.aws_secret_access_key else None,
+            region=settings.aws_region,
+        )
+
+        # Create upload service for role extraction
+        upload_service = UploadService(
+            repository=upload_repo,
+            s3_client=s3_client,
+        )
 
         # Create LOB mapping service for industry-aware matching
         lob_service = LobMappingService(
@@ -570,6 +589,7 @@ async def get_role_mapping_service() -> AsyncGenerator[RoleMappingService, None]
         service = RoleMappingService(
             repository=repository,
             role_mapping_agent=agent,
+            upload_service=upload_service,
             onet_repository=onet_repo,
             lob_service=lob_service,
         )

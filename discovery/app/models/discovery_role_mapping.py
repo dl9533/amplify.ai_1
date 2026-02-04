@@ -1,5 +1,8 @@
 """Discovery role mapping model."""
+from __future__ import annotations
+
 from datetime import datetime
+from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
 from sqlalchemy import String, DateTime, Float, Boolean, Integer, ForeignKey, func
@@ -7,6 +10,9 @@ from sqlalchemy.dialects.postgresql import UUID as PGUUID, ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
+
+if TYPE_CHECKING:
+    from app.models.onet_occupation import OnetOccupation
 
 
 class DiscoveryRoleMapping(Base):
@@ -49,6 +55,15 @@ class DiscoveryRoleMapping(Base):
     activity_selections: Mapped[list["DiscoveryActivitySelection"]] = relationship(
         back_populates="role_mapping", cascade="all, delete-orphan"
     )
+    onet_occupation: Mapped["OnetOccupation | None"] = relationship(
+        foreign_keys=[onet_code],
+        lazy="joined",  # Eager load by default
+    )
+
+    @property
+    def onet_title(self) -> str | None:
+        """Get the O*NET occupation title from the related occupation."""
+        return self.onet_occupation.title if self.onet_occupation else None
 
     def __repr__(self) -> str:
         return f"<DiscoveryRoleMapping(id={self.id}, role={self.source_role}, onet={self.onet_code})>"

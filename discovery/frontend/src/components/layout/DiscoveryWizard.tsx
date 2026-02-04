@@ -214,15 +214,17 @@ export function DiscoveryWizard({
       </div>
 
       {/* Main content area */}
-      <div className="flex-1 flex">
+      <div className="flex-1 flex overflow-hidden">
         {/* Content */}
-        <div className={`flex-1 transition-all duration-300 ${chatOpen ? 'mr-[380px]' : ''}`}>
-          <div className="max-w-5xl mx-auto px-6 py-8">
-            {children}
+        <div className={`flex-1 flex flex-col transition-all duration-300 ${chatOpen ? 'mr-[380px]' : ''}`}>
+          <div className="flex-1 overflow-y-auto">
+            <div className="max-w-5xl mx-auto px-6 py-8 pb-24">
+              {children}
+            </div>
           </div>
 
           {/* Bottom navigation */}
-          <div className="sticky bottom-0 border-t border-border bg-elevated/80 backdrop-blur-sm">
+          <div className="shrink-0 border-t border-border bg-elevated/80 backdrop-blur-sm">
             <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
               <button
                 onClick={handleBack}

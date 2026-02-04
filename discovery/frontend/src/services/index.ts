@@ -26,6 +26,8 @@ export {
   type BulkRemapRequest,
   type BulkRemapResponse,
   type RoleMappingWithReasoning,
+  type CreateMappingsRequest,
+  type CreateMappingsResponse,
   // Grouped Role Mappings types
   type GroupedMappingSummary,
   type RoleMappingCompact,

@@ -16,12 +16,24 @@ export type EstimatedEffort = 'low' | 'medium' | 'high'
 
 // ============ Upload API ============
 
+/**
+ * Response from POST /discovery/sessions/{session_id}/upload
+ * Note: Backend returns 'id', not 'upload_id'
+ */
 export interface UploadResponse {
-  upload_id: string
-  filename: string
+  id: string
+  file_name: string
   row_count: number
   detected_schema: string[]
-  column_types: Record<string, string>
+  created_at: string
+  column_mappings: Record<string, string> | null
+  detected_mappings?: Array<{
+    field: string
+    column: string | null
+    confidence: number
+    alternatives: string[]
+    required: boolean
+  }>
 }
 
 export interface ColumnMapping {
@@ -32,6 +44,27 @@ export interface ColumnMapping {
 export interface ConfirmUploadResponse {
   status: string
   roles_extracted: number
+}
+
+/**
+ * Column mapping update request - maps field types to column names.
+ * Used by PUT /discovery/uploads/{upload_id}/mappings
+ */
+export interface ColumnMappingUpdate {
+  role?: string       // Column name containing role/job title
+  lob?: string        // Column name containing line of business
+  department?: string // Column name containing department
+  geography?: string  // Column name containing geography/location
+  headcount?: string  // Column name containing headcount/employee count
+}
+
+export interface UploadWithMappingsResponse {
+  id: string
+  file_name: string
+  row_count: number
+  detected_schema: string[]
+  created_at: string
+  column_mappings: ColumnMappingUpdate | null
 }
 
 export const uploadApi = {
@@ -84,6 +117,25 @@ export const uploadApi = {
   },
 
   /**
+   * Save column mappings for an upload.
+   * This must be called before generating role mappings.
+   * @param uploadId - The upload ID
+   * @param mappings - Maps field types (role, lob, etc.) to column names
+   */
+  saveMappings: (
+    uploadId: string,
+    mappings: ColumnMappingUpdate
+  ): Promise<UploadWithMappingsResponse> =>
+    api.put(`/discovery/uploads/${uploadId}/mappings`, mappings),
+
+  /**
+   * List uploads for a session.
+   */
+  listBySession: (sessionId: string): Promise<UploadWithMappingsResponse[]> =>
+    api.get(`/discovery/sessions/${sessionId}/uploads`),
+
+  /**
+   * @deprecated Use saveMappings instead
    * Confirm column mappings and process the upload.
    */
   confirmMappings: (
@@ -236,6 +288,15 @@ export interface BulkRemapResponse {
   mappings: RoleMappingWithReasoning[]
 }
 
+export interface CreateMappingsRequest {
+  upload_id: string
+}
+
+export interface CreateMappingsResponse {
+  created_count: number
+  mappings: RoleMappingWithReasoning[]
+}
+
 // Grouped role mappings types
 export interface GroupedMappingSummary {
   total_roles: number
@@ -290,6 +351,20 @@ export const roleMappingsApi = {
     api.get(`/discovery/sessions/${sessionId}/role-mappings`),
 
   /**
+   * Create role mappings from uploaded file using LLM.
+   * This triggers the semantic role-to-O*NET mapping process.
+   */
+  createMappings: (sessionId: string, uploadId: string): Promise<CreateMappingsResponse> =>
+    api.post(`/discovery/sessions/${sessionId}/role-mappings`, { upload_id: uploadId }),
+
+  /**
+   * Auto-generate role mappings from the session's most recent upload.
+   * This is a convenience method that finds the upload automatically.
+   */
+  generateMappings: (sessionId: string): Promise<CreateMappingsResponse> =>
+    api.post(`/discovery/sessions/${sessionId}/role-mappings/generate`),
+
+  /**
    * Update a role mapping.
    */
   update: (mappingId: string, data: RoleMappingUpdate): Promise<RoleMappingResponse> =>
@@ -341,7 +416,7 @@ export const roleMappingsApi = {
 export interface OnetSearchResult {
   code: string
   title: string
-  score: number
+  score?: number
 }
 
 export interface OnetOccupation {
@@ -356,17 +431,17 @@ export const onetApi = {
    * Search O*NET occupations.
    */
   search: async (query: string): Promise<OnetSearchResult[]> => {
-    const response = await api.get<{ results: OnetSearchResult[] }>(
-      `/api/v1/discovery/onet/search?query=${encodeURIComponent(query)}`
+    const response = await api.get<OnetSearchResult[]>(
+      `/discovery/onet/search?q=${encodeURIComponent(query)}`
     )
-    return response.results
+    return response
   },
 
   /**
    * Get occupation details by O*NET code.
    */
   getOccupation: (code: string): Promise<OnetOccupation> =>
-    api.get(`/api/v1/discovery/onet/${encodeURIComponent(code)}`),
+    api.get(`/discovery/onet/${encodeURIComponent(code)}`),
 }
 
 // ============ LOB Mapping API ============

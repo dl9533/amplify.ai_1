@@ -30,6 +30,7 @@ export function MapRolesStep() {
   const {
     mappings,
     isLoading: isFlatLoading,
+    isGenerating,
     isRemapping,
     error: flatError,
     confirmMapping,
@@ -47,17 +48,17 @@ export function MapRolesStep() {
     confirmMapping: confirmMappingGrouped,
     bulkConfirmLob,
     bulkConfirmAll,
-    refresh: refreshGrouped,
   } = useGroupedRoleMappings(sessionId || '')
 
   const isLoading = viewMode === 'grouped' ? isGroupedLoading : isFlatLoading
   const error = viewMode === 'grouped' ? groupedError : flatError
 
-  const [searchQuery, setSearchQuery] = useState('')
   const [activeRemapId, setActiveRemapId] = useState<string | null>(null)
 
   // O*NET search for remapping
   const onetSearch = useOnetSearch()
+  const searchQuery = onetSearch.query
+  const setSearchQuery = onetSearch.setQuery
   const searchResults = activeRemapId ? onetSearch.results : []
   const isSearching = onetSearch.isLoading
 
@@ -87,17 +88,29 @@ export function MapRolesStep() {
     await bulkConfirm(threshold)
   }
 
+  const handleSetActiveRemapId = (id: string | null) => {
+    if (id !== activeRemapId) {
+      setSearchQuery('')
+    }
+    setActiveRemapId(id)
+  }
+
   const handleRemap = async (mappingId: string, onetCode: string, onetTitle: string) => {
     await remapRole(mappingId, onetCode, onetTitle)
     setActiveRemapId(null)
     setSearchQuery('')
   }
 
-  if (isLoading) {
+  if (isLoading || isGenerating) {
     return (
       <AppShell>
         <DiscoveryWizard currentStep={2}>
-          <LoadingState message="Loading role mappings..." />
+          <LoadingState
+            message={isGenerating
+              ? "Generating role mappings using AI... This may take a moment."
+              : "Loading role mappings..."
+            }
+          />
         </DiscoveryWizard>
       </AppShell>
     )
@@ -189,8 +202,14 @@ export function MapRolesStep() {
               onBulkConfirmLob={bulkConfirmLob}
               onBulkConfirmAll={bulkConfirmAll}
               onConfirmMapping={confirmMappingGrouped}
-              onRemapMapping={(id) => setActiveRemapId(id)}
+              onRemapMapping={handleRemap}
               isConfirming={isConfirming}
+              activeRemapId={activeRemapId}
+              onSetActiveRemapId={handleSetActiveRemapId}
+              searchQuery={searchQuery}
+              onSearchQueryChange={setSearchQuery}
+              searchResults={searchResults}
+              isSearching={isSearching}
             />
           )}
 
