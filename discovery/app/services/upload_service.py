@@ -61,7 +61,7 @@ class UploadService:
 
         # Sanitize filename to prevent path traversal
         safe_file_name = self._sanitize_filename(file_name)
-        logger.debug(f"Processing upload: original='{file_name}', sanitized='{safe_file_name}'")
+        logger.debug("Processing upload: original='%s', sanitized='%s'", file_name, safe_file_name)
 
         # Parse file to detect schema
         parse_result = self.file_parser.parse(content, safe_file_name)

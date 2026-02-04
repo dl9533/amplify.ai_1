@@ -171,7 +171,7 @@ class LobMappingService:
             if NAICS_CODE_PATTERN.match(code):
                 valid_codes.append(code)
             else:
-                logger.warning(f"Invalid NAICS code format from LLM: {code}")
+                logger.warning("Invalid NAICS code format from LLM: %s", code)
         return valid_codes
 
     async def _llm_map(self, lob: str) -> list[str] | None:
@@ -208,20 +208,20 @@ Respond with ONLY a JSON array like ["52", "523110"]. No explanation."""
             raise
         except Exception as e:
             # Log unexpected errors from LLM service
-            logger.error(f"Unexpected error calling LLM service: {e}")
+            logger.error("Unexpected error calling LLM service: %s", e)
             return None
 
         # Parse JSON response
         try:
             codes = json.loads(response.strip())
         except json.JSONDecodeError as e:
-            logger.warning(f"Failed to parse LLM response as JSON: {e}")
-            logger.debug(f"LLM response was: {response[:200]}")
+            logger.warning("Failed to parse LLM response as JSON: %s", e)
+            logger.debug("LLM response was: %s", response[:200])
             return None
 
         # Validate response structure
         if not isinstance(codes, list):
-            logger.warning(f"LLM response is not a list: {type(codes)}")
+            logger.warning("LLM response is not a list: %s", type(codes))
             return None
 
         if not all(isinstance(c, str) for c in codes):
@@ -231,7 +231,7 @@ Respond with ONLY a JSON array like ["52", "523110"]. No explanation."""
         # Validate NAICS code format
         valid_codes = self._validate_naics_codes(codes)
         if not valid_codes:
-            logger.warning(f"No valid NAICS codes in LLM response: {codes}")
+            logger.warning("No valid NAICS codes in LLM response: %s", codes)
             return None
 
         return valid_codes

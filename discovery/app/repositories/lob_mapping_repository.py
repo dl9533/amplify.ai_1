@@ -77,7 +77,8 @@ class LobMappingRepository:
         except (ProgrammingError, OperationalError) as e:
             # pg_trgm extension not available - rollback and fall back to exact match
             logger.warning(
-                f"pg_trgm fuzzy match failed, falling back to exact match: {e}",
+                "pg_trgm fuzzy match failed, falling back to exact match: %s",
+                e,
                 extra={"pattern": normalized, "error": str(e)},
             )
             await self.session.rollback()
