@@ -2,9 +2,12 @@
 """File parser for CSV and Excel files."""
 import io
 import re
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
+
+from app.exceptions import FileParseException
 
 
 class FileParser:
@@ -27,6 +30,9 @@ class FileParser:
         r"(?i).*geography.*",
     ]
 
+    # Allowed file extensions
+    ALLOWED_EXTENSIONS = {"csv", "xlsx", "xls"}
+
     def parse(self, content: bytes, filename: str) -> dict[str, Any]:
         """Parse file content and extract schema.
 
@@ -36,15 +42,28 @@ class FileParser:
 
         Returns:
             Dict with row_count, detected_schema, column_suggestions, preview.
-        """
-        ext = filename.lower().split(".")[-1]
 
-        if ext == "csv":
-            df = pd.read_csv(io.BytesIO(content))
-        elif ext in ("xlsx", "xls"):
-            df = pd.read_excel(io.BytesIO(content))
-        else:
-            raise ValueError(f"Unsupported file type: {ext}")
+        Raises:
+            FileParseException: If file type is unsupported or parsing fails.
+        """
+        ext = self._get_safe_extension(filename)
+
+        if ext not in self.ALLOWED_EXTENSIONS:
+            raise FileParseException(
+                f"Unsupported file type: {ext}. Allowed types: {', '.join(self.ALLOWED_EXTENSIONS)}",
+                filename=filename,
+            )
+
+        try:
+            if ext == "csv":
+                df = pd.read_csv(io.BytesIO(content))
+            else:  # xlsx, xls
+                df = pd.read_excel(io.BytesIO(content))
+        except Exception as e:
+            raise FileParseException(
+                f"Failed to parse file: {e}",
+                filename=filename,
+            ) from e
 
         columns = self._detect_columns(df)
         suggestions = self._suggest_mappings(df.columns.tolist())
@@ -114,16 +133,55 @@ class FileParser:
 
         Returns:
             List of dicts with value and count.
-        """
-        ext = filename.lower().split(".")[-1]
 
-        if ext == "csv":
-            df = pd.read_csv(io.BytesIO(content))
-        else:
-            df = pd.read_excel(io.BytesIO(content))
+        Raises:
+            FileParseException: If column doesn't exist or file can't be parsed.
+        """
+        ext = self._get_safe_extension(filename)
+
+        try:
+            if ext == "csv":
+                df = pd.read_csv(io.BytesIO(content))
+            else:
+                df = pd.read_excel(io.BytesIO(content))
+        except Exception as e:
+            raise FileParseException(
+                f"Failed to parse file: {e}",
+                filename=filename,
+            ) from e
+
+        # Validate column exists
+        if column not in df.columns:
+            available_columns = ", ".join(df.columns.tolist())
+            raise FileParseException(
+                f"Column '{column}' not found in file. Available columns: {available_columns}",
+                filename=filename,
+            )
 
         value_counts = df[column].value_counts()
         return [
             {"value": str(val), "count": int(count)}
             for val, count in value_counts.items()
         ]
+
+    def _get_safe_extension(self, filename: str) -> str:
+        """Safely extract file extension.
+
+        Uses pathlib to properly handle edge cases like multiple dots,
+        no extension, or path traversal attempts.
+
+        Args:
+            filename: Original filename.
+
+        Returns:
+            Lowercase file extension without the dot.
+        """
+        # Use pathlib for safe extension extraction
+        path = Path(filename)
+        ext = path.suffix.lower().lstrip(".")
+
+        # If no extension, return empty string
+        if not ext:
+            return ""
+
+        return ext

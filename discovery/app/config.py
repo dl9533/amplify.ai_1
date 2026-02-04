@@ -54,6 +54,10 @@ class Settings(BaseSettings):
     debug: bool = False
     log_level: str = "INFO"
 
+    # Upload limits
+    max_upload_size_mb: int = 50  # Maximum file upload size in MB
+    max_lob_pattern_length: int = 255  # Maximum LOB pattern length
+
     # CORS configuration
     cors_allowed_origins: str = "http://localhost:3000"
     cors_allow_credentials: bool = True

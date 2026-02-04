@@ -1,8 +1,13 @@
 """Repository for LOB to NAICS mappings."""
+import logging
+
 from sqlalchemy import select, func
+from sqlalchemy.exc import ProgrammingError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.lob_naics_mapping import LobNaicsMapping
+
+logger = logging.getLogger(__name__)
 
 
 class LobMappingRepository:
@@ -46,6 +51,9 @@ class LobMappingRepository:
         Uses PostgreSQL pg_trgm similarity function for fuzzy matching.
         Returns best match above threshold.
 
+        Note: Requires pg_trgm extension. If not available, falls back to
+        exact match after rolling back the failed transaction.
+
         Args:
             pattern: LOB pattern to search for.
             threshold: Minimum similarity score (0-1).
@@ -66,8 +74,13 @@ class LobMappingRepository:
         try:
             result = await self.session.execute(stmt)
             return result.scalar_one_or_none()
-        except Exception:
-            # Fall back to exact match if pg_trgm not available
+        except (ProgrammingError, OperationalError) as e:
+            # pg_trgm extension not available - rollback and fall back to exact match
+            logger.warning(
+                f"pg_trgm fuzzy match failed, falling back to exact match: {e}",
+                extra={"pattern": normalized, "error": str(e)},
+            )
+            await self.session.rollback()
             return await self.find_by_pattern(pattern)
 
     async def create(

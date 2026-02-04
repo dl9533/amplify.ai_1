@@ -1,6 +1,11 @@
 """S3 storage client for file uploads."""
+import logging
+
 import aioboto3
+from botocore.exceptions import ClientError
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 class S3Client:
@@ -49,7 +54,11 @@ class S3Client:
 
         Returns:
             Dict with url and key.
+
+        Raises:
+            ClientError: If the upload fails.
         """
+        logger.debug(f"Uploading file to S3: {key} ({len(content)} bytes)")
         async with self._session.client(**self._get_client_config()) as s3:
             await s3.put_object(
                 Bucket=self.bucket,
@@ -62,6 +71,7 @@ class S3Client:
         if self.endpoint_url:
             url = f"{self.endpoint_url}/{self.bucket}/{key}"
 
+        logger.debug(f"Successfully uploaded file to S3: {key}")
         return {"url": url, "key": key}
 
     async def download_file(self, key: str) -> bytes:
@@ -72,10 +82,16 @@ class S3Client:
 
         Returns:
             File content as bytes.
+
+        Raises:
+            ClientError: If the download fails.
         """
+        logger.debug(f"Downloading file from S3: {key}")
         async with self._session.client(**self._get_client_config()) as s3:
             response = await s3.get_object(Bucket=self.bucket, Key=key)
-            return await response["Body"].read()
+            content = await response["Body"].read()
+            logger.debug(f"Successfully downloaded file from S3: {key} ({len(content)} bytes)")
+            return content
 
     async def delete_file(self, key: str) -> bool:
         """Delete file from S3.
@@ -85,9 +101,14 @@ class S3Client:
 
         Returns:
             True if deleted successfully.
+
+        Raises:
+            ClientError: If the deletion fails.
         """
+        logger.debug(f"Deleting file from S3: {key}")
         async with self._session.client(**self._get_client_config()) as s3:
             await s3.delete_object(Bucket=self.bucket, Key=key)
+            logger.debug(f"Successfully deleted file from S3: {key}")
             return True
 
     async def file_exists(self, key: str) -> bool:
@@ -97,11 +118,21 @@ class S3Client:
             key: S3 object key.
 
         Returns:
-            True if file exists.
+            True if file exists, False if not found.
+
+        Raises:
+            ClientError: If there's an error other than 404 Not Found.
         """
         try:
             async with self._session.client(**self._get_client_config()) as s3:
                 await s3.head_object(Bucket=self.bucket, Key=key)
+                logger.debug(f"File exists in S3: {key}")
                 return True
-        except Exception:
-            return False
+        except ClientError as e:
+            error_code = e.response.get("Error", {}).get("Code", "")
+            if error_code == "404":
+                logger.debug(f"File not found in S3: {key}")
+                return False
+            # Re-raise non-404 errors (auth issues, network errors, etc.)
+            logger.error(f"S3 error checking file existence for {key}: {e}")
+            raise

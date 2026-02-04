@@ -43,29 +43,23 @@ class TestMapLobToNaics:
         assert result.source == "curated"
 
     @pytest.mark.asyncio
-    async def test_fuzzy_match_reduces_confidence(self, service, mock_repository):
-        """Test fuzzy match reduces confidence score."""
-        from app.models.lob_naics_mapping import LobNaicsMapping
-
+    async def test_no_exact_match_falls_through_to_llm(self, service, mock_repository, mock_llm_service):
+        """Test no exact match falls through to LLM (fuzzy match removed)."""
         mock_repository.find_by_pattern.return_value = None
-        mock_repository.find_fuzzy.return_value = LobNaicsMapping(
-            lob_pattern="retail bank",
-            naics_codes=["522110"],
-            confidence=0.95,
-            source="curated",
-        )
+        mock_llm_service.complete.return_value = '["522110"]'
 
         result = await service.map_lob_to_naics("Retail Banking Div")
 
+        # Should fall through to LLM since fuzzy match was removed
         assert result.naics_codes == ["522110"]
-        assert result.confidence < 0.95  # Reduced for fuzzy
-        assert result.source == "fuzzy"
+        assert result.confidence == 0.8  # LLM confidence
+        assert result.source == "llm"
+        mock_llm_service.complete.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_llm_fallback_when_no_match(self, service, mock_repository, mock_llm_service):
         """Test LLM fallback when no curated match."""
         mock_repository.find_by_pattern.return_value = None
-        mock_repository.find_fuzzy.return_value = None
         mock_llm_service.complete.return_value = '["523110"]'
 
         result = await service.map_lob_to_naics("Investment Management")
@@ -79,7 +73,6 @@ class TestMapLobToNaics:
         """Test no match returns empty result."""
         service = LobMappingService(mock_repository, llm_service=None)
         mock_repository.find_by_pattern.return_value = None
-        mock_repository.find_fuzzy.return_value = None
 
         result = await service.map_lob_to_naics("Unknown Business")
 

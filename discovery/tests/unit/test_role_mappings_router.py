@@ -209,6 +209,8 @@ class TestBulkConfirm:
         mock_role_mapping_service.bulk_confirm.assert_called_once_with(
             session_id=session_id,
             threshold=0.8,
+            lob=None,
+            mapping_ids=None,
         )
 
     def test_bulk_confirm_zero_threshold(self, client, mock_role_mapping_service):
@@ -226,6 +228,8 @@ class TestBulkConfirm:
         mock_role_mapping_service.bulk_confirm.assert_called_once_with(
             session_id=session_id,
             threshold=0.0,
+            lob=None,
+            mapping_ids=None,
         )
 
     def test_bulk_confirm_max_threshold(self, client, mock_role_mapping_service):
