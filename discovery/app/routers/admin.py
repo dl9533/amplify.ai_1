@@ -50,6 +50,9 @@ async def sync_onet_database(
             occupation_count=result.occupation_count,
             alternate_title_count=result.alternate_title_count,
             task_count=result.task_count,
+            gwa_count=result.gwa_count,
+            iwa_count=result.iwa_count,
+            dwa_count=result.dwa_count,
             status=result.status,
         )
     except OnetSyncError as e:

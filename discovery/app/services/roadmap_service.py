@@ -122,7 +122,11 @@ class RoadmapService:
         session_id: UUID,
         phase: Optional[RoadmapPhase] = None,
     ) -> Optional[list[dict]]:
-        """Get roadmap items for a session (legacy API)."""
+        """Get roadmap items for a session (legacy API).
+
+        Returns items in the format expected by the roadmap router:
+        - id, role_name, priority_score, priority_tier, phase, estimated_effort
+        """
         tier = None
         if phase:
             tier_map = {
@@ -131,7 +135,28 @@ class RoadmapService:
                 RoadmapPhase.LATER: "future",
             }
             tier = tier_map.get(phase)
-        return await self.get_candidates(session_id, tier)
+
+        candidates = await self.candidate_repository.get_for_session(session_id, tier)
+
+        # Map priority tier to phase
+        tier_to_phase = {
+            "now": "NOW",
+            "next_quarter": "NEXT",
+            "future": "LATER",
+        }
+
+        return [
+            {
+                "id": str(c.id),
+                "role_name": c.name,
+                "priority_score": c.estimated_impact or 0.0,
+                "priority_tier": c.priority_tier.value,
+                "phase": tier_to_phase.get(c.priority_tier.value, "LATER"),
+                "estimated_effort": "medium",  # Default effort
+                "order": None,
+            }
+            for c in candidates
+        ]
 
     async def update_phase(
         self,

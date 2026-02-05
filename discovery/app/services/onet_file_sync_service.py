@@ -45,6 +45,9 @@ class SyncResult:
     alternate_title_count: int
     task_count: int
     industry_count: int
+    gwa_count: int
+    iwa_count: int
+    dwa_count: int
     status: str
 
 
@@ -70,6 +73,9 @@ class OnetFileSyncService:
     ALTERNATE_TITLES_FILE = "Alternate Titles.txt"
     TASKS_FILE = "Task Statements.txt"
     INDUSTRY_FILE = "Industry.txt"
+    CONTENT_MODEL_FILE = "Content Model Reference.txt"
+    DWA_REFERENCE_FILE = "DWA Reference.txt"
+    TASKS_TO_DWAS_FILE = "Tasks to DWAs.txt"
 
     def __init__(self, repository: OnetRepository) -> None:
         """Initialize sync service.
@@ -112,7 +118,7 @@ class OnetFileSyncService:
 
             # Extract and parse files
             try:
-                occupations, alt_titles, tasks, industries = self._extract_and_parse(zip_data)
+                occupations, alt_titles, tasks, industries, gwas, iwas, dwas = self._extract_and_parse(zip_data)
             except (zipfile.BadZipFile, KeyError) as e:
                 logger.error(f"Parse failed: {e}")
                 raise OnetParseError(f"Invalid O*NET archive for version {display_version}") from e
@@ -120,13 +126,19 @@ class OnetFileSyncService:
             # Upsert to database (within implicit transaction)
             logger.info(
                 f"Importing {len(occupations)} occupations, {len(alt_titles)} alternate titles, "
-                f"{len(tasks)} tasks, {len(industries)} industries"
+                f"{len(tasks)} tasks, {len(industries)} industries, "
+                f"{len(gwas)} GWAs, {len(iwas)} IWAs, {len(dwas)} DWAs"
             )
 
             occ_count = await self.repository.bulk_upsert_occupations(occupations)
             alt_count = await self.repository.bulk_replace_alternate_titles(alt_titles)
             task_count = await self.repository.bulk_replace_tasks(tasks)
             ind_count = await self.repository.bulk_upsert_industries(industries)
+
+            # Sync work activities (GWAs must come first, then IWAs, then DWAs due to FK constraints)
+            gwa_count = await self.repository.bulk_upsert_gwas(gwas)
+            iwa_count = await self.repository.bulk_upsert_iwas(iwas)
+            dwa_count = await self.repository.bulk_upsert_dwas(dwas)
 
             # Log sync success
             await self.repository.log_sync(
@@ -142,7 +154,8 @@ class OnetFileSyncService:
 
             logger.info(
                 f"O*NET sync complete: {occ_count} occupations, "
-                f"{alt_count} alternate titles, {task_count} tasks, {ind_count} industries"
+                f"{alt_count} alternate titles, {task_count} tasks, {ind_count} industries, "
+                f"{gwa_count} GWAs, {iwa_count} IWAs, {dwa_count} DWAs"
             )
 
             return SyncResult(
@@ -151,6 +164,9 @@ class OnetFileSyncService:
                 alternate_title_count=alt_count,
                 task_count=task_count,
                 industry_count=ind_count,
+                gwa_count=gwa_count,
+                iwa_count=iwa_count,
+                dwa_count=dwa_count,
                 status="success",
             )
 
@@ -210,14 +226,14 @@ class OnetFileSyncService:
     def _extract_and_parse(
         self,
         zip_data: bytes,
-    ) -> tuple[list[dict], list[dict], list[dict], list[dict]]:
+    ) -> tuple[list[dict], list[dict], list[dict], list[dict], list[dict], list[dict], list[dict]]:
         """Extract and parse O*NET data files from zip.
 
         Args:
             zip_data: Zip file contents.
 
         Returns:
-            Tuple of (occupations, alternate_titles, tasks, industries).
+            Tuple of (occupations, alternate_titles, tasks, industries, gwas, iwas, dwas).
 
         Raises:
             zipfile.BadZipFile: If zip is invalid.
@@ -239,12 +255,20 @@ class OnetFileSyncService:
             except KeyError:
                 ind_content = ""
 
+            # Read work activities files
+            content_model = zf.read(f"{prefix}{self.CONTENT_MODEL_FILE}").decode("utf-8")
+            dwa_reference = zf.read(f"{prefix}{self.DWA_REFERENCE_FILE}").decode("utf-8")
+
         occupations = self._parse_occupations(occ_content)
         alt_titles = self._parse_alternate_titles(alt_content)
         tasks = self._parse_tasks(task_content)
         industries = self._parse_industries(ind_content) if ind_content else []
 
-        return occupations, alt_titles, tasks, industries
+        # Parse work activities
+        gwas = self._parse_gwas(content_model)
+        iwas, dwas = self._parse_dwa_reference(dwa_reference)
+
+        return occupations, alt_titles, tasks, industries, gwas, iwas, dwas
 
     def _parse_occupations(self, content: str) -> list[dict[str, Any]]:
         """Parse occupation data from tab-separated content.
@@ -348,6 +372,88 @@ class OnetFileSyncService:
             })
 
         return industries
+
+    def _parse_gwas(self, content: str) -> list[dict[str, Any]]:
+        """Parse GWAs from Content Model Reference.
+
+        GWAs are identified by Element IDs starting with '4.A.' that have
+        exactly 5 parts (e.g., '4.A.1.a.1' for 'Getting Information').
+
+        Args:
+            content: Tab-separated Content Model Reference data.
+
+        Returns:
+            List of GWA dicts with id, name, description.
+        """
+        reader = csv.DictReader(io.StringIO(content), delimiter="\t")
+        gwas = []
+        seen_ids = set()
+
+        for row in reader:
+            element_id = row.get("Element ID", "")
+            # GWAs start with 4.A. and have format like 4.A.1.a.1 (5 parts)
+            if element_id.startswith("4.A.") and element_id not in seen_ids:
+                parts = element_id.split(".")
+                # GWAs have exactly 5 parts (like 4.A.1.a.1)
+                if len(parts) == 5:
+                    seen_ids.add(element_id)
+                    gwas.append({
+                        "id": element_id,
+                        "name": row.get("Element Name", ""),
+                        "description": row.get("Description", ""),
+                        "ai_exposure_score": None,  # Set later from Pew research data
+                    })
+
+        logger.info(f"Parsed {len(gwas)} GWAs from Content Model Reference")
+        return gwas
+
+    def _parse_dwa_reference(self, content: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Parse IWAs and DWAs from DWA Reference file.
+
+        The DWA Reference file contains Element ID (GWA), IWA ID, DWA ID, and DWA Title.
+        We extract unique IWAs and all DWAs from this file.
+
+        Args:
+            content: Tab-separated DWA Reference data.
+
+        Returns:
+            Tuple of (iwas, dwas) lists.
+        """
+        reader = csv.DictReader(io.StringIO(content), delimiter="\t")
+        iwas = []
+        dwas = []
+        seen_iwa_ids = set()
+
+        for row in reader:
+            gwa_id = row.get("Element ID", "")
+            iwa_id = row.get("IWA ID", "")
+            dwa_id = row.get("DWA ID", "")
+            dwa_title = row.get("DWA Title", "")
+
+            # Skip invalid rows
+            if not gwa_id or not iwa_id or not dwa_id:
+                continue
+
+            # Extract unique IWAs
+            if iwa_id not in seen_iwa_ids:
+                seen_iwa_ids.add(iwa_id)
+                iwas.append({
+                    "id": iwa_id,
+                    "gwa_id": gwa_id,
+                    "name": f"IWA: {iwa_id}",  # IWAs don't have names in this file
+                    "description": None,
+                })
+
+            # Add DWA
+            dwas.append({
+                "id": dwa_id,
+                "iwa_id": iwa_id,
+                "name": dwa_title,
+                "description": None,
+            })
+
+        logger.info(f"Parsed {len(iwas)} IWAs and {len(dwas)} DWAs from DWA Reference")
+        return iwas, dwas
 
     async def get_sync_status(self) -> dict[str, Any]:
         """Get current sync status.

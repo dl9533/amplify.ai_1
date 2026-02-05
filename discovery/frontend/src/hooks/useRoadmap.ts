@@ -39,7 +39,7 @@ export function useRoadmap(sessionId: string) {
         roleName: item.role_name,
         phase: item.phase as Phase,
         priorityScore: item.priority_score,
-        priorityTier: item.priority_tier as PriorityTier,
+        priorityTier: item.priority_tier,
         estimatedEffort: (item.estimated_effort || 'medium') as 'low' | 'medium' | 'high',
       }))
 

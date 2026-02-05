@@ -37,6 +37,21 @@ class OnetSyncResponse(BaseModel):
         ge=0,
         description="Number of tasks imported",
     )
+    gwa_count: int = Field(
+        default=0,
+        ge=0,
+        description="Number of GWAs imported",
+    )
+    iwa_count: int = Field(
+        default=0,
+        ge=0,
+        description="Number of IWAs imported",
+    )
+    dwa_count: int = Field(
+        default=0,
+        ge=0,
+        description="Number of DWAs imported",
+    )
     status: str = Field(
         ...,
         description="Sync status (success or failed)",

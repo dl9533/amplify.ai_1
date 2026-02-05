@@ -1,4 +1,5 @@
 """Analysis router for the Discovery module."""
+import logging
 from typing import Optional
 from uuid import UUID
 
@@ -17,12 +18,48 @@ from app.services.analysis_service import (
     AnalysisService,
     get_analysis_service,
 )
+from app.services.roadmap_service import (
+    RoadmapService,
+    get_roadmap_service,
+)
+
+logger = logging.getLogger(__name__)
 
 
 router = APIRouter(
     prefix="/discovery",
     tags=["discovery-analysis"],
 )
+
+
+# Mapping from database priority tier values to schema values
+# Database uses: now, next_quarter, future (from agentification_candidate model)
+# Schema uses: HIGH, MEDIUM, LOW (for API responses)
+DB_TO_SCHEMA_PRIORITY_TIER = {
+    "now": PriorityTier.HIGH,
+    "next_quarter": PriorityTier.MEDIUM,
+    "future": PriorityTier.LOW,
+    # Also handle if already in schema format
+    "HIGH": PriorityTier.HIGH,
+    "MEDIUM": PriorityTier.MEDIUM,
+    "LOW": PriorityTier.LOW,
+}
+
+
+def _convert_priority_tier(db_value: str) -> PriorityTier:
+    """Convert database priority tier to schema PriorityTier.
+
+    Args:
+        db_value: The priority tier value from the database.
+
+    Returns:
+        The corresponding schema PriorityTier enum value.
+    """
+    tier = DB_TO_SCHEMA_PRIORITY_TIER.get(db_value)
+    if tier is None:
+        # Default to LOW for unknown values
+        return PriorityTier.LOW
+    return tier
 
 
 def _dict_to_analysis_result(data: dict) -> AnalysisResult:
@@ -41,7 +78,7 @@ def _dict_to_analysis_result(data: dict) -> AnalysisResult:
         impact_score=data["impact_score"],
         complexity_score=data["complexity_score"],
         priority_score=data["priority_score"],
-        priority_tier=PriorityTier(data["priority_tier"]),
+        priority_tier=_convert_priority_tier(data["priority_tier"]),
     )
 
 
@@ -65,13 +102,14 @@ def _dict_to_dimension_summary(data: dict) -> DimensionSummary:
     response_model=TriggerAnalysisResponse,
     status_code=status.HTTP_202_ACCEPTED,
     summary="Trigger analysis for session",
-    description="Triggers scoring analysis for a discovery session.",
+    description="Triggers scoring analysis for a discovery session and generates roadmap candidates.",
 )
 async def trigger_analysis(
     session_id: UUID,
     service: AnalysisService = Depends(get_analysis_service),
+    roadmap_service: RoadmapService = Depends(get_roadmap_service),
 ) -> TriggerAnalysisResponse:
-    """Trigger scoring analysis for a session."""
+    """Trigger scoring analysis for a session and generate roadmap candidates."""
     result = await service.trigger_analysis(session_id=session_id)
 
     if result is None:
@@ -79,6 +117,15 @@ async def trigger_analysis(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Session with ID {session_id} not found",
         )
+
+    # Auto-generate roadmap candidates from analysis results
+    if result.get("status") == "completed":
+        try:
+            candidates = await roadmap_service.generate_candidates(session_id=session_id)
+            logger.info(f"Generated {len(candidates)} roadmap candidates for session {session_id}")
+        except Exception as e:
+            logger.error(f"Failed to generate candidates for session {session_id}: {e}")
+            # Don't fail the analysis if candidate generation fails
 
     return TriggerAnalysisResponse(status=result["status"])
 

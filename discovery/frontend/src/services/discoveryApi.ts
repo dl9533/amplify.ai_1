@@ -581,7 +581,7 @@ export interface RoadmapItem {
   id: string
   role_name: string
   priority_score: number
-  priority_tier: string
+  priority_tier: PriorityTier
   phase: RoadmapPhase
   estimated_effort: EstimatedEffort
   order?: number

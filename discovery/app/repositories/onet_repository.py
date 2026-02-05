@@ -6,6 +6,7 @@ import uuid
 from sqlalchemy import func, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models import OnetOccupation, OnetGWA, OnetIWA, OnetDWA
 from app.models.onet_occupation import OnetAlternateTitle, OnetSyncLog
@@ -13,6 +14,10 @@ from app.models.onet_occupation_industry import OnetOccupationIndustry
 from app.models.onet_task import OnetTask
 
 logger = logging.getLogger(__name__)
+
+# Batch size for bulk inserts to avoid PostgreSQL's 32767 parameter limit
+# With 3-4 columns per row, 5000 rows uses 15000-20000 parameters (safely under limit)
+BULK_INSERT_BATCH_SIZE = 5000
 
 
 def _escape_ilike(value: str) -> str:
@@ -263,12 +268,68 @@ class OnetRepository:
             occupation_code: O*NET occupation code.
 
         Returns:
-            Sequence of OnetDWA objects.
+            Sequence of OnetDWA objects with relationships eagerly loaded.
         """
-        # This will be implemented with proper joins once task-to-dwa mapping exists
-        stmt = select(OnetDWA).order_by(OnetDWA.name)
+        # TODO: Filter by occupation_code once task-to-dwa mapping exists
+        # For now, return all DWAs with relationships eagerly loaded
+        stmt = (
+            select(OnetDWA)
+            .options(
+                selectinload(OnetDWA.iwa).selectinload(OnetIWA.gwa)
+            )
+            .order_by(OnetDWA.name)
+        )
         result = await self.session.execute(stmt)
         return result.scalars().all()
+
+    async def get_dwas_with_gwa(
+        self,
+        dwa_ids: list[str],
+    ) -> list[dict[str, Any]]:
+        """Get DWAs with their GWA hierarchy information.
+
+        Args:
+            dwa_ids: List of DWA IDs to retrieve.
+
+        Returns:
+            List of dicts with DWA and GWA data.
+        """
+        if not dwa_ids:
+            return []
+
+        stmt = (
+            select(
+                OnetDWA.id.label("dwa_id"),
+                OnetDWA.name.label("dwa_name"),
+                OnetDWA.description.label("dwa_description"),
+                OnetIWA.id.label("iwa_id"),
+                OnetIWA.name.label("iwa_name"),
+                OnetGWA.id.label("gwa_id"),
+                OnetGWA.name.label("gwa_name"),
+                OnetGWA.ai_exposure_score.label("gwa_ai_exposure_score"),
+            )
+            .join(OnetIWA, OnetDWA.iwa_id == OnetIWA.id)
+            .join(OnetGWA, OnetIWA.gwa_id == OnetGWA.id)
+            .where(OnetDWA.id.in_(dwa_ids))
+            .order_by(OnetGWA.name, OnetDWA.name)
+        )
+
+        result = await self.session.execute(stmt)
+        rows = result.all()
+
+        return [
+            {
+                "dwa_id": row.dwa_id,
+                "dwa_name": row.dwa_name,
+                "dwa_description": row.dwa_description,
+                "iwa_id": row.iwa_id,
+                "iwa_name": row.iwa_name,
+                "gwa_id": row.gwa_id,
+                "gwa_name": row.gwa_name,
+                "gwa_ai_exposure_score": row.gwa_ai_exposure_score,
+            }
+            for row in rows
+        ]
 
     async def count(self) -> int:
         """Count total occupations in database.
@@ -346,9 +407,11 @@ class OnetRepository:
             if "id" not in title:
                 title["id"] = uuid.uuid4()
 
-        # Bulk insert new titles
-        stmt = insert(OnetAlternateTitle).values(titles)
-        await self.session.execute(stmt)
+        # Bulk insert new titles in batches to avoid PostgreSQL parameter limit
+        for i in range(0, len(titles), BULK_INSERT_BATCH_SIZE):
+            batch = titles[i:i + BULK_INSERT_BATCH_SIZE]
+            stmt = insert(OnetAlternateTitle).values(batch)
+            await self.session.execute(stmt)
         return len(titles)
 
     async def bulk_replace_tasks(
@@ -376,9 +439,11 @@ class OnetRepository:
             text("DELETE FROM onet_tasks")
         )
 
-        # Bulk insert new tasks
-        stmt = insert(OnetTask).values(tasks)
-        await self.session.execute(stmt)
+        # Bulk insert new tasks in batches to avoid PostgreSQL parameter limit
+        for i in range(0, len(tasks), BULK_INSERT_BATCH_SIZE):
+            batch = tasks[i:i + BULK_INSERT_BATCH_SIZE]
+            stmt = insert(OnetTask).values(batch)
+            await self.session.execute(stmt)
         return len(tasks)
 
     # Backwards compatibility aliases
@@ -395,6 +460,112 @@ class OnetRepository:
     ) -> int:
         """Alias for bulk_replace_tasks for backwards compatibility."""
         return await self.bulk_replace_tasks(tasks)
+
+    # ==========================================================================
+    # Work Activities Bulk Operations
+    # ==========================================================================
+
+    async def bulk_upsert_gwas(
+        self,
+        gwas: list[dict[str, Any]],
+    ) -> int:
+        """Bulk upsert Generalized Work Activities.
+
+        Note: Does NOT commit. Caller must manage transaction.
+
+        Args:
+            gwas: List of GWA dicts with id, name, description, ai_exposure_score.
+
+        Returns:
+            Number of rows affected.
+        """
+        if not gwas:
+            return 0
+
+        logger.info(f"Bulk upserting {len(gwas)} GWAs")
+
+        for i in range(0, len(gwas), BULK_INSERT_BATCH_SIZE):
+            batch = gwas[i:i + BULK_INSERT_BATCH_SIZE]
+            stmt = insert(OnetGWA).values(batch)
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["id"],
+                set_={
+                    "name": stmt.excluded.name,
+                    "description": stmt.excluded.description,
+                    "ai_exposure_score": stmt.excluded.ai_exposure_score,
+                    "updated_at": func.now(),
+                },
+            )
+            await self.session.execute(stmt)
+        return len(gwas)
+
+    async def bulk_upsert_iwas(
+        self,
+        iwas: list[dict[str, Any]],
+    ) -> int:
+        """Bulk upsert Intermediate Work Activities.
+
+        Note: Does NOT commit. Caller must manage transaction.
+
+        Args:
+            iwas: List of IWA dicts with id, gwa_id, name, description.
+
+        Returns:
+            Number of rows affected.
+        """
+        if not iwas:
+            return 0
+
+        logger.info(f"Bulk upserting {len(iwas)} IWAs")
+
+        for i in range(0, len(iwas), BULK_INSERT_BATCH_SIZE):
+            batch = iwas[i:i + BULK_INSERT_BATCH_SIZE]
+            stmt = insert(OnetIWA).values(batch)
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["id"],
+                set_={
+                    "gwa_id": stmt.excluded.gwa_id,
+                    "name": stmt.excluded.name,
+                    "description": stmt.excluded.description,
+                    "updated_at": func.now(),
+                },
+            )
+            await self.session.execute(stmt)
+        return len(iwas)
+
+    async def bulk_upsert_dwas(
+        self,
+        dwas: list[dict[str, Any]],
+    ) -> int:
+        """Bulk upsert Detailed Work Activities.
+
+        Note: Does NOT commit. Caller must manage transaction.
+
+        Args:
+            dwas: List of DWA dicts with id, iwa_id, name, description.
+
+        Returns:
+            Number of rows affected.
+        """
+        if not dwas:
+            return 0
+
+        logger.info(f"Bulk upserting {len(dwas)} DWAs")
+
+        for i in range(0, len(dwas), BULK_INSERT_BATCH_SIZE):
+            batch = dwas[i:i + BULK_INSERT_BATCH_SIZE]
+            stmt = insert(OnetDWA).values(batch)
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["id"],
+                set_={
+                    "iwa_id": stmt.excluded.iwa_id,
+                    "name": stmt.excluded.name,
+                    "description": stmt.excluded.description,
+                    "updated_at": func.now(),
+                },
+            )
+            await self.session.execute(stmt)
+        return len(dwas)
 
     # ==========================================================================
     # Sync Log Methods (Transaction managed by caller)
@@ -556,14 +727,16 @@ class OnetRepository:
 
         logger.info(f"Bulk upserting {len(industries)} industry records")
 
-        stmt = insert(OnetOccupationIndustry).values(industries)
-        stmt = stmt.on_conflict_do_update(
-            constraint="uq_occ_naics",
-            set_={
-                "naics_title": stmt.excluded.naics_title,
-                "employment_percent": stmt.excluded.employment_percent,
-            },
-        )
-
-        await self.session.execute(stmt)
+        # Bulk upsert in batches to avoid PostgreSQL parameter limit
+        for i in range(0, len(industries), BULK_INSERT_BATCH_SIZE):
+            batch = industries[i:i + BULK_INSERT_BATCH_SIZE]
+            stmt = insert(OnetOccupationIndustry).values(batch)
+            stmt = stmt.on_conflict_do_update(
+                constraint="uq_occ_naics",
+                set_={
+                    "naics_title": stmt.excluded.naics_title,
+                    "employment_percent": stmt.excluded.employment_percent,
+                },
+            )
+            await self.session.execute(stmt)
         return len(industries)

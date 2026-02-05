@@ -170,3 +170,29 @@ async def get_selection_count(
         unselected=result["unselected"],
         gwas_with_selections=result["gwas_with_selections"],
     )
+
+
+@router.post(
+    "/sessions/{session_id}/activities/load",
+    status_code=status.HTTP_200_OK,
+    summary="Load activities for confirmed mappings",
+    description="Loads DWA activities for all confirmed role mappings in a session.",
+)
+async def load_activities_for_session(
+    session_id: UUID,
+    service: ActivityService = Depends(get_activity_service),
+) -> dict:
+    """Load activities for all confirmed role mappings.
+
+    This should be called after role mappings are confirmed to populate
+    the activities selection table with DWAs for each O*NET occupation.
+    """
+    result = await service.load_activities_for_session(session_id=session_id)
+
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Session with ID {session_id} not found",
+        )
+
+    return result
