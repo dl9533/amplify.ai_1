@@ -483,6 +483,11 @@ export interface BulkSelectionResponse {
   updated_count: number
 }
 
+export interface LoadActivitiesResponse {
+  mappings_processed: number
+  activities_loaded: number
+}
+
 export const activitiesApi = {
   /**
    * Get activities grouped by GWA for a session.
@@ -516,6 +521,13 @@ export const activitiesApi = {
    */
   getSelectionCount: (sessionId: string): Promise<SelectionCountResponse> =>
     api.get(`/discovery/sessions/${sessionId}/activities/count`),
+
+  /**
+   * Load activities for confirmed role mappings in a session.
+   * This populates DWA activities based on O*NET data.
+   */
+  loadForSession: (sessionId: string): Promise<LoadActivitiesResponse> =>
+    api.post(`/discovery/sessions/${sessionId}/activities/load`),
 }
 
 // ============ Analysis API ============

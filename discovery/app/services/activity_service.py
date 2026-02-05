@@ -124,17 +124,27 @@ class ActivityService:
         selection_id: UUID,
         selected: bool,
     ) -> dict[str, Any] | None:
-        """Update a selection's status."""
+        """Update a selection's status and return full DWA data."""
         selection = await self.selection_repository.update_selection(
             selection_id, selected
         )
         if not selection:
             return None
+
+        # Get DWA details for the response
+        dwa_details = None
+        if self.onet_repository:
+            dwas_with_gwa = await self.onet_repository.get_dwas_with_gwa([selection.dwa_id])
+            if dwas_with_gwa:
+                dwa_details = dwas_with_gwa[0]
+
         return {
             "id": str(selection.id),
-            "dwa_id": selection.dwa_id,
+            "code": selection.dwa_id,
+            "title": dwa_details["dwa_name"] if dwa_details else selection.dwa_id,
+            "description": dwa_details.get("dwa_description") if dwa_details else None,
             "selected": selection.selected,
-            "user_modified": selection.user_modified,
+            "gwa_code": dwa_details["gwa_id"] if dwa_details else "",
         }
 
     async def bulk_select(

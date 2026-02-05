@@ -93,10 +93,22 @@ class RoadmapService:
         candidate = await self.candidate_repository.update_tier(candidate_id, tier)
         if not candidate:
             return None
+
+        # Map priority tier to phase for API response
+        tier_to_phase = {
+            "now": "NOW",
+            "next_quarter": "NEXT",
+            "future": "LATER",
+        }
+
         return {
             "id": str(candidate.id),
-            "name": candidate.name,
+            "role_name": candidate.name,
+            "priority_score": candidate.estimated_impact or 0.0,
             "priority_tier": candidate.priority_tier.value,
+            "phase": tier_to_phase.get(candidate.priority_tier.value, "LATER"),
+            "estimated_effort": "medium",
+            "order": None,
         }
 
     async def select_for_build(

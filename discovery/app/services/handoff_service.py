@@ -31,16 +31,16 @@ class HandoffService:
         self,
         session_id: UUID,
     ) -> dict[str, Any]:
-        """Create handoff bundle for selected candidates.
+        """Create handoff bundle for candidates in the NOW tier.
 
         Returns bundle with candidate details for Build intake.
         """
-        # Get selected candidates
+        # Get candidates in the NOW tier (ready for build)
         all_candidates = await self.candidate_repository.get_for_session(session_id)
-        selected = [c for c in all_candidates if c.selected_for_build]
+        selected = [c for c in all_candidates if c.priority_tier.value == "now"]
 
         if not selected:
-            return {"error": "No candidates selected for build", "candidates": []}
+            return {"error": "No candidates in 'Now' phase", "candidates": []}
 
         candidates_data = []
         for c in selected:
@@ -124,13 +124,14 @@ class HandoffService:
     ) -> Optional[ValidationResult]:
         """Validate whether the session is ready for handoff."""
         all_candidates = await self.candidate_repository.get_for_session(session_id)
-        selected = [c for c in all_candidates if c.selected_for_build]
+        # Candidates in "now" tier are considered selected for build
+        selected = [c for c in all_candidates if c.priority_tier.value == "now"]
 
         warnings = []
         errors = []
 
         if not selected:
-            errors.append("No candidates selected for build")
+            errors.append("No candidates in the 'Now' phase. Move at least one candidate to 'Now' before handoff.")
         elif len(selected) > 10:
             warnings.append("Large number of candidates may take longer to process")
 

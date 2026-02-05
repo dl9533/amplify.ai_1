@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { activitiesApi, ApiError } from '../services'
 
 export interface DWA {
@@ -19,7 +19,62 @@ export function useActivitySelections(sessionId: string) {
   const [activities, setActivities] = useState<GWA[]>([])
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [isLoading, setIsLoading] = useState(true)
+  const [isLoadingActivities, setIsLoadingActivities] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const hasAttemptedLoad = useRef(false)
+
+  // Load activities from O*NET for confirmed role mappings
+  const loadActivitiesFromOnet = useCallback(async () => {
+    if (!sessionId) return
+
+    try {
+      setIsLoadingActivities(true)
+      setError(null)
+
+      const result = await activitiesApi.loadForSession(sessionId)
+
+      // After loading, fetch the activities
+      const response = await activitiesApi.getBySession(sessionId)
+
+      // Map API response to frontend interface
+      const mappedGroups: GWA[] = response.map((gwa) => ({
+        id: gwa.gwa_code,
+        title: gwa.gwa_title,
+        aiExposure: gwa.ai_exposure_score ?? 0,
+        dwas: gwa.dwas.map((dwa) => ({
+          id: dwa.id,
+          title: dwa.title,
+          description: dwa.description,
+          aiExposure: gwa.ai_exposure_score ?? 0,
+        })),
+      }))
+
+      // Build selected IDs set from backend data
+      const newSelectedIds = new Set<string>()
+      response.forEach((gwa) => {
+        gwa.dwas.forEach((dwa) => {
+          if (dwa.selected) {
+            newSelectedIds.add(dwa.id)
+          }
+        })
+      })
+
+      setActivities(mappedGroups)
+      setSelectedIds(newSelectedIds)
+
+      return result
+    } catch (err) {
+      const message =
+        err instanceof ApiError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : 'Failed to load activities from O*NET'
+      setError(message)
+    } finally {
+      setIsLoadingActivities(false)
+    }
+  }, [sessionId])
 
   const loadActivities = useCallback(async () => {
     if (!sessionId) {
@@ -34,6 +89,15 @@ export function useActivitySelections(sessionId: string) {
       setError(null)
 
       const response = await activitiesApi.getBySession(sessionId)
+
+      // If no activities exist and we haven't tried loading yet, auto-load from O*NET
+      const totalDwas = response.reduce((sum, gwa) => sum + gwa.dwas.length, 0)
+      if (totalDwas === 0 && !hasAttemptedLoad.current) {
+        hasAttemptedLoad.current = true
+        setIsLoading(false)
+        await loadActivitiesFromOnet()
+        return
+      }
 
       // Map API response to frontend interface
       const mappedGroups: GWA[] = response.map((gwa) => ({
@@ -71,9 +135,11 @@ export function useActivitySelections(sessionId: string) {
     } finally {
       setIsLoading(false)
     }
-  }, [sessionId])
+  }, [sessionId, loadActivitiesFromOnet])
 
   useEffect(() => {
+    // Reset load attempt flag when session changes
+    hasAttemptedLoad.current = false
     loadActivities()
   }, [loadActivities])
 
@@ -171,8 +237,10 @@ export function useActivitySelections(sessionId: string) {
     activities,
     selectedIds,
     isLoading,
+    isLoadingActivities,
     error,
     toggleDwa,
     bulkSelectByExposure,
+    refresh: loadActivities,
   }
 }

@@ -103,7 +103,7 @@ async def update_activity_selection(
 ) -> DWAResponse:
     """Update the selection status of an activity."""
     result = await service.update_selection(
-        activity_id=activity_id,
+        selection_id=activity_id,
         selected=update_data.selected,
     )
 
