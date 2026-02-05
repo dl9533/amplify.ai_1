@@ -51,6 +51,14 @@ export {
   type GWAGroupResponse,
   type SelectionCountResponse,
   type BulkSelectionResponse,
+  // Tasks API
+  tasksApi,
+  type TaskResponse,
+  type RoleMappingTasksResponse,
+  type TaskSelectionStatsResponse,
+  type TaskLoadResponse,
+  type TaskBulkUpdateResponse,
+  type TaskWithDWAsResponse,
   // Analysis API
   analysisApi,
   type PriorityTier,
@@ -60,6 +68,7 @@ export {
   type DimensionSummary,
   type AllDimensionsResponse,
   type TriggerAnalysisResponse,
+  type AnalysisSource,
   // Roadmap API
   roadmapApi,
   type RoadmapPhase,
@@ -74,4 +83,9 @@ export {
   type HandoffResponse,
   type ValidationResult,
   type HandoffStatus,
+  // Industry API
+  industryApi,
+  type NaicsSector,
+  type Supersector,
+  type IndustryListResponse,
 } from './discoveryApi'

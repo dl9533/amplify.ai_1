@@ -152,6 +152,7 @@ export interface SessionResponse {
   id: string
   status: SessionStatus
   current_step: number
+  industry_naics_sector: string | null
   created_at: string
   updated_at: string
 }
@@ -193,6 +194,37 @@ export const sessionsApi = {
    */
   updateStep: (sessionId: string, step: number): Promise<SessionResponse> =>
     api.patch(`/discovery/sessions/${sessionId}/step`, { step }),
+
+  /**
+   * Update the industry for a session.
+   */
+  updateIndustry: (sessionId: string, industryNaicsSector: string): Promise<SessionResponse> =>
+    api.patch(`/discovery/sessions/${sessionId}/industry`, { industry_naics_sector: industryNaicsSector }),
+}
+
+// ============ Industry API ============
+
+export interface NaicsSector {
+  code: string
+  label: string
+}
+
+export interface Supersector {
+  code: string
+  label: string
+  sectors: NaicsSector[]
+}
+
+export interface IndustryListResponse {
+  supersectors: Supersector[]
+}
+
+export const industryApi = {
+  /**
+   * List all industries organized by BLS supersector.
+   */
+  list: (): Promise<IndustryListResponse> =>
+    api.get('/discovery/industries'),
 }
 
 // ============ Chat API ============
@@ -530,6 +562,111 @@ export const activitiesApi = {
     api.post(`/discovery/sessions/${sessionId}/activities/load`),
 }
 
+// ============ Tasks API ============
+
+export interface TaskResponse {
+  id: string
+  role_mapping_id: string
+  task_id: number
+  description: string | null
+  importance: number | null
+  selected: boolean
+  user_modified: boolean
+}
+
+/**
+ * Response for tasks grouped by role mapping.
+ * Used by the grouped endpoint to avoid N+1 queries.
+ */
+export interface RoleMappingTasksResponse {
+  role_mapping_id: string
+  source_role: string
+  onet_code: string | null
+  onet_title: string | null
+  tasks: TaskResponse[]
+}
+
+export interface TaskSelectionStatsResponse {
+  total: number
+  selected: number
+  unselected: number
+}
+
+export interface TaskLoadResponse {
+  mappings_processed: number
+  tasks_loaded: number
+}
+
+export interface TaskBulkUpdateResponse {
+  updated_count: number
+}
+
+export interface TaskWithDWAsResponse {
+  task_id: number
+  description: string
+  importance: number | null
+  dwa_ids: string[]
+}
+
+export const tasksApi = {
+  /**
+   * Get tasks for a session.
+   */
+  getBySession: (sessionId: string, includeUnselected = true): Promise<TaskResponse[]> =>
+    api.get(
+      `/discovery/sessions/${sessionId}/tasks?include_unselected=${includeUnselected}`
+    ),
+
+  /**
+   * Get tasks grouped by role mapping (optimized to avoid N+1 queries).
+   */
+  getGrouped: (sessionId: string): Promise<RoleMappingTasksResponse[]> =>
+    api.get(`/discovery/sessions/${sessionId}/tasks/grouped`),
+
+  /**
+   * Get tasks for a specific role mapping.
+   */
+  getByRoleMapping: (roleMappingId: string): Promise<TaskResponse[]> =>
+    api.get(`/discovery/role-mappings/${roleMappingId}/tasks`),
+
+  /**
+   * Update selection status of a single task.
+   */
+  updateSelection: (selectionId: string, selected: boolean): Promise<TaskResponse> =>
+    api.put(`/discovery/tasks/${selectionId}`, { selected }),
+
+  /**
+   * Bulk update task selections for a role mapping.
+   */
+  bulkUpdate: (
+    roleMappingId: string,
+    taskIds: number[],
+    selected: boolean
+  ): Promise<TaskBulkUpdateResponse> =>
+    api.post(`/discovery/role-mappings/${roleMappingId}/tasks/bulk-update`, {
+      task_ids: taskIds,
+      selected,
+    }),
+
+  /**
+   * Get task selection statistics.
+   */
+  getSelectionStats: (sessionId: string): Promise<TaskSelectionStatsResponse> =>
+    api.get(`/discovery/sessions/${sessionId}/tasks/stats`),
+
+  /**
+   * Load tasks for confirmed role mappings in a session.
+   */
+  loadForSession: (sessionId: string): Promise<TaskLoadResponse> =>
+    api.post(`/discovery/sessions/${sessionId}/tasks/load`),
+
+  /**
+   * Get selected tasks with DWA mappings for AI analysis.
+   */
+  getSelectedWithDWAs: (sessionId: string): Promise<TaskWithDWAsResponse[]> =>
+    api.get(`/discovery/sessions/${sessionId}/tasks/with-dwas`),
+}
+
 // ============ Analysis API ============
 
 export interface AnalysisResult {
@@ -558,12 +695,16 @@ export interface TriggerAnalysisResponse {
   status: string
 }
 
+export type AnalysisSource = 'tasks' | 'activities'
+
 export const analysisApi = {
   /**
    * Trigger scoring analysis for a session.
+   * @param sessionId - The session to analyze
+   * @param source - Analysis source: 'tasks' (recommended) or 'activities' (legacy DWA-based)
    */
-  trigger: (sessionId: string): Promise<TriggerAnalysisResponse> =>
-    api.post(`/discovery/sessions/${sessionId}/analyze`),
+  trigger: (sessionId: string, source: AnalysisSource = 'tasks'): Promise<TriggerAnalysisResponse> =>
+    api.post(`/discovery/sessions/${sessionId}/analyze?source=${source}`),
 
   /**
    * Get analysis results for a specific dimension.

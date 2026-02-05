@@ -16,6 +16,9 @@ export type { OnetOccupation, UseOnetSearchReturn } from './useOnetSearch'
 export { useActivitySelections } from './useActivitySelections'
 export type { DWA, GWA } from './useActivitySelections'
 
+export { useTaskSelections } from './useTaskSelections'
+export type { Task, RoleMappingWithTasks } from './useTaskSelections'
+
 export { useAnalysisResults } from './useAnalysisResults'
 export type { Dimension, PriorityTier, AnalysisResult } from './useAnalysisResults'
 
@@ -27,3 +30,6 @@ export type { SessionStatus, DiscoverySession } from './useDiscoverySessions'
 
 export { useDiscoveryRecovery } from './useDiscoveryRecovery'
 export type { UseDiscoveryRecoveryOptions, UseDiscoveryRecoveryReturn } from './useDiscoveryRecovery'
+
+export { useIndustry } from './useIndustry'
+export type { UseIndustryReturn } from './useIndustry'

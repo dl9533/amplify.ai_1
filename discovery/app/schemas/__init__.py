@@ -63,6 +63,16 @@ from app.schemas.session import (
     SessionList,
     StepUpdate,
 )
+from app.schemas.task import (
+    RoleMappingTasksResponse,
+    TaskBulkUpdateRequest,
+    TaskBulkUpdateResponse,
+    TaskLoadResponse,
+    TaskResponse,
+    TaskSelectionStatsResponse,
+    TaskSelectionUpdate,
+    TaskWithDWAsResponse,
+)
 from app.schemas.upload import (
     ColumnMappingUpdate,
     UploadResponse,
@@ -116,6 +126,14 @@ __all__ = [
     "SessionResponse",
     "SessionList",
     "StepUpdate",
+    "TaskBulkUpdateRequest",
+    "TaskBulkUpdateResponse",
+    "TaskLoadResponse",
+    "TaskResponse",
+    "TaskSelectionStatsResponse",
+    "TaskSelectionUpdate",
+    "TaskWithDWAsResponse",
+    "RoleMappingTasksResponse",
     "TriggerAnalysisResponse",
     "UploadResponse",
     "ValidationResult",

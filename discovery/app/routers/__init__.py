@@ -5,10 +5,12 @@ from app.routers.analysis import router as analysis_router
 from app.routers.chat import router as chat_router
 from app.routers.exports import router as exports_router
 from app.routers.handoff import router as handoff_router
+from app.routers.industry import router as industry_router
 from app.routers.lob_mappings import router as lob_mappings_router
 from app.routers.roadmap import router as roadmap_router
 from app.routers.role_mappings import router as role_mappings_router
 from app.routers.sessions import router as sessions_router
+from app.routers.tasks import router as tasks_router
 from app.routers.uploads import router as uploads_router
 
 __all__ = [
@@ -18,9 +20,11 @@ __all__ = [
     "chat_router",
     "exports_router",
     "handoff_router",
+    "industry_router",
     "lob_mappings_router",
     "roadmap_router",
     "role_mappings_router",
     "sessions_router",
+    "tasks_router",
     "uploads_router",
 ]

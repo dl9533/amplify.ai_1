@@ -30,6 +30,7 @@ from app.services.role_mapping_service import (
     get_role_mapping_service,
 )
 from app.services.session_service import SessionService, get_session_service
+from app.services.task_service import TaskService, get_task_service
 from app.services.upload_service import UploadService, get_upload_service
 
 __all__ = [
@@ -56,6 +57,7 @@ __all__ = [
     "RoleMappingService",
     "ScoringService",
     "SessionService",
+    "TaskService",
     "UploadService",
     "get_activity_service",
     "get_analysis_service",
@@ -69,5 +71,6 @@ __all__ = [
     "get_role_mapping_service",
     "get_scoring_service",
     "get_session_service",
+    "get_task_service",
     "get_upload_service",
 ]
