@@ -252,11 +252,12 @@ export function DiscoveryWizard({
         </div>
 
         {/* Chat panel (slide in from right) */}
+        {/* Note: Using right positioning instead of transform to avoid breaking native select dropdowns */}
         <div
           className={`
-            fixed top-14 right-0 bottom-0 w-[380px] border-l border-border bg-elevated
-            transform transition-transform duration-300 ease-out
-            ${chatOpen ? 'translate-x-0' : 'translate-x-full'}
+            fixed top-14 bottom-0 w-[380px] border-l border-border bg-elevated
+            transition-[right] duration-300 ease-out
+            ${chatOpen ? 'right-0' : '-right-[380px]'}
           `}
         >
           <ChatPanel onClose={() => setChatOpen(false)} />
