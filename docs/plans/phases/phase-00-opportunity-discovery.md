@@ -10,7 +10,7 @@
 
 **Dependencies:** None (standalone container-based module)
 
-**Design Document:** `docs/plans/2026-01-31-opportunity-discovery-design.md`
+**Design Document:** `discovery/docs/plans/2026-01-31-opportunity-discovery-design.md`
 
 ---
 

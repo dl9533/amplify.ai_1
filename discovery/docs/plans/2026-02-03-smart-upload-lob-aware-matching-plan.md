@@ -3203,4 +3203,4 @@ Each task follows strict TDD:
 ---
 
 *Document created: 2026-02-03*
-*Design reference: docs/plans/2026-02-03-smart-upload-lob-aware-matching-design.md*
+*Design reference: 2026-02-03-smart-upload-lob-aware-matching-design.md*

@@ -370,7 +370,7 @@ WHERE id = session_id;
 
 ## Data Model Reference
 
-See: `docs/plans/2026-01-31-opportunity-discovery-design.md` for complete schema definitions.
+See: `plans/2026-01-31-opportunity-discovery-design.md` for complete schema definitions.
 
 ### Core Tables
 
