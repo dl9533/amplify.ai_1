@@ -2,11 +2,16 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, Field
 
 from app.schemas.task import (
+    GroupedTasksResponse,
+    LobTaskGroup,
+    OnetTaskGroup,
     RoleMappingTasksResponse,
     TaskBulkUpdateRequest,
     TaskBulkUpdateResponse,
+    TaskGroupSummary,
     TaskLoadResponse,
     TaskResponse,
     TaskSelectionStatsResponse,
@@ -125,6 +130,105 @@ async def get_tasks_grouped_by_mapping(
         )
         for r in results
     ]
+
+
+@router.get(
+    "/sessions/{session_id}/tasks/grouped-by-lob",
+    response_model=GroupedTasksResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get tasks grouped by LOB and occupation",
+    description="Retrieves all tasks for a session grouped by Line of Business and O*NET occupation. "
+    "Multiple role mappings with the same O*NET code within a LOB are consolidated. "
+    "This matches the grouping pattern used in the role mappings view.",
+)
+async def get_tasks_grouped_by_lob(
+    session_id: UUID,
+    service: TaskService = Depends(get_task_service),
+) -> GroupedTasksResponse:
+    """Get tasks grouped by LOB and O*NET occupation for the Activities tab."""
+    result = await service.get_tasks_grouped_by_lob(session_id=session_id)
+
+    def build_task_response(t: dict) -> TaskResponse:
+        return TaskResponse(
+            id=UUID(t["id"]),
+            role_mapping_id=UUID(t["role_mapping_id"]),
+            task_id=t["task_id"],
+            description=t.get("description"),
+            importance=t.get("importance"),
+            selected=t["selected"],
+            user_modified=t["user_modified"],
+        )
+
+    def build_onet_group(occ: dict) -> OnetTaskGroup:
+        return OnetTaskGroup(
+            onet_code=occ["onet_code"],
+            onet_title=occ["onet_title"],
+            role_mapping_ids=[UUID(rid) for rid in occ["role_mapping_ids"]],
+            source_roles=occ["source_roles"],
+            employee_count=occ["employee_count"],
+            tasks=[build_task_response(t) for t in occ["tasks"]],
+        )
+
+    return GroupedTasksResponse(
+        session_id=UUID(result["session_id"]),
+        overall_summary=TaskGroupSummary(
+            total_tasks=result["overall_summary"]["total_tasks"],
+            selected_count=result["overall_summary"]["selected_count"],
+            occupation_count=result["overall_summary"]["occupation_count"],
+            total_employees=result["overall_summary"]["total_employees"],
+        ),
+        lob_groups=[
+            LobTaskGroup(
+                lob=group["lob"],
+                summary=TaskGroupSummary(
+                    total_tasks=group["summary"]["total_tasks"],
+                    selected_count=group["summary"]["selected_count"],
+                    occupation_count=group["summary"]["occupation_count"],
+                    total_employees=group["summary"]["total_employees"],
+                ),
+                occupations=[build_onet_group(occ) for occ in group["occupations"]],
+            )
+            for group in result["lob_groups"]
+        ],
+        ungrouped_occupations=[
+            build_onet_group(occ) for occ in result["ungrouped_occupations"]
+        ],
+    )
+
+
+class BulkUpdateByOnetRequest(BaseModel):
+    """Request for bulk updating tasks by O*NET code."""
+
+    onet_code: str = Field(..., description="O*NET occupation code")
+    selected: bool = Field(..., description="Selection status to set")
+    lob: str | None = Field(
+        default=None,
+        description="Optional LOB filter. If provided, only updates tasks in this LOB.",
+    )
+
+
+@router.post(
+    "/sessions/{session_id}/tasks/bulk-update-by-onet",
+    response_model=TaskBulkUpdateResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Bulk update tasks by O*NET code",
+    description="Bulk update selection status for all tasks with a given O*NET occupation code. "
+    "When multiple role mappings share the same O*NET code, this updates tasks across all of them.",
+)
+async def bulk_update_tasks_by_onet(
+    session_id: UUID,
+    request: BulkUpdateByOnetRequest,
+    service: TaskService = Depends(get_task_service),
+) -> TaskBulkUpdateResponse:
+    """Bulk update task selections by O*NET code."""
+    result = await service.bulk_update_by_onet_code(
+        session_id=session_id,
+        onet_code=request.onet_code,
+        selected=request.selected,
+        lob=request.lob,
+    )
+
+    return TaskBulkUpdateResponse(updated_count=result["updated_count"])
 
 
 @router.put(

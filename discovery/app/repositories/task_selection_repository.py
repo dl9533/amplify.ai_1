@@ -143,3 +143,39 @@ class TaskSelectionRepository:
         result = await self.session.execute(stmt)
         count = result.scalar_one()
         return count > 0
+
+    async def bulk_update_by_role_mapping_ids(
+        self,
+        role_mapping_ids: list[UUID],
+        selected: bool,
+    ) -> int:
+        """Update selected status for all tasks across multiple role mappings.
+
+        This is more efficient than calling bulk_update_selections for each
+        mapping individually, as it performs a single database update.
+
+        Args:
+            role_mapping_ids: List of role mapping IDs to update.
+            selected: New selection status.
+
+        Returns:
+            Number of task selections updated.
+        """
+        if not role_mapping_ids:
+            return 0
+
+        stmt = (
+            select(DiscoveryTaskSelection)
+            .where(DiscoveryTaskSelection.role_mapping_id.in_(role_mapping_ids))
+        )
+        result = await self.session.execute(stmt)
+        selections = result.scalars().all()
+
+        count = 0
+        for s in selections:
+            s.selected = selected
+            s.user_modified = True
+            count += 1
+
+        await self.session.commit()
+        return count

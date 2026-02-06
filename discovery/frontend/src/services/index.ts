@@ -59,6 +59,11 @@ export {
   type TaskLoadResponse,
   type TaskBulkUpdateResponse,
   type TaskWithDWAsResponse,
+  // LOB-Grouped Task Types
+  type TaskGroupSummary,
+  type OnetTaskGroup,
+  type LobTaskGroup,
+  type GroupedTasksResponse,
   // Analysis API
   analysisApi,
   type PriorityTier,

@@ -110,7 +110,7 @@ class TaskLoadResponse(BaseModel):
 
 
 class RoleMappingTasksResponse(BaseModel):
-    """Schema for tasks grouped by role mapping."""
+    """Schema for tasks grouped by role mapping (legacy flat format)."""
 
     role_mapping_id: UUID = Field(
         ...,
@@ -136,6 +136,104 @@ class RoleMappingTasksResponse(BaseModel):
     model_config = {
         "from_attributes": True,
     }
+
+
+# ============================================================
+# LOB-Grouped Task Schemas (matching role mappings pattern)
+# ============================================================
+
+
+class TaskGroupSummary(BaseModel):
+    """Summary statistics for a task group."""
+
+    total_tasks: int = Field(
+        ...,
+        ge=0,
+        description="Total number of tasks in the group",
+    )
+    selected_count: int = Field(
+        ...,
+        ge=0,
+        description="Number of selected tasks",
+    )
+    occupation_count: int = Field(
+        ...,
+        ge=0,
+        description="Number of unique O*NET occupations",
+    )
+    total_employees: int = Field(
+        ...,
+        ge=0,
+        description="Total employees covered by this group",
+    )
+
+
+class OnetTaskGroup(BaseModel):
+    """Tasks for a single O*NET occupation within a LOB."""
+
+    onet_code: str = Field(
+        ...,
+        description="O*NET occupation code",
+    )
+    onet_title: str = Field(
+        ...,
+        description="O*NET occupation title",
+    )
+    role_mapping_ids: list[UUID] = Field(
+        ...,
+        description="All role mapping IDs that map to this occupation",
+    )
+    source_roles: list[str] = Field(
+        ...,
+        description="Original role names that mapped to this occupation",
+    )
+    employee_count: int = Field(
+        ...,
+        ge=0,
+        description="Total employees with roles mapping to this occupation",
+    )
+    tasks: list[TaskResponse] = Field(
+        default_factory=list,
+        description="Tasks for this occupation (deduplicated)",
+    )
+
+
+class LobTaskGroup(BaseModel):
+    """Tasks grouped by Line of Business."""
+
+    lob: str = Field(
+        ...,
+        description="Line of Business name",
+    )
+    summary: TaskGroupSummary = Field(
+        ...,
+        description="Summary statistics for this LOB",
+    )
+    occupations: list[OnetTaskGroup] = Field(
+        default_factory=list,
+        description="O*NET occupations in this LOB (deduplicated by code)",
+    )
+
+
+class GroupedTasksResponse(BaseModel):
+    """Response for tasks grouped by LOB, matching role mappings pattern."""
+
+    session_id: UUID = Field(
+        ...,
+        description="Discovery session identifier",
+    )
+    overall_summary: TaskGroupSummary = Field(
+        ...,
+        description="Overall task selection statistics",
+    )
+    lob_groups: list[LobTaskGroup] = Field(
+        default_factory=list,
+        description="Tasks grouped by Line of Business",
+    )
+    ungrouped_occupations: list[OnetTaskGroup] = Field(
+        default_factory=list,
+        description="Occupations without LOB assignment",
+    )
 
 
 class TaskWithDWAsResponse(BaseModel):

@@ -19,6 +19,9 @@ export type { DWA, GWA } from './useActivitySelections'
 export { useTaskSelections } from './useTaskSelections'
 export type { Task, RoleMappingWithTasks } from './useTaskSelections'
 
+export { useGroupedTaskSelections } from './useGroupedTaskSelections'
+export type { UseGroupedTaskSelectionsReturn } from './useGroupedTaskSelections'
+
 export { useAnalysisResults } from './useAnalysisResults'
 export type { Dimension, PriorityTier, AnalysisResult } from './useAnalysisResults'
 

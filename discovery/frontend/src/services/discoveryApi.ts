@@ -608,6 +608,50 @@ export interface TaskWithDWAsResponse {
   dwa_ids: string[]
 }
 
+// ============ LOB-Grouped Task Types ============
+
+/**
+ * Summary statistics for a task group.
+ */
+export interface TaskGroupSummary {
+  total_tasks: number
+  selected_count: number
+  occupation_count: number
+  total_employees: number
+}
+
+/**
+ * Tasks for a single O*NET occupation within a LOB.
+ * Multiple role mappings with the same O*NET code are consolidated here.
+ */
+export interface OnetTaskGroup {
+  onet_code: string
+  onet_title: string
+  role_mapping_ids: string[]
+  source_roles: string[]
+  employee_count: number
+  tasks: TaskResponse[]
+}
+
+/**
+ * Tasks grouped by Line of Business.
+ */
+export interface LobTaskGroup {
+  lob: string
+  summary: TaskGroupSummary
+  occupations: OnetTaskGroup[]
+}
+
+/**
+ * Response for tasks grouped by LOB, matching role mappings pattern.
+ */
+export interface GroupedTasksResponse {
+  session_id: string
+  overall_summary: TaskGroupSummary
+  lob_groups: LobTaskGroup[]
+  ungrouped_occupations: OnetTaskGroup[]
+}
+
 export const tasksApi = {
   /**
    * Get tasks for a session.
@@ -665,6 +709,30 @@ export const tasksApi = {
    */
   getSelectedWithDWAs: (sessionId: string): Promise<TaskWithDWAsResponse[]> =>
     api.get(`/discovery/sessions/${sessionId}/tasks/with-dwas`),
+
+  /**
+   * Get tasks grouped by LOB and O*NET occupation.
+   * This matches the grouping pattern used in the role mappings view.
+   * Multiple role mappings with the same O*NET code within a LOB are consolidated.
+   */
+  getGroupedByLob: (sessionId: string): Promise<GroupedTasksResponse> =>
+    api.get(`/discovery/sessions/${sessionId}/tasks/grouped-by-lob`),
+
+  /**
+   * Bulk update task selections by O*NET code.
+   * When multiple role mappings share the same O*NET code, this updates tasks across all of them.
+   */
+  bulkUpdateByOnetCode: (
+    sessionId: string,
+    onetCode: string,
+    selected: boolean,
+    lob?: string
+  ): Promise<TaskBulkUpdateResponse> =>
+    api.post(`/discovery/sessions/${sessionId}/tasks/bulk-update-by-onet`, {
+      onet_code: onetCode,
+      selected,
+      lob,
+    }),
 }
 
 // ============ Analysis API ============
