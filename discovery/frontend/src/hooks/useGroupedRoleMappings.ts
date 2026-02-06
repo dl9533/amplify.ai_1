@@ -66,7 +66,7 @@ export function useGroupedRoleMappings(sessionId?: string): UseGroupedRoleMappin
       const response = await roleMappingsApi.getGroupedBySession(sessionId)
 
       // If no mappings exist and we haven't tried generating yet, auto-generate
-      if (response.overall_summary.total_roles === 0 && !hasAttemptedGeneration.current) {
+      if ((response.overall_summary?.total_roles ?? 0) === 0 && !hasAttemptedGeneration.current) {
         hasAttemptedGeneration.current = true
         setIsLoading(false)
         await generateMappings()

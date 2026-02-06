@@ -2,11 +2,14 @@
 from typing import Sequence
 from uuid import UUID
 
-from sqlalchemy import delete, select, text
+from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.discovery_role_mapping import DiscoveryRoleMapping
+
+# Maximum PostgreSQL INTEGER value for bounds checking
+MAX_ROW_COUNT = 2_147_483_647
 
 
 class RoleMappingRepository:
@@ -84,17 +87,23 @@ class RoleMappingRepository:
         if not mappings:
             return []
 
-        # Use raw SQL for the upsert since SQLAlchemy's insert().on_conflict_do_update()
-        # doesn't work well with functional indexes (COALESCE)
+        # Use SELECT FOR UPDATE to prevent race conditions when multiple
+        # requests try to upsert the same role mapping concurrently.
+        # SQLAlchemy's insert().on_conflict_do_update() doesn't work well
+        # with functional indexes (COALESCE), so we use explicit locking.
         for m in mappings:
-            # Check if mapping exists
-            stmt = select(DiscoveryRoleMapping).where(
-                DiscoveryRoleMapping.session_id == m["session_id"],
-                DiscoveryRoleMapping.source_role == m["source_role"],
-                # Handle NULL lob_value comparison
-                (DiscoveryRoleMapping.lob_value == m.get("lob_value"))
-                if m.get("lob_value")
-                else DiscoveryRoleMapping.lob_value.is_(None),
+            # Check if mapping exists with row-level lock to prevent races
+            stmt = (
+                select(DiscoveryRoleMapping)
+                .where(
+                    DiscoveryRoleMapping.session_id == m["session_id"],
+                    DiscoveryRoleMapping.source_role == m["source_role"],
+                    # Handle NULL lob_value comparison
+                    (DiscoveryRoleMapping.lob_value == m.get("lob_value"))
+                    if m.get("lob_value")
+                    else DiscoveryRoleMapping.lob_value.is_(None),
+                )
+                .with_for_update()
             )
             result = await self.session.execute(stmt)
             existing = result.scalar_one_or_none()
@@ -106,7 +115,11 @@ class RoleMappingRepository:
                 if m.get("confidence_score") is not None:
                     existing.confidence_score = m["confidence_score"]
                 if m.get("row_count") is not None:
-                    existing.row_count = (existing.row_count or 0) + m["row_count"]
+                    # Bounds checking to prevent integer overflow
+                    new_count = (existing.row_count or 0) + m["row_count"]
+                    if new_count > MAX_ROW_COUNT:
+                        new_count = MAX_ROW_COUNT
+                    existing.row_count = new_count
                 if m.get("industry_match_score") is not None:
                     existing.industry_match_score = m["industry_match_score"]
             else:
@@ -117,7 +130,7 @@ class RoleMappingRepository:
         await self.session.commit()
 
         # Return all mappings for the session
-        if mappings:
+        if mappings and "session_id" in mappings[0]:
             session_id = mappings[0]["session_id"]
             return await self.get_for_session(session_id)
         return []

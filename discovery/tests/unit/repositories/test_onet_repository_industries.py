@@ -1,13 +1,15 @@
 """Test OnetRepository industry methods."""
 import pytest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 from app.repositories.onet_repository import OnetRepository
 
 
 @pytest.fixture
 def mock_session():
     session = AsyncMock()
-    session.execute = AsyncMock()
+    # Create a MagicMock for the result since scalars() and all() are sync methods
+    mock_result = MagicMock()
+    session.execute = AsyncMock(return_value=mock_result)
     return session
 
 
@@ -38,7 +40,9 @@ class TestGetIndustriesForOccupation:
                 employment_percent=15.0,
             ),
         ]
-        mock_session.execute.return_value.scalars.return_value.all.return_value = mock_industries
+        # Set up the mock result chain (scalars().all() are sync methods)
+        mock_result = mock_session.execute.return_value
+        mock_result.scalars.return_value.all.return_value = mock_industries
 
         result = await repository.get_industries_for_occupation("13-2051.00")
 
@@ -48,7 +52,8 @@ class TestGetIndustriesForOccupation:
     @pytest.mark.asyncio
     async def test_get_industries_empty(self, repository, mock_session):
         """Test empty result when no industries."""
-        mock_session.execute.return_value.scalars.return_value.all.return_value = []
+        mock_result = mock_session.execute.return_value
+        mock_result.scalars.return_value.all.return_value = []
 
         result = await repository.get_industries_for_occupation("99-9999.00")
 
@@ -71,7 +76,8 @@ class TestCalculateIndustryScore:
                 employment_percent=25.0,
             ),
         ]
-        mock_session.execute.return_value.scalars.return_value.all.return_value = mock_industries
+        mock_result = mock_session.execute.return_value
+        mock_result.scalars.return_value.all.return_value = mock_industries
 
         score = await repository.calculate_industry_score("13-2051.00", ["522110"])
 
@@ -89,7 +95,8 @@ class TestCalculateIndustryScore:
                 naics_title="Commercial Banking",
             ),
         ]
-        mock_session.execute.return_value.scalars.return_value.all.return_value = mock_industries
+        mock_result = mock_session.execute.return_value
+        mock_result.scalars.return_value.all.return_value = mock_industries
 
         # Match 2-digit prefix
         score = await repository.calculate_industry_score("13-2051.00", ["52"])
@@ -108,7 +115,8 @@ class TestCalculateIndustryScore:
                 naics_title="Commercial Banking",
             ),
         ]
-        mock_session.execute.return_value.scalars.return_value.all.return_value = mock_industries
+        mock_result = mock_session.execute.return_value
+        mock_result.scalars.return_value.all.return_value = mock_industries
 
         score = await repository.calculate_industry_score("13-2051.00", ["62"])  # Healthcare
 
@@ -124,7 +132,8 @@ class TestCalculateIndustryScore:
     @pytest.mark.asyncio
     async def test_no_industries_returns_zero(self, repository, mock_session):
         """Test no industries returns zero."""
-        mock_session.execute.return_value.scalars.return_value.all.return_value = []
+        mock_result = mock_session.execute.return_value
+        mock_result.scalars.return_value.all.return_value = []
 
         score = await repository.calculate_industry_score("99-9999.00", ["52"])
 

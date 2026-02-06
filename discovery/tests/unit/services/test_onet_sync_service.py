@@ -87,6 +87,11 @@ class TestOnetFileSyncService:
             occupation_count=923,
             alternate_title_count=5000,
             task_count=20000,
+            industry_count=500,
+            gwa_count=41,
+            iwa_count=332,
+            dwa_count=2070,
+            task_to_dwa_count=15000,
             status="success",
         )
 
@@ -94,6 +99,7 @@ class TestOnetFileSyncService:
         assert result.occupation_count == 923
         assert result.alternate_title_count == 5000
         assert result.task_count == 20000
+        assert result.industry_count == 500
         assert result.status == "success"
 
     def test_init_stores_repository(self):

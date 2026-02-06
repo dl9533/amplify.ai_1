@@ -49,6 +49,7 @@ class TestRoleMappingServiceWithAgent:
         mock_upload_service = AsyncMock()
 
         # Setup mock returns
+        mock_repo.delete_for_session.return_value = 0  # No existing mappings to delete
         mock_upload_service.get_file_content.return_value = b"role\nSoftware Engineer\n"
         mock_upload = MagicMock()
         mock_upload.file_name = "test.csv"
@@ -81,8 +82,8 @@ class TestRoleMappingServiceWithAgent:
 
         # Patch file parser
         with patch.object(service, "_file_parser") as mock_parser:
-            mock_parser.extract_unique_values.return_value = [
-                {"value": "Software Engineer", "count": 1}
+            mock_parser.extract_role_lob_values.return_value = [
+                {"role": "Software Engineer", "lob": None, "count": 1}
             ]
 
             import uuid

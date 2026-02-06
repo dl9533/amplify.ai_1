@@ -179,7 +179,7 @@ class TestUpdateActivitySelection:
         assert data["id"] == str(activity_id)
         assert data["selected"] is True
         mock_activity_service.update_selection.assert_called_once_with(
-            activity_id=activity_id, selected=True
+            selection_id=activity_id, selected=True
         )
 
     def test_update_selection_deselect(self, client, mock_activity_service):
@@ -202,7 +202,7 @@ class TestUpdateActivitySelection:
         assert response.status_code == 200
         assert response.json()["selected"] is False
         mock_activity_service.update_selection.assert_called_once_with(
-            activity_id=activity_id, selected=False
+            selection_id=activity_id, selected=False
         )
 
     def test_update_selection_not_found_returns_404(

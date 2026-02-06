@@ -56,6 +56,10 @@ class TestSyncResult:
             alternate_title_count=200,
             task_count=300,
             industry_count=400,
+            gwa_count=50,
+            iwa_count=60,
+            dwa_count=70,
+            task_to_dwa_count=80,
             status="success",
         )
 

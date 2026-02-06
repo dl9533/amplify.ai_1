@@ -16,6 +16,9 @@ async def test_create_mappings_from_upload():
     mock_agent = AsyncMock()
     mock_upload_service = AsyncMock()
 
+    # Mock repository methods
+    mock_repo.delete_for_session.return_value = 0  # No existing mappings to delete
+
     # Mock upload with file content
     mock_upload_service.get_file_content.return_value = b"name,role\nJohn,Engineer"
 
@@ -52,8 +55,8 @@ async def test_create_mappings_from_upload():
 
     # Patch file parser
     with patch.object(service, "_file_parser") as mock_parser:
-        mock_parser.extract_unique_values.return_value = [
-            {"value": "Engineer", "count": 1}
+        mock_parser.extract_role_lob_values.return_value = [
+            {"role": "Engineer", "lob": None, "count": 1}
         ]
 
         session_id = uuid4()
