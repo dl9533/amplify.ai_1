@@ -24,7 +24,7 @@ class SessionRepository:
         db_session = DiscoverySession(
             user_id=user_id,
             organization_id=organization_id,
-            status=SessionStatus.DRAFT,
+            status=SessionStatus.PENDING,
             current_step=1,
             industry_naics_sector=industry_naics_sector,
         )
@@ -79,7 +79,7 @@ class SessionRepository:
         if db_session:
             db_session.current_step = step
             if step > 1:
-                db_session.status = SessionStatus.IN_PROGRESS
+                db_session.status = SessionStatus.UPLOAD_COMPLETE
             await self.session.commit()
             await self.session.refresh(db_session)
         return db_session

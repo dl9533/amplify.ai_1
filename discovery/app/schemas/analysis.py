@@ -8,11 +8,11 @@ from pydantic import BaseModel, Field, RootModel
 class AnalysisDimension(str, Enum):
     """Enumeration of analysis dimensions."""
 
-    ROLE = "ROLE"
-    DEPARTMENT = "DEPARTMENT"
-    LOB = "LOB"
-    GEOGRAPHY = "GEOGRAPHY"
-    TASK = "TASK"
+    ROLE = "role"
+    DEPARTMENT = "department"
+    LOB = "lob"
+    GEOGRAPHY = "geography"
+    TASK = "task"
 
 
 class PriorityTier(str, Enum):
@@ -61,6 +61,11 @@ class AnalysisResult(BaseModel):
     priority_tier: PriorityTier = Field(
         ...,
         description="Priority tier classification",
+    )
+    row_count: int | None = Field(
+        default=None,
+        ge=0,
+        description="Number of employees/rows for this entity",
     )
 
     model_config = {

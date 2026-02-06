@@ -10,7 +10,7 @@ export { ApiError }
 
 export type SessionStatus = 'draft' | 'in_progress' | 'completed'
 export type PriorityTier = 'HIGH' | 'MEDIUM' | 'LOW'
-export type AnalysisDimension = 'ROLE' | 'DEPARTMENT' | 'GEOGRAPHY' | 'TASK' | 'LOB'
+export type AnalysisDimension = 'role' | 'department' | 'geography' | 'task' | 'lob'
 export type RoadmapPhase = 'NOW' | 'NEXT' | 'LATER'
 export type EstimatedEffort = 'low' | 'medium' | 'high'
 
@@ -652,6 +652,51 @@ export interface GroupedTasksResponse {
   ungrouped_occupations: OnetTaskGroup[]
 }
 
+// ============ Role-Centric Task Types ============
+
+/**
+ * Summary statistics for role-centric task grouping.
+ */
+export interface RoleGroupSummary {
+  total_tasks: number
+  selected_count: number
+  role_count: number
+  total_employees: number
+}
+
+/**
+ * Tasks for a single organizational role within a LOB.
+ * Each role has independent task selections.
+ */
+export interface SourceRoleTaskGroup {
+  role_mapping_id: string
+  source_role: string
+  onet_code: string
+  onet_title: string
+  employee_count: number
+  tasks: TaskResponse[]
+}
+
+/**
+ * Tasks grouped by Line of Business, then by organizational role.
+ */
+export interface LobSourceRoleTaskGroup {
+  lob: string
+  summary: RoleGroupSummary
+  roles: SourceRoleTaskGroup[]
+}
+
+/**
+ * Response for tasks grouped by LOB and organizational role.
+ * Each role appears separately with independent task selections.
+ */
+export interface GroupedTasksByRoleResponse {
+  session_id: string
+  overall_summary: RoleGroupSummary
+  lob_groups: LobSourceRoleTaskGroup[]
+  ungrouped_roles: SourceRoleTaskGroup[]
+}
+
 export const tasksApi = {
   /**
    * Get tasks for a session.
@@ -733,6 +778,14 @@ export const tasksApi = {
       selected,
       lob,
     }),
+
+  /**
+   * Get tasks grouped by LOB and organizational role.
+   * Each role appears separately with independent task selections,
+   * even if multiple roles map to the same O*NET occupation.
+   */
+  getGroupedBySourceRole: (sessionId: string): Promise<GroupedTasksByRoleResponse> =>
+    api.get(`/discovery/sessions/${sessionId}/tasks/grouped-by-source-role`),
 }
 
 // ============ Analysis API ============
@@ -745,6 +798,7 @@ export interface AnalysisResult {
   complexity_score: number
   priority_score: number
   priority_tier: PriorityTier
+  row_count?: number
 }
 
 export interface DimensionAnalysisResponse {

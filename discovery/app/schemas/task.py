@@ -259,3 +259,101 @@ class TaskWithDWAsResponse(BaseModel):
     model_config = {
         "from_attributes": True,
     }
+
+
+# ============================================================
+# Role-Centric Task Schemas (organizational roles as primary grouping)
+# ============================================================
+
+
+class RoleGroupSummary(BaseModel):
+    """Summary statistics for a role-centric task group."""
+
+    total_tasks: int = Field(
+        ...,
+        ge=0,
+        description="Total number of tasks in the group",
+    )
+    selected_count: int = Field(
+        ...,
+        ge=0,
+        description="Number of selected tasks",
+    )
+    role_count: int = Field(
+        ...,
+        ge=0,
+        description="Number of organizational roles",
+    )
+    total_employees: int = Field(
+        ...,
+        ge=0,
+        description="Total employees covered by this group",
+    )
+
+
+class SourceRoleTaskGroup(BaseModel):
+    """Tasks for a single organizational role within a LOB."""
+
+    role_mapping_id: UUID = Field(
+        ...,
+        description="Role mapping identifier",
+    )
+    source_role: str = Field(
+        ...,
+        description="Organizational role name (primary display)",
+    )
+    onet_code: str = Field(
+        ...,
+        description="O*NET occupation code",
+    )
+    onet_title: str = Field(
+        ...,
+        description="O*NET occupation title",
+    )
+    employee_count: int = Field(
+        ...,
+        ge=0,
+        description="Number of employees in this role",
+    )
+    tasks: list[TaskResponse] = Field(
+        default_factory=list,
+        description="Tasks for this role (with independent selection state)",
+    )
+
+
+class LobSourceRoleTaskGroup(BaseModel):
+    """Tasks grouped by Line of Business, then by organizational role."""
+
+    lob: str = Field(
+        ...,
+        description="Line of Business name",
+    )
+    summary: RoleGroupSummary = Field(
+        ...,
+        description="Summary statistics for this LOB",
+    )
+    roles: list[SourceRoleTaskGroup] = Field(
+        default_factory=list,
+        description="Organizational roles in this LOB",
+    )
+
+
+class GroupedTasksByRoleResponse(BaseModel):
+    """Response for tasks grouped by LOB and organizational role."""
+
+    session_id: UUID = Field(
+        ...,
+        description="Discovery session identifier",
+    )
+    overall_summary: RoleGroupSummary = Field(
+        ...,
+        description="Overall task selection statistics",
+    )
+    lob_groups: list[LobSourceRoleTaskGroup] = Field(
+        default_factory=list,
+        description="Tasks grouped by Line of Business, then by role",
+    )
+    ungrouped_roles: list[SourceRoleTaskGroup] = Field(
+        default_factory=list,
+        description="Roles without LOB assignment",
+    )

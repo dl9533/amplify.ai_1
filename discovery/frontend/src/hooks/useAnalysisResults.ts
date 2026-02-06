@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect } from 'react'
 import { analysisApi, ApiError } from '../services'
 import type { AnalysisDimension as ApiDimension, PriorityTier as ApiTier } from '../services'
 
-export type Dimension = 'ROLE' | 'DEPARTMENT' | 'GEOGRAPHY' | 'TASK' | 'LOB'
+export type Dimension = 'role' | 'department' | 'geography' | 'task' | 'lob'
 export type PriorityTier = 'HIGH' | 'MEDIUM' | 'LOW'
 
 export interface AnalysisResult {
@@ -13,6 +13,7 @@ export interface AnalysisResult {
   impact: number
   priority: number
   tier: PriorityTier
+  rowCount?: number
 }
 
 /**
@@ -24,7 +25,7 @@ function fromApiTier(tier: ApiTier): PriorityTier {
 
 export function useAnalysisResults(
   sessionId: string,
-  dimension: Dimension = 'ROLE',
+  dimension: Dimension = 'role',
   tier?: PriorityTier
 ) {
   const [results, setResults] = useState<AnalysisResult[]>([])
@@ -58,6 +59,7 @@ export function useAnalysisResults(
         impact: r.impact_score,
         priority: r.priority_score,
         tier: fromApiTier(r.priority_tier),
+        rowCount: r.row_count,
       }))
 
       setResults(mappedResults)

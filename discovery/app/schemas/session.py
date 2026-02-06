@@ -22,9 +22,11 @@ def _validate_naics_sector(v: str | None) -> str | None:
 class SessionStatus(str, Enum):
     """Enum for session status values."""
 
-    DRAFT = "draft"
-    IN_PROGRESS = "in_progress"
-    COMPLETED = "completed"
+    PENDING = "pending"
+    UPLOAD_COMPLETE = "upload_complete"
+    MAPPING_COMPLETE = "mapping_complete"
+    ANALYSIS_COMPLETE = "analysis_complete"
+    FINALIZED = "finalized"
 
 
 class SessionCreate(BaseModel):

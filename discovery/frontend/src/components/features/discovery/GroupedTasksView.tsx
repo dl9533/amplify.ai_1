@@ -9,16 +9,16 @@ import {
 } from '../../ui/Icons'
 import { ScoreBar } from '../../ui/ScoreBar'
 import type {
-  GroupedTasksResponse,
-  LobTaskGroup,
-  OnetTaskGroup,
+  GroupedTasksByRoleResponse,
+  LobSourceRoleTaskGroup,
+  SourceRoleTaskGroup,
   TaskResponse,
 } from '../../../services/discoveryApi'
 
 export interface GroupedTasksViewProps {
-  data: GroupedTasksResponse
+  data: GroupedTasksByRoleResponse
   onToggleTask: (selectionId: string) => void
-  onSelectAllForOccupation: (onetCode: string, selected: boolean, lob?: string) => void
+  onSelectAllForRole: (roleMappingId: string, selected: boolean) => void
   onSelectAllForLob: (lob: string, selected: boolean) => void
   isUpdating?: boolean
 }
@@ -26,15 +26,15 @@ export interface GroupedTasksViewProps {
 export function GroupedTasksView({
   data,
   onToggleTask,
-  onSelectAllForOccupation,
+  onSelectAllForRole,
   onSelectAllForLob,
   isUpdating = false,
 }: GroupedTasksViewProps) {
-  const { overall_summary, lob_groups, ungrouped_occupations } = data
+  const { overall_summary, lob_groups, ungrouped_roles } = data
 
-  // Track which LOB groups and occupations are expanded
+  // Track which LOB groups and roles are expanded
   const [expandedLobs, setExpandedLobs] = useState<Set<string>>(new Set())
-  const [expandedOccupations, setExpandedOccupations] = useState<Set<string>>(new Set())
+  const [expandedRoles, setExpandedRoles] = useState<Set<string>>(new Set())
 
   const toggleLobExpanded = useCallback((lob: string) => {
     setExpandedLobs((prev) => {
@@ -48,8 +48,8 @@ export function GroupedTasksView({
     })
   }, [])
 
-  const toggleOccupationExpanded = useCallback((key: string) => {
-    setExpandedOccupations((prev) => {
+  const toggleRoleExpanded = useCallback((key: string) => {
+    setExpandedRoles((prev) => {
       const next = new Set(prev)
       if (next.has(key)) {
         next.delete(key)
@@ -72,7 +72,7 @@ export function GroupedTasksView({
           <div>
             <h2 className="text-lg font-display font-semibold text-default">Task Selection Summary</h2>
             <p className="text-sm text-muted">
-              {overall_summary.occupation_count} occupations · {overall_summary.total_employees.toLocaleString()} employees
+              {overall_summary.role_count} roles · {overall_summary.total_employees.toLocaleString()} employees
             </p>
           </div>
         </div>
@@ -100,8 +100,8 @@ export function GroupedTasksView({
             variant="success"
           />
           <StatCard
-            label="Occupations"
-            value={overall_summary.occupation_count}
+            label="Roles"
+            value={overall_summary.role_count}
           />
         </div>
       </div>
@@ -113,15 +113,15 @@ export function GroupedTasksView({
             By Line of Business ({lob_groups.length})
           </h3>
           {lob_groups.map((group) => (
-            <LobTaskGroupCard
+            <LobRoleGroupCard
               key={group.lob}
               group={group}
               isExpanded={expandedLobs.has(group.lob)}
               onToggleExpanded={() => toggleLobExpanded(group.lob)}
-              expandedOccupations={expandedOccupations}
-              onToggleOccupation={toggleOccupationExpanded}
+              expandedRoles={expandedRoles}
+              onToggleRole={toggleRoleExpanded}
               onToggleTask={onToggleTask}
-              onSelectAllForOccupation={onSelectAllForOccupation}
+              onSelectAllForRole={onSelectAllForRole}
               onSelectAllForLob={onSelectAllForLob}
               isUpdating={isUpdating}
             />
@@ -129,23 +129,23 @@ export function GroupedTasksView({
         </div>
       )}
 
-      {/* Ungrouped occupations */}
-      {ungrouped_occupations.length > 0 && (
+      {/* Ungrouped roles */}
+      {ungrouped_roles.length > 0 && (
         <div className="space-y-3">
           <h3 className="text-sm font-medium text-muted uppercase tracking-wide">
-            Ungrouped Occupations ({ungrouped_occupations.length})
+            Ungrouped Roles ({ungrouped_roles.length})
           </h3>
           <div className="surface rounded-lg divide-y divide-border">
-            {ungrouped_occupations.map((occupation) => {
-              const key = `ungrouped-${occupation.onet_code}`
+            {ungrouped_roles.map((role) => {
+              const key = `ungrouped-${role.role_mapping_id}`
               return (
-                <OccupationTaskCard
+                <RoleTaskCard
                   key={key}
-                  occupation={occupation}
-                  isExpanded={expandedOccupations.has(key)}
-                  onToggleExpanded={() => toggleOccupationExpanded(key)}
+                  role={role}
+                  isExpanded={expandedRoles.has(key)}
+                  onToggleExpanded={() => toggleRoleExpanded(key)}
                   onToggleTask={onToggleTask}
-                  onSelectAll={(selected) => onSelectAllForOccupation(occupation.onet_code, selected)}
+                  onSelectAll={(selected) => onSelectAllForRole(role.role_mapping_id, selected)}
                   isUpdating={isUpdating}
                 />
               )
@@ -155,7 +155,7 @@ export function GroupedTasksView({
       )}
 
       {/* Empty state */}
-      {lob_groups.length === 0 && ungrouped_occupations.length === 0 && (
+      {lob_groups.length === 0 && ungrouped_roles.length === 0 && (
         <div className="text-center py-12">
           <p className="text-muted">No tasks found. Please confirm role mappings first.</p>
         </div>
@@ -186,30 +186,30 @@ function StatCard({ label, value, variant = 'default' }: StatCardProps) {
   )
 }
 
-interface LobTaskGroupCardProps {
-  group: LobTaskGroup
+interface LobRoleGroupCardProps {
+  group: LobSourceRoleTaskGroup
   isExpanded: boolean
   onToggleExpanded: () => void
-  expandedOccupations: Set<string>
-  onToggleOccupation: (key: string) => void
+  expandedRoles: Set<string>
+  onToggleRole: (key: string) => void
   onToggleTask: (selectionId: string) => void
-  onSelectAllForOccupation: (onetCode: string, selected: boolean, lob?: string) => void
+  onSelectAllForRole: (roleMappingId: string, selected: boolean) => void
   onSelectAllForLob: (lob: string, selected: boolean) => void
   isUpdating?: boolean
 }
 
-function LobTaskGroupCard({
+function LobRoleGroupCard({
   group,
   isExpanded,
   onToggleExpanded,
-  expandedOccupations,
-  onToggleOccupation,
+  expandedRoles,
+  onToggleRole,
   onToggleTask,
-  onSelectAllForOccupation,
+  onSelectAllForRole,
   onSelectAllForLob,
   isUpdating = false,
-}: LobTaskGroupCardProps) {
-  const { summary, occupations, lob } = group
+}: LobRoleGroupCardProps) {
+  const { summary, roles, lob } = group
 
   const selectionRate = summary.total_tasks > 0
     ? summary.selected_count / summary.total_tasks
@@ -232,7 +232,7 @@ function LobTaskGroupCard({
           <div className="text-left">
             <h3 className="font-display font-semibold text-default">{lob}</h3>
             <p className="text-sm text-muted">
-              {summary.occupation_count} occupations · {summary.total_employees.toLocaleString()} employees
+              {summary.role_count} roles · {summary.total_employees.toLocaleString()} employees
             </p>
           </div>
         </div>
@@ -257,7 +257,7 @@ function LobTaskGroupCard({
           {/* Bulk actions for LOB */}
           <div className="p-3 bg-bg-muted/50 flex items-center justify-between">
             <span className="text-sm text-muted">
-              {summary.occupation_count} occupations in this LOB
+              {summary.role_count} roles in this LOB
             </span>
             <Button
               variant="secondary"
@@ -270,19 +270,18 @@ function LobTaskGroupCard({
             </Button>
           </div>
 
-          {/* Occupations list */}
+          {/* Roles list */}
           <div className="divide-y divide-border">
-            {occupations.map((occupation) => {
-              const key = `${lob}-${occupation.onet_code}`
+            {roles.map((role) => {
+              const key = `${lob}-${role.role_mapping_id}`
               return (
-                <OccupationTaskCard
+                <RoleTaskCard
                   key={key}
-                  occupation={occupation}
-                  lob={lob}
-                  isExpanded={expandedOccupations.has(key)}
-                  onToggleExpanded={() => onToggleOccupation(key)}
+                  role={role}
+                  isExpanded={expandedRoles.has(key)}
+                  onToggleExpanded={() => onToggleRole(key)}
                   onToggleTask={onToggleTask}
-                  onSelectAll={(selected) => onSelectAllForOccupation(occupation.onet_code, selected, lob)}
+                  onSelectAll={(selected) => onSelectAllForRole(role.role_mapping_id, selected)}
                   isUpdating={isUpdating}
                 />
               )
@@ -294,9 +293,8 @@ function LobTaskGroupCard({
   )
 }
 
-interface OccupationTaskCardProps {
-  occupation: OnetTaskGroup
-  lob?: string
+interface RoleTaskCardProps {
+  role: SourceRoleTaskGroup
   isExpanded: boolean
   onToggleExpanded: () => void
   onToggleTask: (selectionId: string) => void
@@ -304,23 +302,22 @@ interface OccupationTaskCardProps {
   isUpdating?: boolean
 }
 
-function OccupationTaskCard({
-  occupation,
-  lob: _lob,
+function RoleTaskCard({
+  role,
   isExpanded,
   onToggleExpanded,
   onToggleTask,
   onSelectAll,
   isUpdating = false,
-}: OccupationTaskCardProps) {
-  const selectedCount = occupation.tasks.filter((t) => t.selected).length
-  const totalCount = occupation.tasks.length
+}: RoleTaskCardProps) {
+  const selectedCount = role.tasks.filter((t) => t.selected).length
+  const totalCount = role.tasks.length
   const allSelected = selectedCount === totalCount && totalCount > 0
   const selectionRate = totalCount > 0 ? selectedCount / totalCount : 0
 
   return (
     <div className="bg-elevated/30">
-      {/* Occupation header */}
+      {/* Role header */}
       <div className="flex items-center">
         <button
           onClick={onToggleExpanded}
@@ -332,21 +329,18 @@ function OccupationTaskCard({
             {isExpanded ? <IconChevronDown size={18} /> : <IconChevronRight size={18} />}
           </div>
 
-          {/* Occupation info */}
+          {/* Role info */}
           <div className="flex-1 min-w-0">
             <h4 className="font-display font-medium text-default truncate">
-              {occupation.onet_title}
+              {role.source_role}
             </h4>
             <div className="flex items-center gap-3 mt-1">
-              <span className="text-xs text-muted">{occupation.onet_code}</span>
-              {occupation.source_roles.length > 1 && (
-                <span className="text-xs text-subtle">
-                  ({occupation.source_roles.length} roles)
-                </span>
-              )}
+              <span className="text-xs text-subtle" title={role.onet_code}>
+                {role.onet_title}
+              </span>
               <div className="flex items-center gap-1 text-muted">
                 <IconUsers size={12} />
-                <span className="text-xs">{occupation.employee_count}</span>
+                <span className="text-xs">{role.employee_count}</span>
               </div>
             </div>
           </div>
@@ -396,17 +390,12 @@ function OccupationTaskCard({
       {/* Task list (expanded) */}
       {isExpanded && (
         <div className="border-t border-border">
-          {occupation.source_roles.length > 1 && (
-            <div className="px-4 py-2 bg-info/5 text-xs text-info">
-              Tasks shared by: {occupation.source_roles.join(', ')}
-            </div>
-          )}
           {totalCount === 0 ? (
             <div className="p-4 text-center text-muted text-sm">
-              No tasks found for this occupation.
+              No tasks found for this role.
             </div>
           ) : (
-            occupation.tasks.map((task) => (
+            role.tasks.map((task) => (
               <TaskRow
                 key={task.id}
                 task={task}

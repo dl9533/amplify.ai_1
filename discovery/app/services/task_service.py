@@ -507,6 +507,170 @@ class TaskService:
             "ungrouped_occupations": ungrouped_occupations,
         }
 
+    async def get_tasks_grouped_by_source_role(
+        self,
+        session_id: UUID,
+    ) -> dict[str, Any]:
+        """Get tasks grouped by LOB and organizational role (source_role).
+
+        This groups tasks hierarchically by organizational role, not O*NET occupation:
+        - LOB (Line of Business)
+          └── Source Role (organizational role name)
+               └── Tasks (with independent selection state per role)
+
+        Each organizational role gets its own task list even if multiple roles
+        map to the same O*NET occupation. This allows users to manage task
+        selections per their familiar role names.
+
+        Args:
+            session_id: Discovery session ID.
+
+        Returns:
+            Dict with session_id, overall_summary, lob_groups, ungrouped_roles.
+        """
+        if not self.role_mapping_repository:
+            return {
+                "session_id": str(session_id),
+                "overall_summary": {
+                    "total_tasks": 0,
+                    "selected_count": 0,
+                    "role_count": 0,
+                    "total_employees": 0,
+                },
+                "lob_groups": [],
+                "ungrouped_roles": [],
+            }
+
+        # Get confirmed role mappings
+        mappings = await self.role_mapping_repository.get_for_session(session_id)
+        confirmed = [m for m in mappings if m.user_confirmed and m.onet_code]
+
+        if not confirmed:
+            return {
+                "session_id": str(session_id),
+                "overall_summary": {
+                    "total_tasks": 0,
+                    "selected_count": 0,
+                    "role_count": 0,
+                    "total_employees": 0,
+                },
+                "lob_groups": [],
+                "ungrouped_roles": [],
+            }
+
+        # Get all task selections for session
+        selections = await self.selection_repository.get_for_session(session_id)
+
+        # Build mapping lookup: role_mapping_id -> mapping info
+        mapping_lookup = {
+            str(m.id): {
+                "onet_code": m.onet_code,
+                "onet_title": m.onet_title,
+                "source_role": m.source_role,
+                "lob": m.lob_value,
+                "employee_count": m.row_count or 1,
+            }
+            for m in confirmed
+        }
+
+        # Group tasks by role_mapping_id
+        tasks_by_mapping: dict[str, list[dict[str, Any]]] = {}
+        for s in selections:
+            mapping_id = str(s.role_mapping_id)
+            if mapping_id not in mapping_lookup:
+                continue
+            if mapping_id not in tasks_by_mapping:
+                tasks_by_mapping[mapping_id] = []
+            tasks_by_mapping[mapping_id].append({
+                "id": str(s.id),
+                "role_mapping_id": mapping_id,
+                "task_id": s.task_id,
+                "description": s.task.description if s.task else None,
+                "importance": s.task.importance if s.task else None,
+                "selected": s.selected,
+                "user_modified": s.user_modified,
+            })
+
+        # Group by LOB -> source_role (no O*NET consolidation)
+        # Structure: {lob: {mapping_id: SourceRoleTaskGroup}}
+        lob_to_roles: dict[str | None, dict[str, dict[str, Any]]] = {}
+
+        for mapping_id, info in mapping_lookup.items():
+            lob = info["lob"]
+
+            if lob not in lob_to_roles:
+                lob_to_roles[lob] = {}
+
+            # Each role_mapping gets its own entry (no consolidation)
+            lob_to_roles[lob][mapping_id] = {
+                "role_mapping_id": mapping_id,
+                "source_role": info["source_role"],
+                "onet_code": info["onet_code"],
+                "onet_title": info["onet_title"] or "Unknown",
+                "employee_count": info["employee_count"],
+                "tasks": tasks_by_mapping.get(mapping_id, []),
+            }
+
+        # Build LOB groups and calculate summaries
+        lob_groups = []
+        ungrouped_roles = []
+        overall_total_tasks = 0
+        overall_selected_count = 0
+        overall_role_count = 0
+        overall_total_employees = 0
+
+        for lob, roles_dict in sorted(
+            lob_to_roles.items(),
+            key=lambda x: (x[0] is None, x[0] or ""),
+        ):
+            role_list = list(roles_dict.values())
+
+            # Sort roles by source_role name for consistent display
+            role_list.sort(key=lambda r: r["source_role"])
+
+            # Calculate group summary
+            group_total_tasks = sum(len(role["tasks"]) for role in role_list)
+            group_selected_count = sum(
+                sum(1 for t in role["tasks"] if t["selected"])
+                for role in role_list
+            )
+            group_role_count = len(role_list)
+            group_total_employees = sum(
+                role["employee_count"] for role in role_list
+            )
+
+            # Update overall totals
+            overall_total_tasks += group_total_tasks
+            overall_selected_count += group_selected_count
+            overall_role_count += group_role_count
+            overall_total_employees += group_total_employees
+
+            if lob is None:
+                ungrouped_roles.extend(role_list)
+            else:
+                lob_groups.append({
+                    "lob": lob,
+                    "summary": {
+                        "total_tasks": group_total_tasks,
+                        "selected_count": group_selected_count,
+                        "role_count": group_role_count,
+                        "total_employees": group_total_employees,
+                    },
+                    "roles": role_list,
+                })
+
+        return {
+            "session_id": str(session_id),
+            "overall_summary": {
+                "total_tasks": overall_total_tasks,
+                "selected_count": overall_selected_count,
+                "role_count": overall_role_count,
+                "total_employees": overall_total_employees,
+            },
+            "lob_groups": lob_groups,
+            "ungrouped_roles": ungrouped_roles,
+        }
+
     async def bulk_update_by_onet_code(
         self,
         session_id: UUID,

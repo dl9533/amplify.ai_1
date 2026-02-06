@@ -5,10 +5,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from app.schemas.task import (
+    GroupedTasksByRoleResponse,
     GroupedTasksResponse,
+    LobSourceRoleTaskGroup,
     LobTaskGroup,
     OnetTaskGroup,
+    RoleGroupSummary,
     RoleMappingTasksResponse,
+    SourceRoleTaskGroup,
     TaskBulkUpdateRequest,
     TaskBulkUpdateResponse,
     TaskGroupSummary,
@@ -192,6 +196,70 @@ async def get_tasks_grouped_by_lob(
         ],
         ungrouped_occupations=[
             build_onet_group(occ) for occ in result["ungrouped_occupations"]
+        ],
+    )
+
+
+@router.get(
+    "/sessions/{session_id}/tasks/grouped-by-source-role",
+    response_model=GroupedTasksByRoleResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get tasks grouped by LOB and organizational role",
+    description="Retrieves all tasks for a session grouped by Line of Business and organizational role. "
+    "Each role gets its own task list with independent selection state, even if multiple roles "
+    "map to the same O*NET occupation. This allows users to manage tasks per their familiar role names.",
+)
+async def get_tasks_grouped_by_source_role(
+    session_id: UUID,
+    service: TaskService = Depends(get_task_service),
+) -> GroupedTasksByRoleResponse:
+    """Get tasks grouped by LOB and organizational role for role-centric Activities tab."""
+    result = await service.get_tasks_grouped_by_source_role(session_id=session_id)
+
+    def build_task_response(t: dict) -> TaskResponse:
+        return TaskResponse(
+            id=UUID(t["id"]),
+            role_mapping_id=UUID(t["role_mapping_id"]),
+            task_id=t["task_id"],
+            description=t.get("description"),
+            importance=t.get("importance"),
+            selected=t["selected"],
+            user_modified=t["user_modified"],
+        )
+
+    def build_role_group(role: dict) -> SourceRoleTaskGroup:
+        return SourceRoleTaskGroup(
+            role_mapping_id=UUID(role["role_mapping_id"]),
+            source_role=role["source_role"],
+            onet_code=role["onet_code"],
+            onet_title=role["onet_title"],
+            employee_count=role["employee_count"],
+            tasks=[build_task_response(t) for t in role["tasks"]],
+        )
+
+    return GroupedTasksByRoleResponse(
+        session_id=UUID(result["session_id"]),
+        overall_summary=RoleGroupSummary(
+            total_tasks=result["overall_summary"]["total_tasks"],
+            selected_count=result["overall_summary"]["selected_count"],
+            role_count=result["overall_summary"]["role_count"],
+            total_employees=result["overall_summary"]["total_employees"],
+        ),
+        lob_groups=[
+            LobSourceRoleTaskGroup(
+                lob=group["lob"],
+                summary=RoleGroupSummary(
+                    total_tasks=group["summary"]["total_tasks"],
+                    selected_count=group["summary"]["selected_count"],
+                    role_count=group["summary"]["role_count"],
+                    total_employees=group["summary"]["total_employees"],
+                ),
+                roles=[build_role_group(role) for role in group["roles"]],
+            )
+            for group in result["lob_groups"]
+        ],
+        ungrouped_roles=[
+            build_role_group(role) for role in result["ungrouped_roles"]
         ],
     )
 

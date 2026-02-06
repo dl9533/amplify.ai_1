@@ -3,14 +3,14 @@ import enum
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import String, DateTime, Float, Enum, ForeignKey, func
+from sqlalchemy import String, DateTime, Float, Integer, Enum, ForeignKey, func
 from sqlalchemy.dialects.postgresql import UUID as PGUUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
 
 
-class AnalysisDimension(enum.Enum):
+class AnalysisDimension(str, enum.Enum):
     """Dimension for analysis grouping."""
     ROLE = "role"
     TASK = "task"
@@ -41,7 +41,12 @@ class DiscoveryAnalysisResult(Base):
         index=True,
     )
     dimension: Mapped[AnalysisDimension] = mapped_column(
-        Enum(AnalysisDimension),
+        Enum(
+            AnalysisDimension,
+            name="analysis_dimension",
+            create_constraint=False,
+            values_callable=lambda x: [e.value for e in x],
+        ),
         nullable=False,
     )
     dimension_value: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -49,6 +54,7 @@ class DiscoveryAnalysisResult(Base):
     impact_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     complexity_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     priority_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    row_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     breakdown: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

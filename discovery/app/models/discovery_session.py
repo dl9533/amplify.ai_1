@@ -10,12 +10,13 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base
 
 
-class SessionStatus(enum.Enum):
+class SessionStatus(str, enum.Enum):
     """Discovery session status."""
-    DRAFT = "draft"
-    IN_PROGRESS = "in_progress"
-    COMPLETED = "completed"
-    ARCHIVED = "archived"
+    PENDING = "pending"
+    UPLOAD_COMPLETE = "upload_complete"
+    MAPPING_COMPLETE = "mapping_complete"
+    ANALYSIS_COMPLETE = "analysis_complete"
+    FINALIZED = "finalized"
 
 
 class DiscoverySession(Base):
@@ -30,8 +31,13 @@ class DiscoverySession(Base):
     user_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False, index=True)
     organization_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False, index=True)
     status: Mapped[SessionStatus] = mapped_column(
-        Enum(SessionStatus),
-        default=SessionStatus.DRAFT,
+        Enum(
+            SessionStatus,
+            name="discovery_status",
+            create_constraint=False,
+            values_callable=lambda x: [e.value for e in x],
+        ),
+        default=SessionStatus.PENDING,
         nullable=False,
     )
     current_step: Mapped[int] = mapped_column(Integer, default=1, nullable=False)

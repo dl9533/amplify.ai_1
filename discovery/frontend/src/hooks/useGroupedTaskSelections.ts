@@ -2,23 +2,23 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import {
   tasksApi,
   ApiError,
-  GroupedTasksResponse,
+  GroupedTasksByRoleResponse,
 } from '../services'
 
 export interface UseGroupedTaskSelectionsReturn {
-  data: GroupedTasksResponse | null
+  data: GroupedTasksByRoleResponse | null
   isLoading: boolean
   isLoadingTasks: boolean
   isUpdating: boolean
   error: string | null
   toggleTask: (selectionId: string) => Promise<void>
-  selectAllForOccupation: (onetCode: string, selected: boolean, lob?: string) => Promise<void>
+  selectAllForRole: (roleMappingId: string, selected: boolean) => Promise<void>
   selectAllForLob: (lob: string, selected: boolean) => Promise<void>
   refresh: () => Promise<void>
 }
 
 export function useGroupedTaskSelections(sessionId?: string): UseGroupedTaskSelectionsReturn {
-  const [data, setData] = useState<GroupedTasksResponse | null>(null)
+  const [data, setData] = useState<GroupedTasksByRoleResponse | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isLoadingTasks, setIsLoadingTasks] = useState(false)
   const [isUpdating, setIsUpdating] = useState(false)
@@ -34,7 +34,7 @@ export function useGroupedTaskSelections(sessionId?: string): UseGroupedTaskSele
 
       await tasksApi.loadForSession(sessionId)
       // After loading, fetch grouped data
-      const response = await tasksApi.getGroupedByLob(sessionId)
+      const response = await tasksApi.getGroupedBySourceRole(sessionId)
       setData(response)
     } catch (err) {
       const message =
@@ -62,7 +62,7 @@ export function useGroupedTaskSelections(sessionId?: string): UseGroupedTaskSele
       }
       setError(null)
 
-      const response = await tasksApi.getGroupedByLob(sessionId)
+      const response = await tasksApi.getGroupedBySourceRole(sessionId)
 
       // If no tasks exist and we haven't tried loading yet, auto-load from O*NET
       if (response.overall_summary.total_tasks === 0 && !hasAttemptedLoad.current) {
@@ -101,16 +101,16 @@ export function useGroupedTaskSelections(sessionId?: string): UseGroupedTaskSele
     // Find the current selection state
     let isCurrentlySelected = false
     for (const lobGroup of data.lob_groups) {
-      for (const occ of lobGroup.occupations) {
-        const task = occ.tasks.find((t) => t.id === selectionId)
+      for (const role of lobGroup.roles) {
+        const task = role.tasks.find((t) => t.id === selectionId)
         if (task) {
           isCurrentlySelected = task.selected
           break
         }
       }
     }
-    for (const occ of data.ungrouped_occupations) {
-      const task = occ.tasks.find((t) => t.id === selectionId)
+    for (const role of data.ungrouped_roles) {
+      const task = role.tasks.find((t) => t.id === selectionId)
       if (task) {
         isCurrentlySelected = task.selected
         break
@@ -130,24 +130,24 @@ export function useGroupedTaskSelections(sessionId?: string): UseGroupedTaskSele
           ...lobGroup,
           summary: {
             ...lobGroup.summary,
-            selected_count: lobGroup.occupations.some((occ) =>
-              occ.tasks.some((t) => t.id === selectionId)
+            selected_count: lobGroup.roles.some((role) =>
+              role.tasks.some((t) => t.id === selectionId)
             )
               ? lobGroup.summary.selected_count + (isCurrentlySelected ? -1 : 1)
               : lobGroup.summary.selected_count,
           },
-          occupations: lobGroup.occupations.map((occ) => ({
-            ...occ,
-            tasks: occ.tasks.map((t) =>
+          roles: lobGroup.roles.map((role) => ({
+            ...role,
+            tasks: role.tasks.map((t) =>
               t.id === selectionId
                 ? { ...t, selected: !isCurrentlySelected, user_modified: true }
                 : t
             ),
           })),
         })),
-        ungrouped_occupations: prev.ungrouped_occupations.map((occ) => ({
-          ...occ,
-          tasks: occ.tasks.map((t) =>
+        ungrouped_roles: prev.ungrouped_roles.map((role) => ({
+          ...role,
+          tasks: role.tasks.map((t) =>
             t.id === selectionId
               ? { ...t, selected: !isCurrentlySelected, user_modified: true }
               : t
@@ -171,15 +171,29 @@ export function useGroupedTaskSelections(sessionId?: string): UseGroupedTaskSele
     }
   }, [data])
 
-  const selectAllForOccupation = useCallback(
-    async (onetCode: string, selected: boolean, lob?: string) => {
+  const selectAllForRole = useCallback(
+    async (roleMappingId: string, selected: boolean) => {
       if (!sessionId || !data) return
+
+      // Find the role to get its task IDs
+      let targetRole = null
+      for (const lobGroup of data.lob_groups) {
+        targetRole = lobGroup.roles.find((r) => r.role_mapping_id === roleMappingId)
+        if (targetRole) break
+      }
+      if (!targetRole) {
+        targetRole = data.ungrouped_roles.find((r) => r.role_mapping_id === roleMappingId)
+      }
+      if (!targetRole) return
 
       try {
         setIsUpdating(true)
         setError(null)
 
-        await tasksApi.bulkUpdateByOnetCode(sessionId, onetCode, selected, lob)
+        // Get all task IDs for this role
+        const taskIds = targetRole.tasks.map((t) => t.task_id)
+        await tasksApi.bulkUpdate(roleMappingId, taskIds, selected)
+
         // Refresh to get updated data
         await loadGroupedTasks(false)
       } catch (err) {
@@ -208,12 +222,12 @@ export function useGroupedTaskSelections(sessionId?: string): UseGroupedTaskSele
         setIsUpdating(true)
         setError(null)
 
-        // Update all occupations in the LOB in parallel for better performance
-        // and atomic failure behavior (all succeed or all fail)
+        // Update all roles in the LOB in parallel
         await Promise.all(
-          lobGroup.occupations.map((occ) =>
-            tasksApi.bulkUpdateByOnetCode(sessionId, occ.onet_code, selected, lob)
-          )
+          lobGroup.roles.map((role) => {
+            const taskIds = role.tasks.map((t) => t.task_id)
+            return tasksApi.bulkUpdate(role.role_mapping_id, taskIds, selected)
+          })
         )
 
         // Refresh to get updated data
@@ -242,7 +256,7 @@ export function useGroupedTaskSelections(sessionId?: string): UseGroupedTaskSele
     isUpdating,
     error,
     toggleTask,
-    selectAllForOccupation,
+    selectAllForRole,
     selectAllForLob,
     refresh: loadGroupedTasks,
   }

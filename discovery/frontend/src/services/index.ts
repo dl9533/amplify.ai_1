@@ -64,6 +64,11 @@ export {
   type OnetTaskGroup,
   type LobTaskGroup,
   type GroupedTasksResponse,
+  // Role-Centric Task Types
+  type RoleGroupSummary,
+  type SourceRoleTaskGroup,
+  type LobSourceRoleTaskGroup,
+  type GroupedTasksByRoleResponse,
   // Analysis API
   analysisApi,
   type PriorityTier,

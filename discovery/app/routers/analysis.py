@@ -79,6 +79,7 @@ def _dict_to_analysis_result(data: dict) -> AnalysisResult:
         complexity_score=data["complexity_score"],
         priority_score=data["priority_score"],
         priority_tier=_convert_priority_tier(data["priority_tier"]),
+        row_count=data.get("row_count"),
     )
 
 

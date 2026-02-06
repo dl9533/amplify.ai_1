@@ -138,6 +138,7 @@ class AnalysisService:
                 "impact_score": scores["impact"],
                 "complexity_score": scores["complexity"],
                 "priority_score": scores["priority"],
+                "row_count": mapping.row_count,
                 "breakdown": {
                     "dwa_count": len(selected_dwas),
                     "priority_tier": priority_tier,
@@ -222,6 +223,7 @@ class AnalysisService:
                 "impact_score": scores["impact"],
                 "complexity_score": scores["complexity"],
                 "priority_score": scores["priority"],
+                "row_count": mapping.row_count,
                 "breakdown": {
                     "task_count": len(selected_tasks),
                     "dwa_count": len(dwa_ids),
@@ -271,6 +273,7 @@ class AnalysisService:
                 "complexity_score": r.complexity_score,
                 "priority_score": r.priority_score,
                 "priority_tier": tier,
+                "row_count": r.row_count,
             })
 
         return {"dimension": dimension.value, "results": formatted}

@@ -15,11 +15,11 @@ import {
 import { useAnalysisResults, Dimension, PriorityTier } from '../../hooks/useAnalysisResults'
 
 const DIMENSIONS: { key: Dimension; label: string }[] = [
-  { key: 'ROLE', label: 'By Role' },
-  { key: 'DEPARTMENT', label: 'By Department' },
-  { key: 'GEOGRAPHY', label: 'By Geography' },
-  { key: 'TASK', label: 'By Task' },
-  { key: 'LOB', label: 'By Line of Business' },
+  { key: 'role', label: 'By Role' },
+  { key: 'department', label: 'By Department' },
+  { key: 'geography', label: 'By Geography' },
+  { key: 'task', label: 'By Task' },
+  { key: 'lob', label: 'By Line of Business' },
 ]
 
 const TIERS: { key: PriorityTier | 'ALL'; label: string }[] = [
@@ -29,12 +29,12 @@ const TIERS: { key: PriorityTier | 'ALL'; label: string }[] = [
   { key: 'LOW', label: 'Low' },
 ]
 
-type SortKey = 'name' | 'exposure' | 'impact' | 'priority'
+type SortKey = 'name' | 'exposure' | 'impact' | 'priority' | 'rowCount'
 type SortDir = 'asc' | 'desc'
 
 export function AnalysisStep() {
   const { sessionId } = useParams()
-  const [activeDimension, setActiveDimension] = useState<Dimension>('ROLE')
+  const [activeDimension, setActiveDimension] = useState<Dimension>('role')
   const [activeTier, setActiveTier] = useState<PriorityTier | 'ALL'>('ALL')
   const [sortKey, setSortKey] = useState<SortKey>('priority')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
@@ -70,6 +70,9 @@ export function AnalysisStep() {
         case 'priority':
           comparison = a.priority - b.priority
           break
+        case 'rowCount':
+          comparison = (a.rowCount ?? 0) - (b.rowCount ?? 0)
+          break
       }
       return sortDir === 'asc' ? comparison : -comparison
     })
@@ -78,18 +81,20 @@ export function AnalysisStep() {
   // Summary stats
   const stats = useMemo(() => {
     if (!results || results.length === 0) {
-      return { total: 0, highCount: 0, avgExposure: 0, avgPriority: 0 }
+      return { total: 0, highCount: 0, avgExposure: 0, avgPriority: 0, totalEmployees: 0 }
     }
 
     const highCount = results.filter((r) => r.tier === 'HIGH').length
     const avgExposure = results.reduce((sum, r) => sum + r.exposure, 0) / results.length
     const avgPriority = results.reduce((sum, r) => sum + r.priority, 0) / results.length
+    const totalEmployees = results.reduce((sum, r) => sum + (r.rowCount ?? 0), 0)
 
     return {
       total: results.length,
       highCount,
       avgExposure,
       avgPriority,
+      totalEmployees,
     }
   }, [results])
 
@@ -132,12 +137,18 @@ export function AnalysisStep() {
           }
         >
           {/* Summary stats */}
-          <div className="grid grid-cols-4 gap-4 mb-6">
+          <div className="grid grid-cols-5 gap-4 mb-6">
             <div className="surface p-4 text-center">
               <p className="text-2xl font-display font-bold text-default">
                 {stats.total}
               </p>
-              <p className="text-xs text-muted">Total Items</p>
+              <p className="text-xs text-muted">Total Roles</p>
+            </div>
+            <div className="surface p-4 text-center">
+              <p className="text-2xl font-display font-bold text-default">
+                {stats.totalEmployees.toLocaleString()}
+              </p>
+              <p className="text-xs text-muted">Total Employees</p>
             </div>
             <div className="surface p-4 text-center">
               <p className="text-2xl font-display font-bold text-success">
@@ -232,6 +243,15 @@ export function AnalysisStep() {
                       </th>
                       <th className="text-left p-4">
                         <button
+                          onClick={() => handleSort('rowCount')}
+                          className="flex items-center gap-1 text-xs font-medium text-muted uppercase tracking-wide hover:text-default"
+                        >
+                          Employees
+                          <SortIcon column="rowCount" />
+                        </button>
+                      </th>
+                      <th className="text-left p-4">
+                        <button
                           onClick={() => handleSort('exposure')}
                           className="flex items-center gap-1 text-xs font-medium text-muted uppercase tracking-wide hover:text-default"
                         >
@@ -274,6 +294,11 @@ export function AnalysisStep() {
                         <td className="p-4">
                           <span className="font-medium text-default">
                             {result.name}
+                          </span>
+                        </td>
+                        <td className="p-4">
+                          <span className="text-default tabular-nums">
+                            {result.rowCount ?? '-'}
                           </span>
                         </td>
                         <td className="p-4">

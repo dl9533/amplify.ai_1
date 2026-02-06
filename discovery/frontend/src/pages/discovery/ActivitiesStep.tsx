@@ -14,7 +14,7 @@ export function ActivitiesStep() {
     isUpdating,
     error,
     toggleTask,
-    selectAllForOccupation,
+    selectAllForRole,
     selectAllForLob,
   } = useGroupedTaskSelections(sessionId || '')
 
@@ -50,13 +50,13 @@ export function ActivitiesStep() {
       <DiscoveryWizard currentStep={3} canProceed={canProceed}>
         <StepContent
           title="Review Tasks"
-          description="Review the O*NET tasks for each occupation. Tasks are grouped by Line of Business. All tasks are selected by default. Deselect any tasks that don't apply to your organization."
+          description="Review the O*NET tasks for each role. Tasks are grouped by Line of Business and organizational role. All tasks are selected by default. Deselect any tasks that don't apply to your organization."
         >
           {data ? (
             <GroupedTasksView
               data={data}
               onToggleTask={toggleTask}
-              onSelectAllForOccupation={selectAllForOccupation}
+              onSelectAllForRole={selectAllForRole}
               onSelectAllForLob={selectAllForLob}
               isUpdating={isUpdating}
             />
