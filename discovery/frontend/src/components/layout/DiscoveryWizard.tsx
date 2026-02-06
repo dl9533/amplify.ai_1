@@ -106,7 +106,7 @@ export function DiscoveryWizard({
   }
 
   return (
-    <div className="min-h-[calc(100vh-3.5rem)] flex flex-col">
+    <div className="h-[calc(100vh-3.5rem)] flex flex-col">
       {/* Wizard header with step indicator */}
       <div className="border-b border-border bg-elevated/30">
         <div className="max-w-[1600px] mx-auto px-6">
