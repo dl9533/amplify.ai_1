@@ -4,7 +4,19 @@ from enum import Enum
 from typing import List
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from app.data import VALID_NAICS_SECTORS
+
+
+def _validate_naics_sector(v: str | None) -> str | None:
+    """Validate that a NAICS sector code is in the valid list."""
+    if v is not None and v not in VALID_NAICS_SECTORS:
+        raise ValueError(
+            f"Invalid NAICS sector code: {v}. "
+            f"Must be one of: {', '.join(sorted(VALID_NAICS_SECTORS))}"
+        )
+    return v
 
 
 class SessionStatus(str, Enum):
@@ -22,6 +34,19 @@ class SessionCreate(BaseModel):
         ...,
         description="The organization ID for the session",
     )
+    industry_naics_sector: str | None = Field(
+        default=None,
+        min_length=2,
+        max_length=2,
+        pattern=r"^\d{2}$",
+        description="2-digit NAICS sector code for the company's industry",
+    )
+
+    @field_validator("industry_naics_sector")
+    @classmethod
+    def validate_naics_sector(cls, v: str | None) -> str | None:
+        """Validate NAICS sector code against known values."""
+        return _validate_naics_sector(v)
 
 
 class SessionResponse(BaseModel):
@@ -38,6 +63,10 @@ class SessionResponse(BaseModel):
     current_step: int = Field(
         ...,
         description="Current step number in the discovery workflow",
+    )
+    industry_naics_sector: str | None = Field(
+        default=None,
+        description="2-digit NAICS sector code for the company's industry",
     )
     created_at: datetime = Field(
         ...,
@@ -82,3 +111,21 @@ class StepUpdate(BaseModel):
         gt=0,
         description="The new step number (must be positive)",
     )
+
+
+class IndustryUpdate(BaseModel):
+    """Schema for updating session industry."""
+
+    industry_naics_sector: str | None = Field(
+        default=None,
+        min_length=2,
+        max_length=2,
+        pattern=r"^\d{2}$",
+        description="2-digit NAICS sector code for the company's industry (null to clear)",
+    )
+
+    @field_validator("industry_naics_sector")
+    @classmethod
+    def validate_naics_sector(cls, v: str | None) -> str | None:
+        """Validate NAICS sector code against known values."""
+        return _validate_naics_sector(v)

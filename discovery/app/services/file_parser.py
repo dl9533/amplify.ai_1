@@ -24,6 +24,12 @@ class FileParser:
         r"(?i).*department.*",
         r"(?i).*dept.*",
     ]
+    LOB_PATTERNS = [
+        r"(?i)^(lob|line[_\s]?of[_\s]?business|business[_\s]?line|business[_\s]?unit|segment)$",
+        r"(?i).*line[_\s]?of[_\s]?business.*",
+        r"(?i).*business[_\s]?line.*",
+        r"(?i).*business[_\s]?unit.*",
+    ]
     GEOGRAPHY_PATTERNS = [
         r"(?i)^(location|city|region|country|office|site)$",
         r"(?i).*location.*",
@@ -97,6 +103,7 @@ class FileParser:
         suggestions: dict[str, str | None] = {
             "role": None,
             "department": None,
+            "lob": None,
             "geography": None,
         }
 
@@ -109,6 +116,11 @@ class FileParser:
             for pattern in self.DEPARTMENT_PATTERNS:
                 if re.match(pattern, col) and suggestions["department"] is None:
                     suggestions["department"] = col
+                    break
+
+            for pattern in self.LOB_PATTERNS:
+                if re.match(pattern, col) and suggestions["lob"] is None:
+                    suggestions["lob"] = col
                     break
 
             for pattern in self.GEOGRAPHY_PATTERNS:
@@ -163,6 +175,77 @@ class FileParser:
             {"value": str(val), "count": int(count)}
             for val, count in value_counts.items()
         ]
+
+    def extract_role_lob_values(
+        self,
+        content: bytes,
+        filename: str,
+        role_column: str,
+        lob_column: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Extract unique role values with optional LOB association.
+
+        Groups rows by role (and LOB if provided) and counts occurrences.
+
+        Args:
+            content: File content.
+            filename: Original filename.
+            role_column: Column name containing roles.
+            lob_column: Optional column name containing LOB values.
+
+        Returns:
+            List of dicts with role, count, and optionally lob.
+
+        Raises:
+            FileParseException: If columns don't exist or file can't be parsed.
+        """
+        ext = self._get_safe_extension(filename)
+
+        try:
+            if ext == "csv":
+                df = pd.read_csv(io.BytesIO(content))
+            else:
+                df = pd.read_excel(io.BytesIO(content))
+        except Exception as e:
+            raise FileParseException(
+                f"Failed to parse file: {e}",
+                filename=filename,
+            ) from e
+
+        # Validate role column exists
+        if role_column not in df.columns:
+            available_columns = ", ".join(df.columns.tolist())
+            raise FileParseException(
+                f"Column '{role_column}' not found in file. Available columns: {available_columns}",
+                filename=filename,
+            )
+
+        # Validate LOB column exists if provided
+        if lob_column and lob_column not in df.columns:
+            available_columns = ", ".join(df.columns.tolist())
+            raise FileParseException(
+                f"Column '{lob_column}' not found in file. Available columns: {available_columns}",
+                filename=filename,
+            )
+
+        if lob_column:
+            # Group by both role and LOB
+            grouped = df.groupby([role_column, lob_column]).size().reset_index(name="count")
+            return [
+                {
+                    "role": str(row[role_column]),
+                    "lob": str(row[lob_column]) if pd.notna(row[lob_column]) else None,
+                    "count": int(row["count"]),
+                }
+                for _, row in grouped.iterrows()
+            ]
+        else:
+            # Group by role only (fallback to existing behavior)
+            value_counts = df[role_column].value_counts()
+            return [
+                {"role": str(val), "lob": None, "count": int(count)}
+                for val, count in value_counts.items()
+            ]
 
     def _get_safe_extension(self, filename: str) -> str:
         """Safely extract file extension.

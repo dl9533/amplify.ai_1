@@ -3,7 +3,7 @@ import enum
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import String, DateTime, Integer, Enum, func
+from sqlalchemy import String, DateTime, Integer, Enum, func, CheckConstraint
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -35,6 +35,9 @@ class DiscoverySession(Base):
         nullable=False,
     )
     current_step: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    industry_naics_sector: Mapped[str | None] = mapped_column(
+        String(2), nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

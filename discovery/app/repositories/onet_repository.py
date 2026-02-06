@@ -3,7 +3,7 @@ import logging
 from typing import Any, Sequence
 import uuid
 
-from sqlalchemy import func, select, text
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -11,7 +11,7 @@ from sqlalchemy.orm import selectinload
 from app.models import OnetOccupation, OnetGWA, OnetIWA, OnetDWA
 from app.models.onet_occupation import OnetAlternateTitle, OnetSyncLog
 from app.models.onet_occupation_industry import OnetOccupationIndustry
-from app.models.onet_task import OnetTask
+from app.models.onet_task import OnetTask, OnetTaskToDWA
 
 logger = logging.getLogger(__name__)
 
@@ -398,9 +398,7 @@ class OnetRepository:
         logger.info(f"Replacing alternate titles with {len(titles)} records")
 
         # Delete existing alternate titles
-        await self.session.execute(
-            text("DELETE FROM onet_alternate_titles")
-        )
+        await self.session.execute(delete(OnetAlternateTitle))
 
         # Add UUIDs if not present
         for title in titles:
@@ -434,10 +432,8 @@ class OnetRepository:
 
         logger.info(f"Replacing tasks with {len(tasks)} records")
 
-        # Delete existing tasks
-        await self.session.execute(
-            text("DELETE FROM onet_tasks")
-        )
+        # Delete existing tasks (cascades to onet_task_to_dwa)
+        await self.session.execute(delete(OnetTask))
 
         # Bulk insert new tasks in batches to avoid PostgreSQL parameter limit
         for i in range(0, len(tasks), BULK_INSERT_BATCH_SIZE):
@@ -740,3 +736,157 @@ class OnetRepository:
             )
             await self.session.execute(stmt)
         return len(industries)
+
+    # ==========================================================================
+    # Task Methods
+    # ==========================================================================
+
+    async def get_tasks_for_occupation(
+        self,
+        occupation_code: str,
+    ) -> Sequence[OnetTask]:
+        """Get all tasks for an occupation.
+
+        Args:
+            occupation_code: O*NET occupation code (e.g., "15-1252.00").
+
+        Returns:
+            Sequence of OnetTask objects ordered by importance (desc).
+        """
+        stmt = (
+            select(OnetTask)
+            .where(OnetTask.occupation_code == occupation_code)
+            .order_by(OnetTask.importance.desc().nulls_last())
+        )
+        result = await self.session.execute(stmt)
+        return result.scalars().all()
+
+    async def get_tasks_for_occupations(
+        self,
+        occupation_codes: list[str],
+    ) -> Sequence[OnetTask]:
+        """Get all tasks for multiple occupations.
+
+        Args:
+            occupation_codes: List of O*NET occupation codes.
+
+        Returns:
+            Sequence of OnetTask objects.
+        """
+        if not occupation_codes:
+            return []
+
+        stmt = (
+            select(OnetTask)
+            .where(OnetTask.occupation_code.in_(occupation_codes))
+            .order_by(OnetTask.occupation_code, OnetTask.importance.desc().nulls_last())
+        )
+        result = await self.session.execute(stmt)
+        return result.scalars().all()
+
+    async def get_task_id_mapping(
+        self,
+        occupation_codes: list[str] | None = None,
+    ) -> dict[tuple[str, int], int]:
+        """Get mapping from (occupation_code, onet_task_id) to internal task id.
+
+        This is used when loading Task-to-DWA mappings to correlate O*NET's
+        Task IDs with our internal auto-increment IDs.
+
+        Args:
+            occupation_codes: Optional list of occupation codes to filter.
+
+        Returns:
+            Dict mapping (occupation_code, onet_task_id) tuples to internal id.
+        """
+        stmt = select(
+            OnetTask.occupation_code,
+            OnetTask.onet_task_id,
+            OnetTask.id,
+        ).where(OnetTask.onet_task_id.isnot(None))
+
+        if occupation_codes:
+            stmt = stmt.where(OnetTask.occupation_code.in_(occupation_codes))
+
+        result = await self.session.execute(stmt)
+        rows = result.all()
+
+        return {
+            (row.occupation_code, row.onet_task_id): row.id
+            for row in rows
+        }
+
+    # ==========================================================================
+    # Task-to-DWA Mapping Methods
+    # ==========================================================================
+
+    async def bulk_replace_task_to_dwa_mappings(
+        self,
+        mappings: list[dict[str, Any]],
+    ) -> int:
+        """Replace all task-to-DWA mappings with new data.
+
+        Deletes all existing mappings and inserts new ones.
+        Note: Does NOT commit. Caller must manage transaction.
+
+        Args:
+            mappings: List of dicts with task_id (int) and dwa_id (str).
+
+        Returns:
+            Number of rows inserted.
+        """
+        if not mappings:
+            return 0
+
+        logger.info(f"Replacing task-to-DWA mappings with {len(mappings)} records")
+
+        # Delete existing mappings
+        await self.session.execute(delete(OnetTaskToDWA))
+
+        # Bulk insert new mappings in batches
+        for i in range(0, len(mappings), BULK_INSERT_BATCH_SIZE):
+            batch = mappings[i:i + BULK_INSERT_BATCH_SIZE]
+            stmt = insert(OnetTaskToDWA).values(batch)
+            await self.session.execute(stmt)
+
+        return len(mappings)
+
+    async def get_dwas_for_tasks(
+        self,
+        task_ids: list[int],
+    ) -> dict[int, list[str]]:
+        """Get DWA IDs associated with tasks.
+
+        Args:
+            task_ids: List of internal task IDs.
+
+        Returns:
+            Dict mapping task_id to list of DWA IDs.
+        """
+        if not task_ids:
+            return {}
+
+        stmt = (
+            select(OnetTaskToDWA.task_id, OnetTaskToDWA.dwa_id)
+            .where(OnetTaskToDWA.task_id.in_(task_ids))
+        )
+        result = await self.session.execute(stmt)
+        rows = result.all()
+
+        task_dwas: dict[int, list[str]] = {}
+        for row in rows:
+            if row.task_id not in task_dwas:
+                task_dwas[row.task_id] = []
+            task_dwas[row.task_id].append(row.dwa_id)
+
+        return task_dwas
+
+    async def get_task_to_dwa_count(self) -> int:
+        """Get count of task-to-DWA mappings.
+
+        Returns:
+            Number of task-to-DWA mapping records.
+        """
+        stmt = select(func.count()).select_from(OnetTaskToDWA)
+        result = await self.session.execute(stmt)
+        return result.scalar_one()

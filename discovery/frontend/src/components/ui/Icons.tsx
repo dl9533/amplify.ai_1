@@ -72,6 +72,15 @@ export function IconCheckCircle({ size = 20, ...props }: IconProps) {
   )
 }
 
+export function IconCheckAll({ size = 20, ...props }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" {...defaultProps} {...props}>
+      <polyline points="7,12 12,17 20,9" />
+      <polyline points="4,12 9,17" />
+    </svg>
+  )
+}
+
 export function IconX({ size = 20, ...props }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" {...defaultProps} {...props}>
@@ -223,6 +232,24 @@ export function IconBriefcase({ size = 20, ...props }: IconProps) {
     <svg width={size} height={size} viewBox="0 0 24 24" {...defaultProps} {...props}>
       <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
       <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
+    </svg>
+  )
+}
+
+export function IconBuilding({ size = 20, ...props }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" {...defaultProps} {...props}>
+      <rect x="4" y="2" width="16" height="20" rx="2" ry="2" />
+      <path d="M9 22v-4h6v4" />
+      <path d="M8 6h.01" />
+      <path d="M16 6h.01" />
+      <path d="M12 6h.01" />
+      <path d="M8 10h.01" />
+      <path d="M16 10h.01" />
+      <path d="M12 10h.01" />
+      <path d="M8 14h.01" />
+      <path d="M16 14h.01" />
+      <path d="M12 14h.01" />
     </svg>
   )
 }

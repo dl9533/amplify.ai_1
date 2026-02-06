@@ -9,6 +9,7 @@ from app.schemas.session import (
     SessionResponse,
     SessionList,
     StepUpdate,
+    IndustryUpdate,
 )
 from app.services.session_service import SessionService, get_session_service
 
@@ -31,12 +32,16 @@ async def create_session(
     service: SessionService = Depends(get_session_service),
 ) -> SessionResponse:
     """Create a new discovery session."""
-    result = await service.create(organization_id=session_data.organization_id)
+    result = await service.create(
+        organization_id=session_data.organization_id,
+        industry_naics_sector=session_data.industry_naics_sector,
+    )
 
     return SessionResponse(
         id=UUID(result["id"]),
         status=result["status"],
         current_step=result["current_step"],
+        industry_naics_sector=result.get("industry_naics_sector"),
         created_at=datetime.fromisoformat(result["created_at"]),
         updated_at=datetime.fromisoformat(result["updated_at"]),
     )
@@ -66,6 +71,7 @@ async def get_session(
         id=UUID(result["id"]),
         status=result["status"],
         current_step=result["current_step"],
+        industry_naics_sector=result.get("industry_naics_sector"),
         created_at=datetime.fromisoformat(result["created_at"]),
         updated_at=datetime.fromisoformat(result["updated_at"]),
     )
@@ -91,6 +97,7 @@ async def list_sessions(
             id=UUID(item["id"]),
             status=item["status"],
             current_step=item["current_step"],
+            industry_naics_sector=item.get("industry_naics_sector"),
             created_at=datetime.fromisoformat(item["created_at"]),
             updated_at=datetime.fromisoformat(item["updated_at"]),
         )
@@ -130,6 +137,41 @@ async def update_session_step(
         id=UUID(result["id"]),
         status=result["status"],
         current_step=result["current_step"],
+        industry_naics_sector=result.get("industry_naics_sector"),
+        created_at=datetime.fromisoformat(result["created_at"]),
+        updated_at=datetime.fromisoformat(result["updated_at"]),
+    )
+
+
+@router.patch(
+    "/{session_id}/industry",
+    response_model=SessionResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Update session industry",
+    description="Updates the industry NAICS sector for a discovery session.",
+)
+async def update_session_industry(
+    session_id: UUID,
+    industry_data: IndustryUpdate,
+    service: SessionService = Depends(get_session_service),
+) -> SessionResponse:
+    """Update the industry NAICS sector of a discovery session."""
+    result = await service.update_industry(
+        session_id=session_id,
+        industry_naics_sector=industry_data.industry_naics_sector,
+    )
+
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Session with ID {session_id} not found",
+        )
+
+    return SessionResponse(
+        id=UUID(result["id"]),
+        status=result["status"],
+        current_step=result["current_step"],
+        industry_naics_sector=result.get("industry_naics_sector"),
         created_at=datetime.fromisoformat(result["created_at"]),
         updated_at=datetime.fromisoformat(result["updated_at"]),
     )

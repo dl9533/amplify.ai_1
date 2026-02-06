@@ -61,7 +61,7 @@ class Settings(BaseSettings):
     # CORS configuration
     cors_allowed_origins: str = "http://localhost:3000"
     cors_allow_credentials: bool = True
-    cors_allowed_methods: str = "GET,POST,PUT,DELETE,OPTIONS"
+    cors_allowed_methods: str = "GET,POST,PUT,PATCH,DELETE,OPTIONS"
     cors_allowed_headers: str = "Authorization,Content-Type,X-Request-ID"
 
     @property

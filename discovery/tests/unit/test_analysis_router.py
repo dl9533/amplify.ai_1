@@ -21,6 +21,7 @@ def mock_analysis_service():
     """Mock analysis service for testing."""
     service = MagicMock(spec=AnalysisService)
     service.trigger_analysis = AsyncMock()
+    service.trigger_analysis_from_tasks = AsyncMock()
     service.get_by_dimension = AsyncMock()
     service.get_all_dimensions = AsyncMock()
     return service
@@ -56,13 +57,26 @@ class TestTriggerAnalysis:
     def test_trigger_analysis_returns_202(self, client, mock_analysis_service):
         """Should trigger analysis and return 202 Accepted with processing status."""
         session_id = uuid4()
-        mock_analysis_service.trigger_analysis.return_value = {"status": "processing"}
+        # Default source is 'tasks', so trigger_analysis_from_tasks is called
+        mock_analysis_service.trigger_analysis_from_tasks.return_value = {"status": "processing"}
 
         response = client.post(f"/discovery/sessions/{session_id}/analyze")
 
         assert response.status_code == 202
         data = response.json()
         assert data["status"] == "processing"
+        mock_analysis_service.trigger_analysis_from_tasks.assert_called_once_with(
+            session_id=session_id
+        )
+
+    def test_trigger_analysis_with_activities_source(self, client, mock_analysis_service):
+        """Should trigger legacy DWA-based analysis with source=activities."""
+        session_id = uuid4()
+        mock_analysis_service.trigger_analysis.return_value = {"status": "processing"}
+
+        response = client.post(f"/discovery/sessions/{session_id}/analyze?source=activities")
+
+        assert response.status_code == 202
         mock_analysis_service.trigger_analysis.assert_called_once_with(
             session_id=session_id
         )
@@ -72,7 +86,7 @@ class TestTriggerAnalysis:
     ):
         """Should return 404 if session not found."""
         session_id = uuid4()
-        mock_analysis_service.trigger_analysis.return_value = None
+        mock_analysis_service.trigger_analysis_from_tasks.return_value = None
 
         response = client.post(f"/discovery/sessions/{session_id}/analyze")
 

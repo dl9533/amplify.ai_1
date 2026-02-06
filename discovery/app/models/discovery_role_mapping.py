@@ -55,6 +55,9 @@ class DiscoveryRoleMapping(Base):
     activity_selections: Mapped[list["DiscoveryActivitySelection"]] = relationship(
         back_populates="role_mapping", cascade="all, delete-orphan"
     )
+    task_selections: Mapped[list["DiscoveryTaskSelection"]] = relationship(
+        back_populates="role_mapping", cascade="all, delete-orphan"
+    )
     onet_occupation: Mapped["OnetOccupation | None"] = relationship(
         foreign_keys=[onet_code],
         lazy="joined",  # Eager load by default

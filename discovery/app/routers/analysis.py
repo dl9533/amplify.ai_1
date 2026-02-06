@@ -102,15 +102,24 @@ def _dict_to_dimension_summary(data: dict) -> DimensionSummary:
     response_model=TriggerAnalysisResponse,
     status_code=status.HTTP_202_ACCEPTED,
     summary="Trigger analysis for session",
-    description="Triggers scoring analysis for a discovery session and generates roadmap candidates.",
+    description="Triggers scoring analysis for a discovery session and generates roadmap candidates. "
+    "Use source='tasks' to analyze based on task selections (preferred), or 'activities' for "
+    "legacy DWA-based analysis.",
 )
 async def trigger_analysis(
     session_id: UUID,
+    source: str = Query(
+        default="tasks",
+        description="Analysis source: 'tasks' (recommended) or 'activities' (legacy DWA-based)",
+    ),
     service: AnalysisService = Depends(get_analysis_service),
     roadmap_service: RoadmapService = Depends(get_roadmap_service),
 ) -> TriggerAnalysisResponse:
     """Trigger scoring analysis for a session and generate roadmap candidates."""
-    result = await service.trigger_analysis(session_id=session_id)
+    if source == "tasks":
+        result = await service.trigger_analysis_from_tasks(session_id=session_id)
+    else:
+        result = await service.trigger_analysis(session_id=session_id)
 
     if result is None:
         raise HTTPException(

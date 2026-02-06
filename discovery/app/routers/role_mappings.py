@@ -27,6 +27,7 @@ from app.services.role_mapping_service import (
     get_onet_service,
     get_role_mapping_service,
 )
+from app.services.session_service import SessionService, get_session_service
 
 
 router = APIRouter(
@@ -85,6 +86,7 @@ async def generate_role_mappings(
         description="If true, regenerate mappings even if they already exist",
     ),
     service: RoleMappingService = Depends(get_role_mapping_service),
+    session_service: SessionService = Depends(get_session_service),
 ) -> CreateMappingsResponse:
     """Auto-generate role mappings from the session's upload.
 
@@ -136,10 +138,11 @@ async def generate_role_mappings(
     # Use the most recent upload
     upload = uploads[0]
 
-    # Find the role column from column_mappings
-    # Format is { "role": "Job Title", "department": "Department", ... }
+    # Find the role and LOB columns from column_mappings
+    # Format is { "role": "Job Title", "lob": "Line of Business", "department": "Department", ... }
     column_mappings = upload.column_mappings or {}
     role_column = column_mappings.get("role")
+    lob_column = column_mappings.get("lob")
 
     if not role_column:
         raise HTTPException(
@@ -147,11 +150,22 @@ async def generate_role_mappings(
             detail="No role column mapped in upload. Please map a column to 'Role' first.",
         )
 
-    # Create mappings using LLM agent
+    # Get session to retrieve industry for boosting
+    session_data = await session_service.get_by_id(session_id)
+    if not session_data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Session with ID {session_id} not found",
+        )
+    industry_naics_sector = session_data.get("industry_naics_sector")
+
+    # Create mappings using LLM agent with optional industry boosting and LOB grouping
     result = await service.create_mappings_from_upload(
         session_id=session_id,
         upload_id=upload.id,
         role_column=role_column,
+        lob_column=lob_column,
+        industry_naics_sector=industry_naics_sector,
     )
 
     return CreateMappingsResponse(
@@ -183,6 +197,7 @@ async def create_role_mappings(
     session_id: UUID,
     request: CreateMappingsRequest,
     service: RoleMappingService = Depends(get_role_mapping_service),
+    session_service: SessionService = Depends(get_session_service),
 ) -> CreateMappingsResponse:
     """Create role mappings from uploaded workforce data.
 
@@ -190,7 +205,8 @@ async def create_role_mappings(
     1. Reads the uploaded file content
     2. Extracts unique role titles from the mapped role column
     3. Uses Claude to semantically map each role to O*NET occupations
-    4. Persists the mappings with confidence scores and reasoning
+    4. Applies industry boosting if session has industry set
+    5. Persists the mappings with confidence scores and reasoning
     """
     # Get upload to find the role column mapping
     if not service.upload_service:
@@ -212,10 +228,11 @@ async def create_role_mappings(
             detail="Upload does not belong to this session",
         )
 
-    # Find the role column from column_mappings
-    # Format is { "role": "Job Title", "department": "Department", ... }
+    # Find the role and LOB columns from column_mappings
+    # Format is { "role": "Job Title", "lob": "Line of Business", "department": "Department", ... }
     column_mappings = upload.column_mappings or {}
     role_column = column_mappings.get("role")
+    lob_column = column_mappings.get("lob")
 
     if not role_column:
         raise HTTPException(
@@ -223,11 +240,22 @@ async def create_role_mappings(
             detail="No role column mapped in upload. Please map a column to 'Role' first.",
         )
 
-    # Create mappings using LLM agent
+    # Get session to retrieve industry for boosting
+    session_data = await session_service.get_by_id(session_id)
+    if not session_data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Session with ID {session_id} not found",
+        )
+    industry_naics_sector = session_data.get("industry_naics_sector")
+
+    # Create mappings using LLM agent with optional industry boosting and LOB grouping
     result = await service.create_mappings_from_upload(
         session_id=session_id,
         upload_id=request.upload_id,
         role_column=role_column,
+        lob_column=lob_column,
+        industry_naics_sector=industry_naics_sector,
     )
 
     return CreateMappingsResponse(

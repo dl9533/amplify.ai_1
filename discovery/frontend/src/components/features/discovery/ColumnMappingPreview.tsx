@@ -6,6 +6,7 @@ export interface ColumnSchema {
 export interface ColumnMappings {
   role?: string
   department?: string
+  lob?: string
   geography?: string
 }
 
@@ -20,6 +21,7 @@ type MappingKey = keyof ColumnMappings
 const MAPPING_LABELS: Record<MappingKey, string> = {
   role: 'Role column',
   department: 'Department column',
+  lob: 'Line of Business column',
   geography: 'Geography column',
 }
 

@@ -36,11 +36,16 @@ class SessionService:
             )
         return self.repository
 
-    async def create(self, organization_id: UUID) -> dict:
+    async def create(
+        self,
+        organization_id: UUID,
+        industry_naics_sector: str | None = None,
+    ) -> dict:
         """Create a new discovery session.
 
         Args:
             organization_id: Organization the session belongs to.
+            industry_naics_sector: Optional 2-digit NAICS sector code.
 
         Returns:
             Dict with session data including id, status, current_step.
@@ -53,11 +58,13 @@ class SessionService:
         session = await repo.create(
             user_id=self.user_id,
             organization_id=organization_id,
+            industry_naics_sector=industry_naics_sector,
         )
         return {
             "id": str(session.id),
             "status": session.status.value,
             "current_step": session.current_step,
+            "industry_naics_sector": session.industry_naics_sector,
             "created_at": session.created_at.isoformat(),
             "updated_at": session.updated_at.isoformat() if session.updated_at else session.created_at.isoformat(),
         }
@@ -80,6 +87,7 @@ class SessionService:
             "id": str(session.id),
             "status": session.status.value,
             "current_step": session.current_step,
+            "industry_naics_sector": session.industry_naics_sector,
             "created_at": session.created_at.isoformat(),
             "updated_at": session.updated_at.isoformat(),
         }
@@ -114,6 +122,8 @@ class SessionService:
                     "id": str(s.id),
                     "status": s.status.value,
                     "current_step": s.current_step,
+                    "industry_naics_sector": s.industry_naics_sector,
+                    "created_at": s.created_at.isoformat(),
                     "updated_at": s.updated_at.isoformat(),
                 }
                 for s in sessions
@@ -142,6 +152,37 @@ class SessionService:
             "id": str(session.id),
             "status": session.status.value,
             "current_step": session.current_step,
+            "industry_naics_sector": session.industry_naics_sector,
+            "created_at": session.created_at.isoformat(),
+            "updated_at": session.updated_at.isoformat(),
+        }
+
+    async def update_industry(
+        self,
+        session_id: UUID,
+        industry_naics_sector: str | None,
+    ) -> Optional[dict]:
+        """Update session industry NAICS sector.
+
+        Args:
+            session_id: UUID of the session.
+            industry_naics_sector: 2-digit NAICS sector code (None to clear).
+
+        Returns:
+            Updated session dict or None if not found.
+        """
+        repo = self._require_repository()
+
+        session = await repo.update_industry(session_id, industry_naics_sector)
+        if not session:
+            return None
+        return {
+            "id": str(session.id),
+            "status": session.status.value,
+            "current_step": session.current_step,
+            "industry_naics_sector": session.industry_naics_sector,
+            "created_at": session.created_at.isoformat(),
+            "updated_at": session.updated_at.isoformat(),
         }
 
     async def delete(self, session_id: UUID) -> bool:

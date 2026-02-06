@@ -12,6 +12,8 @@ import {
   IconZap,
 } from '../../components/ui/Icons'
 import { useFileUpload } from '../../hooks/useFileUpload'
+import { useIndustry } from '../../hooks/useIndustry'
+import { IndustrySelector } from '../../components/features/discovery/IndustrySelector'
 import { ColumnMappingUpdate } from '../../services/discoveryApi'
 
 interface DetectedMapping {
@@ -47,6 +49,16 @@ export function UploadStep() {
     clearFile,
     saveMappings,
   } = useFileUpload(sessionId || '')
+
+  // Industry selection
+  const {
+    supersectors,
+    selectedSector,
+    isLoading: isLoadingIndustry,
+    isSaving: isSavingIndustry,
+    error: industryError,
+    updateIndustry,
+  } = useIndustry(sessionId)
 
   const [dragActive, setDragActive] = useState(false)
   const [columnMappings, setColumnMappings] = useState<Record<string, string>>({})
@@ -179,12 +191,17 @@ export function UploadStep() {
     })
   }
 
-  // Can proceed if we have an upload, a role mapping, and we're not currently saving
+  // Can proceed if we have:
+  // 1. Industry selected (required)
+  // 2. Upload completed
+  // 3. Role column mapped
+  // 4. Not currently saving
   const hasRoleMapping = Object.values(columnMappings).includes('role')
-  const canProceed = !!uploadResult && hasRoleMapping && !savingMappings
+  const hasIndustry = !!selectedSector
+  const canProceed = hasIndustry && !!uploadResult && hasRoleMapping && !savingMappings && !isSavingIndustry
 
-  // Show loading state while fetching existing uploads
-  if (isLoadingExisting) {
+  // Show loading state while fetching existing uploads or industry data
+  if (isLoadingExisting || isLoadingIndustry) {
     return (
       <AppShell>
         <DiscoveryWizard currentStep={1} canProceed={false}>
@@ -211,7 +228,19 @@ export function UploadStep() {
           title="Upload Workforce Data"
           description="Import your organization's workforce data to identify automation opportunities."
         >
-          {/* File dropzone */}
+          {/* Industry Selection - Required before upload */}
+          <div className="surface p-5 mb-6">
+            <IndustrySelector
+              supersectors={supersectors}
+              value={selectedSector}
+              onChange={updateIndustry}
+              disabled={false}
+              isSaving={isSavingIndustry}
+              error={industryError}
+            />
+          </div>
+
+          {/* File dropzone - only enabled when industry is selected */}
           {!uploadResult ? (
             <div
               onDragOver={handleDragOver}

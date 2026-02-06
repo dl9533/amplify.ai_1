@@ -48,6 +48,7 @@ class SyncResult:
     gwa_count: int
     iwa_count: int
     dwa_count: int
+    task_to_dwa_count: int
     status: str
 
 
@@ -118,7 +119,7 @@ class OnetFileSyncService:
 
             # Extract and parse files
             try:
-                occupations, alt_titles, tasks, industries, gwas, iwas, dwas = self._extract_and_parse(zip_data)
+                occupations, alt_titles, tasks, industries, gwas, iwas, dwas, tasks_to_dwas = self._extract_and_parse(zip_data)
             except (zipfile.BadZipFile, KeyError) as e:
                 logger.error(f"Parse failed: {e}")
                 raise OnetParseError(f"Invalid O*NET archive for version {display_version}") from e
@@ -127,7 +128,8 @@ class OnetFileSyncService:
             logger.info(
                 f"Importing {len(occupations)} occupations, {len(alt_titles)} alternate titles, "
                 f"{len(tasks)} tasks, {len(industries)} industries, "
-                f"{len(gwas)} GWAs, {len(iwas)} IWAs, {len(dwas)} DWAs"
+                f"{len(gwas)} GWAs, {len(iwas)} IWAs, {len(dwas)} DWAs, "
+                f"{len(tasks_to_dwas)} task-to-DWA mappings"
             )
 
             occ_count = await self.repository.bulk_upsert_occupations(occupations)
@@ -139,6 +141,9 @@ class OnetFileSyncService:
             gwa_count = await self.repository.bulk_upsert_gwas(gwas)
             iwa_count = await self.repository.bulk_upsert_iwas(iwas)
             dwa_count = await self.repository.bulk_upsert_dwas(dwas)
+
+            # Sync task-to-DWA mappings (must come after tasks and DWAs)
+            task_to_dwa_count = await self._sync_task_to_dwa_mappings(tasks_to_dwas)
 
             # Log sync success
             await self.repository.log_sync(
@@ -155,7 +160,8 @@ class OnetFileSyncService:
             logger.info(
                 f"O*NET sync complete: {occ_count} occupations, "
                 f"{alt_count} alternate titles, {task_count} tasks, {ind_count} industries, "
-                f"{gwa_count} GWAs, {iwa_count} IWAs, {dwa_count} DWAs"
+                f"{gwa_count} GWAs, {iwa_count} IWAs, {dwa_count} DWAs, "
+                f"{task_to_dwa_count} task-to-DWA mappings"
             )
 
             return SyncResult(
@@ -167,6 +173,7 @@ class OnetFileSyncService:
                 gwa_count=gwa_count,
                 iwa_count=iwa_count,
                 dwa_count=dwa_count,
+                task_to_dwa_count=task_to_dwa_count,
                 status="success",
             )
 
@@ -180,6 +187,70 @@ class OnetFileSyncService:
             logger.error(f"Unexpected sync error: {e}", exc_info=True)
             await self._log_failure(display_version)
             raise OnetSyncError(f"Sync failed unexpectedly: {e}") from e
+
+    async def _sync_task_to_dwa_mappings(
+        self,
+        tasks_to_dwas: list[dict[str, Any]],
+    ) -> int:
+        """Sync task-to-DWA mappings to database.
+
+        This correlates O*NET Task IDs with our internal task IDs
+        and creates the junction table entries.
+
+        Args:
+            tasks_to_dwas: List of parsed task-to-DWA mappings with
+                occupation_code, onet_task_id, and dwa_id.
+
+        Returns:
+            Number of mappings created.
+        """
+        if not tasks_to_dwas:
+            logger.info("No task-to-DWA mappings to sync")
+            return 0
+
+        # Get mapping from (occupation_code, onet_task_id) -> internal task_id
+        task_id_mapping = await self.repository.get_task_id_mapping()
+
+        if not task_id_mapping:
+            logger.warning("No tasks with onet_task_id found - cannot create task-to-DWA mappings")
+            return 0
+
+        # Convert to internal task IDs
+        mappings_to_insert = []
+        skipped = 0
+
+        for mapping in tasks_to_dwas:
+            key = (mapping["occupation_code"], mapping["onet_task_id"])
+            internal_task_id = task_id_mapping.get(key)
+
+            if internal_task_id is None:
+                skipped += 1
+                continue
+
+            mappings_to_insert.append({
+                "task_id": internal_task_id,
+                "dwa_id": mapping["dwa_id"],
+            })
+
+        if skipped > 0:
+            skipped_pct = (skipped / len(tasks_to_dwas)) * 100
+            logger.warning(
+                f"Skipped {skipped}/{len(tasks_to_dwas)} ({skipped_pct:.1f}%) "
+                f"task-to-DWA mappings (task not found)"
+            )
+
+            # Fail sync if more than 50% of mappings couldn't be resolved
+            # This indicates a data quality issue that needs investigation
+            if skipped_pct > 50:
+                raise OnetSyncError(
+                    f"Too many task-to-DWA mappings failed ({skipped}/{len(tasks_to_dwas)}, "
+                    f"{skipped_pct:.1f}%). Check Task ID consistency between files."
+                )
+
+        # Bulk insert
+        count = await self.repository.bulk_replace_task_to_dwa_mappings(mappings_to_insert)
+        logger.info(f"Created {count} task-to-DWA mappings")
+        return count
 
     async def _log_failure(self, version: str) -> None:
         """Log a failed sync attempt and rollback.
@@ -226,14 +297,14 @@ class OnetFileSyncService:
     def _extract_and_parse(
         self,
         zip_data: bytes,
-    ) -> tuple[list[dict], list[dict], list[dict], list[dict], list[dict], list[dict], list[dict]]:
+    ) -> tuple[list[dict], list[dict], list[dict], list[dict], list[dict], list[dict], list[dict], list[dict]]:
         """Extract and parse O*NET data files from zip.
 
         Args:
             zip_data: Zip file contents.
 
         Returns:
-            Tuple of (occupations, alternate_titles, tasks, industries, gwas, iwas, dwas).
+            Tuple of (occupations, alternate_titles, tasks, industries, gwas, iwas, dwas, tasks_to_dwas).
 
         Raises:
             zipfile.BadZipFile: If zip is invalid.
@@ -259,6 +330,13 @@ class OnetFileSyncService:
             content_model = zf.read(f"{prefix}{self.CONTENT_MODEL_FILE}").decode("utf-8")
             dwa_reference = zf.read(f"{prefix}{self.DWA_REFERENCE_FILE}").decode("utf-8")
 
+            # Read Tasks to DWAs mapping file
+            try:
+                tasks_to_dwas_content = zf.read(f"{prefix}{self.TASKS_TO_DWAS_FILE}").decode("utf-8")
+            except KeyError:
+                logger.warning(f"Tasks to DWAs file not found in O*NET archive")
+                tasks_to_dwas_content = ""
+
         occupations = self._parse_occupations(occ_content)
         alt_titles = self._parse_alternate_titles(alt_content)
         tasks = self._parse_tasks(task_content)
@@ -268,7 +346,10 @@ class OnetFileSyncService:
         gwas = self._parse_gwas(content_model)
         iwas, dwas = self._parse_dwa_reference(dwa_reference)
 
-        return occupations, alt_titles, tasks, industries, gwas, iwas, dwas
+        # Parse Tasks to DWAs mapping
+        tasks_to_dwas = self._parse_tasks_to_dwas(tasks_to_dwas_content) if tasks_to_dwas_content else []
+
+        return occupations, alt_titles, tasks, industries, gwas, iwas, dwas, tasks_to_dwas
 
     def _parse_occupations(self, content: str) -> list[dict[str, Any]]:
         """Parse occupation data from tab-separated content.
@@ -315,30 +396,50 @@ class OnetFileSyncService:
     def _parse_tasks(self, content: str) -> list[dict[str, Any]]:
         """Parse task statements from tab-separated content.
 
+        The Task Statements file contains columns:
+        - O*NET-SOC Code
+        - Task ID (unique identifier within O*NET)
+        - Task (description)
+        - Task Type (optional)
+        - Incumbents Responding (optional)
+        - Date
+        - Domain Source
+
         Args:
             content: Tab-separated task data.
 
         Returns:
-            List of task dicts.
+            List of task dicts with occupation_code, onet_task_id, description.
         """
         reader = csv.DictReader(io.StringIO(content), delimiter="\t")
         tasks = []
+        missing_task_id_count = 0
 
         for row in reader:
-            # Task importance may be in Task ID or a separate column
-            importance = None
+            # Parse the O*NET Task ID (integer identifier)
+            onet_task_id = None
             if row.get("Task ID"):
                 try:
-                    importance = float(row["Task ID"])
+                    onet_task_id = int(row["Task ID"])
                 except (ValueError, TypeError):
-                    pass
+                    missing_task_id_count += 1
+            else:
+                missing_task_id_count += 1
 
             tasks.append({
                 "occupation_code": row["O*NET-SOC Code"],
+                "onet_task_id": onet_task_id,
                 "description": row["Task"],
-                "importance": importance,
+                "importance": None,  # Not available in Task Statements file
             })
 
+        logger.info(f"Parsed {len(tasks)} tasks from Task Statements")
+        if missing_task_id_count > 0:
+            pct = (missing_task_id_count / len(tasks)) * 100 if tasks else 0
+            logger.warning(
+                f"{missing_task_id_count}/{len(tasks)} tasks ({pct:.1f}%) "
+                f"missing Task ID - cannot link to DWAs"
+            )
         return tasks
 
     def _parse_industries(self, content: str) -> list[dict[str, Any]]:
@@ -454,6 +555,64 @@ class OnetFileSyncService:
 
         logger.info(f"Parsed {len(iwas)} IWAs and {len(dwas)} DWAs from DWA Reference")
         return iwas, dwas
+
+    def _parse_tasks_to_dwas(self, content: str) -> list[dict[str, Any]]:
+        """Parse Tasks to DWAs mapping from tab-separated content.
+
+        The Tasks to DWAs file contains columns:
+        - O*NET-SOC Code
+        - Title (occupation title)
+        - Task ID
+        - Task (description)
+        - DWA ID
+        - DWA Title
+        - Date
+        - Domain Source
+
+        This maps O*NET Task IDs to DWA IDs for correlation.
+
+        Args:
+            content: Tab-separated Tasks to DWAs data.
+
+        Returns:
+            List of dicts with occupation_code, onet_task_id, dwa_id.
+        """
+        if not content or not content.strip():
+            return []
+
+        reader = csv.DictReader(io.StringIO(content), delimiter="\t")
+        mappings = []
+        seen = set()  # Track unique (occupation_code, task_id, dwa_id) tuples
+
+        for row in reader:
+            occupation_code = row.get("O*NET-SOC Code", "")
+            task_id_str = row.get("Task ID", "")
+            dwa_id = row.get("DWA ID", "")
+
+            # Skip invalid rows
+            if not occupation_code or not task_id_str or not dwa_id:
+                continue
+
+            # Parse task ID as integer
+            try:
+                onet_task_id = int(task_id_str)
+            except (ValueError, TypeError):
+                continue
+
+            # Skip duplicates
+            key = (occupation_code, onet_task_id, dwa_id)
+            if key in seen:
+                continue
+            seen.add(key)
+
+            mappings.append({
+                "occupation_code": occupation_code,
+                "onet_task_id": onet_task_id,
+                "dwa_id": dwa_id,
+            })
+
+        logger.info(f"Parsed {len(mappings)} Task-to-DWA mappings")
+        return mappings
 
     async def get_sync_status(self) -> dict[str, Any]:
         """Get current sync status.

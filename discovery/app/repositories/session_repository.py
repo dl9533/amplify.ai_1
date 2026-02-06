@@ -18,6 +18,7 @@ class SessionRepository:
         self,
         user_id: UUID,
         organization_id: UUID,
+        industry_naics_sector: str | None = None,
     ) -> DiscoverySession:
         """Create a new discovery session."""
         db_session = DiscoverySession(
@@ -25,6 +26,7 @@ class SessionRepository:
             organization_id=organization_id,
             status=SessionStatus.DRAFT,
             current_step=1,
+            industry_naics_sector=industry_naics_sector,
         )
         self.session.add(db_session)
         await self.session.commit()
@@ -78,6 +80,19 @@ class SessionRepository:
             db_session.current_step = step
             if step > 1:
                 db_session.status = SessionStatus.IN_PROGRESS
+            await self.session.commit()
+            await self.session.refresh(db_session)
+        return db_session
+
+    async def update_industry(
+        self,
+        session_id: UUID,
+        industry_naics_sector: str | None,
+    ) -> DiscoverySession | None:
+        """Update session industry NAICS sector (None to clear)."""
+        db_session = await self.get_by_id(session_id)
+        if db_session:
+            db_session.industry_naics_sector = industry_naics_sector
             await self.session.commit()
             await self.session.refresh(db_session)
         return db_session
