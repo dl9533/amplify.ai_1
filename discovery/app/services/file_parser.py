@@ -182,16 +182,19 @@ class FileParser:
         filename: str,
         role_column: str,
         lob_column: str | None = None,
+        headcount_column: str | None = None,
     ) -> list[dict[str, Any]]:
         """Extract unique role values with optional LOB association.
 
-        Groups rows by role (and LOB if provided) and counts occurrences.
+        Groups rows by role (and LOB if provided). If headcount_column is provided,
+        sums those values; otherwise counts the number of rows.
 
         Args:
             content: File content.
             filename: Original filename.
             role_column: Column name containing roles.
             lob_column: Optional column name containing LOB values.
+            headcount_column: Optional column name containing employee counts to sum.
 
         Returns:
             List of dicts with role, count, and optionally lob.
@@ -228,24 +231,36 @@ class FileParser:
                 filename=filename,
             )
 
+        # Validate headcount column exists if provided
+        if headcount_column and headcount_column not in df.columns:
+            available_columns = ", ".join(df.columns.tolist())
+            raise FileParseException(
+                f"Column '{headcount_column}' not found in file. Available columns: {available_columns}",
+                filename=filename,
+            )
+
+        # Determine grouping columns
+        group_cols = [role_column]
         if lob_column:
-            # Group by both role and LOB
-            grouped = df.groupby([role_column, lob_column]).size().reset_index(name="count")
-            return [
-                {
-                    "role": str(row[role_column]),
-                    "lob": str(row[lob_column]) if pd.notna(row[lob_column]) else None,
-                    "count": int(row["count"]),
-                }
-                for _, row in grouped.iterrows()
-            ]
+            group_cols.append(lob_column)
+
+        # Group and aggregate
+        if headcount_column:
+            # Sum headcount column - convert to numeric, coerce errors to NaN, fill NaN with 1
+            df[headcount_column] = pd.to_numeric(df[headcount_column], errors="coerce").fillna(1)
+            grouped = df.groupby(group_cols, dropna=False)[headcount_column].sum().reset_index(name="count")
         else:
-            # Group by role only (fallback to existing behavior)
-            value_counts = df[role_column].value_counts()
-            return [
-                {"role": str(val), "lob": None, "count": int(count)}
-                for val, count in value_counts.items()
-            ]
+            # Count rows (original behavior)
+            grouped = df.groupby(group_cols, dropna=False).size().reset_index(name="count")
+
+        return [
+            {
+                "role": str(row[role_column]),
+                "lob": str(row[lob_column]) if lob_column and pd.notna(row[lob_column]) else None,
+                "count": int(row["count"]),
+            }
+            for _, row in grouped.iterrows()
+        ]
 
     def _get_safe_extension(self, filename: str) -> str:
         """Safely extract file extension.

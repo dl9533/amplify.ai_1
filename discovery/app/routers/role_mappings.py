@@ -138,11 +138,12 @@ async def generate_role_mappings(
     # Use the most recent upload
     upload = uploads[0]
 
-    # Find the role and LOB columns from column_mappings
-    # Format is { "role": "Job Title", "lob": "Line of Business", "department": "Department", ... }
+    # Find the role, LOB, and headcount columns from column_mappings
+    # Format is { "role": "Job Title", "lob": "Line of Business", "headcount": "Employee Count", ... }
     column_mappings = upload.column_mappings or {}
     role_column = column_mappings.get("role")
     lob_column = column_mappings.get("lob")
+    headcount_column = column_mappings.get("headcount")
 
     if not role_column:
         raise HTTPException(
@@ -159,12 +160,13 @@ async def generate_role_mappings(
         )
     industry_naics_sector = session_data.get("industry_naics_sector")
 
-    # Create mappings using LLM agent with optional industry boosting and LOB grouping
+    # Create mappings using LLM agent with optional industry boosting, LOB grouping, and headcount summing
     result = await service.create_mappings_from_upload(
         session_id=session_id,
         upload_id=upload.id,
         role_column=role_column,
         lob_column=lob_column,
+        headcount_column=headcount_column,
         industry_naics_sector=industry_naics_sector,
     )
 
@@ -228,11 +230,12 @@ async def create_role_mappings(
             detail="Upload does not belong to this session",
         )
 
-    # Find the role and LOB columns from column_mappings
-    # Format is { "role": "Job Title", "lob": "Line of Business", "department": "Department", ... }
+    # Find the role, LOB, and headcount columns from column_mappings
+    # Format is { "role": "Job Title", "lob": "Line of Business", "headcount": "Employee Count", ... }
     column_mappings = upload.column_mappings or {}
     role_column = column_mappings.get("role")
     lob_column = column_mappings.get("lob")
+    headcount_column = column_mappings.get("headcount")
 
     if not role_column:
         raise HTTPException(
@@ -249,12 +252,13 @@ async def create_role_mappings(
         )
     industry_naics_sector = session_data.get("industry_naics_sector")
 
-    # Create mappings using LLM agent with optional industry boosting and LOB grouping
+    # Create mappings using LLM agent with optional industry boosting, LOB grouping, and headcount summing
     result = await service.create_mappings_from_upload(
         session_id=session_id,
         upload_id=request.upload_id,
         role_column=role_column,
         lob_column=lob_column,
+        headcount_column=headcount_column,
         industry_naics_sector=industry_naics_sector,
     )
 

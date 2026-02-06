@@ -76,8 +76,10 @@ class TaskSelectionRepository:
         selected: bool,
     ) -> DiscoveryTaskSelection | None:
         """Update a selection's selected status."""
-        stmt = select(DiscoveryTaskSelection).where(
-            DiscoveryTaskSelection.id == selection_id
+        stmt = (
+            select(DiscoveryTaskSelection)
+            .where(DiscoveryTaskSelection.id == selection_id)
+            .options(joinedload(DiscoveryTaskSelection.task))
         )
         result = await self.session.execute(stmt)
         selection = result.scalar_one_or_none()
@@ -86,7 +88,7 @@ class TaskSelectionRepository:
             selection.selected = selected
             selection.user_modified = True
             await self.session.commit()
-            await self.session.refresh(selection)
+            await self.session.refresh(selection, attribute_names=["selected", "user_modified"])
         return selection
 
     async def bulk_update_selections(

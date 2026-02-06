@@ -66,6 +66,7 @@ class RoleMappingService:
         upload_id: UUID,
         role_column: str,
         lob_column: str | None = None,
+        headcount_column: str | None = None,
         industry_naics_sector: str | None = None,
     ) -> list[dict[str, Any]]:
         """Create role mappings from uploaded file.
@@ -81,6 +82,7 @@ class RoleMappingService:
             upload_id: Upload ID containing the file.
             role_column: Column name containing roles.
             lob_column: Optional column name containing LOB values for grouping.
+            headcount_column: Optional column name containing employee counts to sum.
             industry_naics_sector: Optional 2-digit NAICS sector for industry boosting.
 
         Returns:
@@ -100,10 +102,10 @@ class RoleMappingService:
         if not content:
             return []
 
-        # Extract unique roles with optional LOB grouping
+        # Extract unique roles with optional LOB grouping and headcount summing
         upload = await self.upload_service.repository.get_by_id(upload_id)
         role_lob_data = self._file_parser.extract_role_lob_values(
-            content, upload.file_name, role_column, lob_column
+            content, upload.file_name, role_column, lob_column, headcount_column
         )
 
         if not role_lob_data:

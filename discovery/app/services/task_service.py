@@ -77,7 +77,7 @@ class TaskService:
                 "session_id": session_id,
                 "role_mapping_id": role_mapping_id,
                 "task_id": task.id,
-                "selected": True,  # All tasks selected by default
+                "selected": False,  # Tasks unselected by default - user selects what applies
                 "user_modified": False,
             })
 
@@ -396,7 +396,7 @@ class TaskService:
                 "onet_title": m.onet_title,
                 "source_role": m.source_role,
                 "lob": m.lob_value,
-                "employee_count": m.row_count or 0,
+                "employee_count": m.row_count or 1,  # Default to 1 (consistent with role mapping tab)
             }
             for m in confirmed
         }

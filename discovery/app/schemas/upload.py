@@ -89,3 +89,7 @@ class ColumnMappingUpdate(BaseModel):
         default=None,
         description="Column name to map as geography",
     )
+    headcount: Optional[str] = Field(
+        default=None,
+        description="Column name to map as employee headcount (will be summed per role)",
+    )
