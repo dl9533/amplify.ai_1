@@ -1,3 +1,4 @@
+import { useState, useCallback } from 'react'
 import { Button } from '../../ui/Button'
 import { IconCheck, IconUsers, IconSearch, IconRefresh } from '../../ui/Icons'
 import { ScoreBar } from '../../ui/ScoreBar'
@@ -35,6 +36,21 @@ export function GroupedRoleMappingsView({
   isSearching = false,
 }: GroupedRoleMappingsViewProps) {
   const { overall_summary, lob_groups, ungrouped_mappings } = data
+
+  // Track which LOB groups are expanded (persists across data updates)
+  const [expandedLobs, setExpandedLobs] = useState<Set<string>>(new Set())
+
+  const toggleLobExpanded = useCallback((lob: string) => {
+    setExpandedLobs((prev) => {
+      const next = new Set(prev)
+      if (next.has(lob)) {
+        next.delete(lob)
+      } else {
+        next.add(lob)
+      }
+      return next
+    })
+  }, [])
 
   const confirmationRate = overall_summary.total_roles > 0
     ? overall_summary.confirmed_count / overall_summary.total_roles
@@ -111,6 +127,8 @@ export function GroupedRoleMappingsView({
             <LobGroupCard
               key={group.lob}
               group={group}
+              isExpanded={expandedLobs.has(group.lob)}
+              onToggleExpanded={() => toggleLobExpanded(group.lob)}
               onBulkConfirm={onBulkConfirmLob}
               onConfirmMapping={onConfirmMapping}
               onRemapMapping={onRemapMapping}

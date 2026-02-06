@@ -49,7 +49,7 @@ export function useGroupedRoleMappings(sessionId?: string): UseGroupedRoleMappin
     }
   }, [sessionId])
 
-  const loadGroupedMappings = useCallback(async () => {
+  const loadGroupedMappings = useCallback(async (showLoading = true) => {
     if (!sessionId) {
       setData(null)
       setIsLoading(false)
@@ -57,7 +57,10 @@ export function useGroupedRoleMappings(sessionId?: string): UseGroupedRoleMappin
     }
 
     try {
-      setIsLoading(true)
+      // Only show loading spinner on initial load, not on refreshes
+      if (showLoading) {
+        setIsLoading(true)
+      }
       setError(null)
 
       const response = await roleMappingsApi.getGroupedBySession(sessionId)
@@ -93,8 +96,8 @@ export function useGroupedRoleMappings(sessionId?: string): UseGroupedRoleMappin
   const confirmMapping = useCallback(async (mappingId: string) => {
     try {
       await roleMappingsApi.update(mappingId, { is_confirmed: true })
-      // Refresh to get updated data
-      await loadGroupedMappings()
+      // Refresh to get updated data without showing loading spinner
+      await loadGroupedMappings(false)
     } catch (err) {
       const message =
         err instanceof ApiError
@@ -115,8 +118,8 @@ export function useGroupedRoleMappings(sessionId?: string): UseGroupedRoleMappin
         setError(null)
 
         await roleMappingsApi.bulkConfirm(sessionId, threshold, lob)
-        // Refresh to get updated data
-        await loadGroupedMappings()
+        // Refresh to get updated data without showing loading spinner
+        await loadGroupedMappings(false)
       } catch (err) {
         const message =
           err instanceof ApiError
@@ -141,8 +144,8 @@ export function useGroupedRoleMappings(sessionId?: string): UseGroupedRoleMappin
         setError(null)
 
         await roleMappingsApi.bulkConfirm(sessionId, threshold)
-        // Refresh to get updated data
-        await loadGroupedMappings()
+        // Refresh to get updated data without showing loading spinner
+        await loadGroupedMappings(false)
       } catch (err) {
         const message =
           err instanceof ApiError

@@ -65,15 +65,23 @@ class RoleMappingService:
         session_id: UUID,
         upload_id: UUID,
         role_column: str,
+        lob_column: str | None = None,
+        industry_naics_sector: str | None = None,
     ) -> list[dict[str, Any]]:
         """Create role mappings from uploaded file.
 
         Uses the LLM-powered agent for semantic role matching.
+        Optionally applies industry boosting based on session's industry.
+
+        Note: This method deletes any existing mappings for the session
+        before creating new ones to ensure clean state.
 
         Args:
             session_id: Discovery session ID.
             upload_id: Upload ID containing the file.
             role_column: Column name containing roles.
+            lob_column: Optional column name containing LOB values for grouping.
+            industry_naics_sector: Optional 2-digit NAICS sector for industry boosting.
 
         Returns:
             List of created mapping dicts.
@@ -81,38 +89,87 @@ class RoleMappingService:
         if not self.upload_service:
             raise ValueError("upload_service required")
 
+        # Delete existing mappings for this session to ensure clean state
+        # This prevents duplicates if the upload is re-processed
+        deleted_count = await self.repository.delete_for_session(session_id)
+        if deleted_count > 0:
+            logger.info(f"Deleted {deleted_count} existing mappings for session {session_id}")
+
         # Get file content
         content = await self.upload_service.get_file_content(upload_id)
         if not content:
             return []
 
-        # Extract unique roles
+        # Extract unique roles with optional LOB grouping
         upload = await self.upload_service.repository.get_by_id(upload_id)
-        unique_roles = self._file_parser.extract_unique_values(
-            content, upload.file_name, role_column
+        role_lob_data = self._file_parser.extract_role_lob_values(
+            content, upload.file_name, role_column, lob_column
         )
 
-        if not unique_roles:
+        if not role_lob_data:
             return []
 
-        # Get role names and their counts
-        role_names = [r["value"] for r in unique_roles]
-        role_counts = {r["value"]: r["count"] for r in unique_roles}
+        # Build role->LOB mapping and aggregate counts per unique role
+        # (A role may appear in multiple LOBs, but we map once per unique role+LOB)
+        role_entries = []
+        for entry in role_lob_data:
+            role_entries.append({
+                "role": entry["role"],
+                "lob": entry["lob"],
+                "count": entry["count"],
+            })
 
-        logger.info(f"Using LLM agent to map {len(role_names)} roles")
+        # Get unique role names for LLM mapping (deduplicated)
+        unique_role_names = list(set(e["role"] for e in role_entries))
 
-        # Call agent to map all roles
-        results = await self.role_mapping_agent.map_roles(role_names)
+        logger.info(f"Using LLM agent to map {len(unique_role_names)} unique roles")
 
-        # Create mapping records
+        # Call agent to map all unique roles
+        results = await self.role_mapping_agent.map_roles(unique_role_names)
+
+        # Build lookup from role name to mapping result
+        result_by_role = {r.source_role: r for r in results}
+
+        # Create mapping records for each role+LOB combination
         mappings = []
-        for result in results:
+        for entry in role_entries:
+            role_name = entry["role"]
+            lob_value = entry["lob"]
+            row_count = entry["count"]
+
+            result = result_by_role.get(role_name)
+            if not result:
+                continue
+
+            # Calculate industry match score if industry is specified
+            industry_match_score = None
+            final_confidence = result.confidence_score
+
+            if industry_naics_sector and result.onet_code and self.onet_repository:
+                industry_match_score = await self.onet_repository.calculate_industry_score(
+                    result.onet_code,
+                    [industry_naics_sector],  # 2-digit prefix matching
+                )
+                # Apply boost to confidence score
+                if industry_match_score > 0:
+                    final_confidence = min(
+                        1.0,
+                        result.confidence_score * (1 + self.INDUSTRY_BOOST_FACTOR * industry_match_score)
+                    )
+                    logger.debug(
+                        f"Industry boost for {result.source_role}: "
+                        f"{result.confidence_score:.2f} -> {final_confidence:.2f} "
+                        f"(industry_score={industry_match_score:.2f})"
+                    )
+
             mapping = await self.repository.create(
                 session_id=session_id,
                 source_role=result.source_role,
                 onet_code=result.onet_code,
-                confidence_score=result.confidence_score,
-                row_count=role_counts.get(result.source_role, 1),
+                confidence_score=final_confidence,
+                row_count=row_count,
+                industry_match_score=industry_match_score,
+                lob_value=lob_value,
             )
 
             mappings.append({
@@ -125,6 +182,8 @@ class RoleMappingService:
                 "reasoning": result.reasoning,
                 "row_count": mapping.row_count,
                 "is_confirmed": mapping.user_confirmed,
+                "industry_match_score": industry_match_score,
+                "lob_value": lob_value,
             })
 
         return mappings
@@ -397,6 +456,7 @@ class RoleMappingService:
 
         Organizes role mappings by LOB with summary statistics for each group.
         Mappings without LOB assignment are returned separately.
+        Duplicate roles within the same LOB are aggregated.
 
         Args:
             session_id: Discovery session ID.
@@ -415,61 +475,110 @@ class RoleMappingService:
                 "source_role": m.source_role,
                 "onet_code": m.onet_code,
                 "onet_title": getattr(m, "onet_title", None),
-                "confidence_score": m.confidence_score,
+                "confidence_score": m.confidence_score or 0,
                 "is_confirmed": m.user_confirmed,
-                "employee_count": getattr(m, "row_count", 1),
+                "employee_count": getattr(m, "row_count", 1) or 1,
                 "lob": getattr(m, "lob_value", None),
             })
 
-        # Calculate overall summary
-        total_roles = len(mapping_data)
-        confirmed_count = sum(1 for m in mapping_data if m["is_confirmed"])
-        pending_count = sum(1 for m in mapping_data if not m["is_confirmed"])
-        low_confidence_count = sum(
-            1 for m in mapping_data
-            if m["confidence_score"] < low_confidence_threshold and not m["is_confirmed"]
-        )
-        total_employees = sum(m["employee_count"] for m in mapping_data)
-
-        overall_summary = {
-            "total_roles": total_roles,
-            "confirmed_count": confirmed_count,
-            "pending_count": pending_count,
-            "low_confidence_count": low_confidence_count,
-            "total_employees": total_employees,
-        }
-
-        # Group by LOB
-        lob_groups_dict: dict[str, list[dict]] = {}
-        ungrouped = []
+        # Group by LOB first, then aggregate by source_role within each LOB
+        lob_groups_dict: dict[str | None, list[dict]] = {}
 
         for m in mapping_data:
             lob = m.get("lob")
-            if lob:
-                if lob not in lob_groups_dict:
-                    lob_groups_dict[lob] = []
-                lob_groups_dict[lob].append(m)
-            else:
-                ungrouped.append(m)
+            if lob not in lob_groups_dict:
+                lob_groups_dict[lob] = []
+            lob_groups_dict[lob].append(m)
 
-        # Build LOB group summaries
+        def aggregate_by_role(mappings_list: list[dict]) -> list[dict]:
+            """Aggregate mappings with the same source_role."""
+            role_groups: dict[str, list[dict]] = {}
+            for m in mappings_list:
+                role = m["source_role"]
+                if role not in role_groups:
+                    role_groups[role] = []
+                role_groups[role].append(m)
+
+            aggregated = []
+            for role, role_mappings in role_groups.items():
+                if len(role_mappings) == 1:
+                    # No aggregation needed
+                    aggregated.append(role_mappings[0])
+                else:
+                    # Aggregate multiple mappings with same role
+                    # Prefer confirmed mapping for O*NET info, otherwise highest confidence
+                    confirmed = [m for m in role_mappings if m["is_confirmed"]]
+                    if confirmed:
+                        primary = confirmed[0]
+                    else:
+                        # Sort by confidence score descending
+                        sorted_by_conf = sorted(
+                            role_mappings,
+                            key=lambda x: x["confidence_score"],
+                            reverse=True
+                        )
+                        primary = sorted_by_conf[0]
+
+                    aggregated.append({
+                        "id": primary["id"],  # Use primary ID for API operations
+                        "source_role": role,
+                        "onet_code": primary["onet_code"],
+                        "onet_title": primary["onet_title"],
+                        "confidence_score": primary["confidence_score"],
+                        "is_confirmed": any(m["is_confirmed"] for m in role_mappings),
+                        "employee_count": sum(m["employee_count"] for m in role_mappings),
+                        "lob": primary["lob"],
+                    })
+            return aggregated
+
+        # Aggregate within each LOB and build groups
         lob_groups = []
-        for lob, group_mappings in sorted(lob_groups_dict.items()):
-            group_summary = {
-                "total_roles": len(group_mappings),
-                "confirmed_count": sum(1 for m in group_mappings if m["is_confirmed"]),
-                "pending_count": sum(1 for m in group_mappings if not m["is_confirmed"]),
-                "low_confidence_count": sum(
-                    1 for m in group_mappings
-                    if m["confidence_score"] < low_confidence_threshold and not m["is_confirmed"]
-                ),
-                "total_employees": sum(m["employee_count"] for m in group_mappings),
-            }
-            lob_groups.append({
-                "lob": lob,
-                "summary": group_summary,
-                "mappings": group_mappings,
-            })
+        ungrouped = []
+
+        for lob, group_mappings in sorted(
+            lob_groups_dict.items(),
+            key=lambda x: (x[0] is None, x[0] or ""),  # None goes last
+        ):
+            aggregated_mappings = aggregate_by_role(group_mappings)
+
+            if lob is None:
+                ungrouped.extend(aggregated_mappings)
+            else:
+                group_summary = {
+                    "total_roles": len(aggregated_mappings),
+                    "confirmed_count": sum(1 for m in aggregated_mappings if m["is_confirmed"]),
+                    "pending_count": sum(1 for m in aggregated_mappings if not m["is_confirmed"]),
+                    "low_confidence_count": sum(
+                        1 for m in aggregated_mappings
+                        if m["confidence_score"] < low_confidence_threshold and not m["is_confirmed"]
+                    ),
+                    "total_employees": sum(m["employee_count"] for m in aggregated_mappings),
+                }
+                lob_groups.append({
+                    "lob": lob,
+                    "summary": group_summary,
+                    "mappings": aggregated_mappings,
+                })
+
+        # Aggregate ungrouped as well
+        ungrouped = aggregate_by_role(ungrouped) if ungrouped else []
+
+        # Calculate overall summary from aggregated data
+        all_aggregated = []
+        for g in lob_groups:
+            all_aggregated.extend(g["mappings"])
+        all_aggregated.extend(ungrouped)
+
+        overall_summary = {
+            "total_roles": len(all_aggregated),
+            "confirmed_count": sum(1 for m in all_aggregated if m["is_confirmed"]),
+            "pending_count": sum(1 for m in all_aggregated if not m["is_confirmed"]),
+            "low_confidence_count": sum(
+                1 for m in all_aggregated
+                if m["confidence_score"] < low_confidence_threshold and not m["is_confirmed"]
+            ),
+            "total_employees": sum(m["employee_count"] for m in all_aggregated),
+        }
 
         return {
             "session_id": str(session_id),

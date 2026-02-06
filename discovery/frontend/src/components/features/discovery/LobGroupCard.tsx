@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { Button } from '../../ui/Button'
 import { IconChevronDown, IconChevronRight, IconCheck, IconUsers, IconSearch, IconRefresh } from '../../ui/Icons'
 import { ScoreBar } from '../../ui/ScoreBar'
@@ -10,6 +9,9 @@ export interface LobGroupCardProps {
   onConfirmMapping: (mappingId: string) => void
   onRemapMapping: (mappingId: string, onetCode: string, onetTitle: string) => void
   isConfirming?: boolean
+  // Controlled expansion state (lifted up to parent)
+  isExpanded: boolean
+  onToggleExpanded: () => void
   // O*NET search support
   activeRemapId?: string | null
   onSetActiveRemapId?: (id: string | null) => void
@@ -25,6 +27,8 @@ export function LobGroupCard({
   onConfirmMapping,
   onRemapMapping,
   isConfirming = false,
+  isExpanded,
+  onToggleExpanded,
   activeRemapId,
   onSetActiveRemapId,
   searchQuery = '',
@@ -32,7 +36,6 @@ export function LobGroupCard({
   searchResults = [],
   isSearching = false,
 }: LobGroupCardProps) {
-  const [isExpanded, setIsExpanded] = useState(false)
   const { summary, mappings, lob } = group
 
   const confirmationRate = summary.total_roles > 0
@@ -47,7 +50,7 @@ export function LobGroupCard({
     <div className="surface rounded-lg overflow-hidden">
       {/* Header - always visible */}
       <button
-        onClick={() => setIsExpanded(!isExpanded)}
+        onClick={onToggleExpanded}
         className="w-full p-4 flex items-center justify-between hover:bg-bg-muted/50 transition-colors"
         aria-expanded={isExpanded}
         aria-controls={`lob-group-${lob}`}

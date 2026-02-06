@@ -48,6 +48,7 @@ export function MapRolesStep() {
     confirmMapping: confirmMappingGrouped,
     bulkConfirmLob,
     bulkConfirmAll,
+    refresh: refreshGrouped,
   } = useGroupedRoleMappings(sessionId || '')
 
   const isLoading = viewMode === 'grouped' ? isGroupedLoading : isFlatLoading
@@ -99,6 +100,10 @@ export function MapRolesStep() {
     await remapRole(mappingId, onetCode, onetTitle)
     setActiveRemapId(null)
     setSearchQuery('')
+    // Refresh grouped view to show updated O*NET mapping
+    if (viewMode === 'grouped') {
+      await refreshGrouped()
+    }
   }
 
   if (isLoading || isGenerating) {
