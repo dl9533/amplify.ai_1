@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, Fragment } from 'react'
 import { useParams } from 'react-router-dom'
 import { AppShell } from '../../components/layout/AppShell'
 import { DiscoveryWizard, StepContent } from '../../components/layout/DiscoveryWizard'
@@ -11,15 +11,18 @@ import {
   IconBarChart,
   IconChevronUp,
   IconChevronDown,
+  IconChevronRight,
+  IconAlertCircle,
+  IconX,
 } from '../../components/ui/Icons'
 import { useAnalysisResults, Dimension, PriorityTier } from '../../hooks/useAnalysisResults'
+import { RoleTaskBreakdown } from '../../components/features/discovery/RoleTaskBreakdown'
 
-const DIMENSIONS: { key: Dimension; label: string }[] = [
-  { key: 'role', label: 'By Role' },
-  { key: 'department', label: 'By Department' },
-  { key: 'geography', label: 'By Geography' },
-  { key: 'task', label: 'By Task' },
-  { key: 'lob', label: 'By Line of Business' },
+const DIMENSIONS: { key: Dimension; label: string; entityLabel: string }[] = [
+  { key: 'role', label: 'By Role', entityLabel: 'Roles' },
+  { key: 'department', label: 'By Department', entityLabel: 'Departments' },
+  { key: 'geography', label: 'By Geography', entityLabel: 'Locations' },
+  { key: 'lob', label: 'By Line of Business', entityLabel: 'Lines of Business' },
 ]
 
 const TIERS: { key: PriorityTier | 'ALL'; label: string }[] = [
@@ -38,13 +41,16 @@ export function AnalysisStep() {
   const [activeTier, setActiveTier] = useState<PriorityTier | 'ALL'>('ALL')
   const [sortKey, setSortKey] = useState<SortKey>('priority')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
+  const [expandedRowId, setExpandedRowId] = useState<string | null>(null)
 
   const {
     results,
     isLoading,
     error,
+    warnings,
     triggerAnalysis,
     isTriggering,
+    clearWarnings,
   } = useAnalysisResults(
     sessionId || '',
     activeDimension,
@@ -116,6 +122,18 @@ export function AnalysisStep() {
     )
   }
 
+  const handleRowClick = (resultId: string, roleMappingId?: string) => {
+    // Only allow expansion for role dimension with a valid roleMappingId
+    if (activeDimension !== 'role' || !roleMappingId) return
+    setExpandedRowId(expandedRowId === resultId ? null : resultId)
+  }
+
+  // Collapse expanded row when switching dimensions
+  const handleDimensionChange = (dim: Dimension) => {
+    setActiveDimension(dim)
+    setExpandedRowId(null)
+  }
+
   const canProceed = results && results.length > 0
 
   return (
@@ -142,7 +160,9 @@ export function AnalysisStep() {
               <p className="text-2xl font-display font-bold text-default">
                 {stats.total}
               </p>
-              <p className="text-xs text-muted">Total Roles</p>
+              <p className="text-xs text-muted">
+                Total {DIMENSIONS.find((d) => d.key === activeDimension)?.entityLabel ?? 'Entities'}
+              </p>
             </div>
             <div className="surface p-4 text-center">
               <p className="text-2xl font-display font-bold text-default">
@@ -175,7 +195,7 @@ export function AnalysisStep() {
             {DIMENSIONS.map((dim) => (
               <button
                 key={dim.key}
-                onClick={() => setActiveDimension(dim.key)}
+                onClick={() => handleDimensionChange(dim.key)}
                 className={activeDimension === dim.key ? 'tab-active' : 'tab'}
               >
                 {dim.label}
@@ -203,6 +223,30 @@ export function AnalysisStep() {
               </button>
             ))}
           </div>
+
+          {/* Warnings display */}
+          {warnings && warnings.length > 0 && (
+            <div className="mb-6 p-4 border border-warning/30 bg-warning/5 rounded-lg">
+              <div className="flex items-start gap-3">
+                <IconAlertCircle size={20} className="text-warning shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="font-medium text-warning mb-1">Warnings</p>
+                  <ul className="text-sm text-muted space-y-1">
+                    {warnings.map((warning, index) => (
+                      <li key={index}>{warning}</li>
+                    ))}
+                  </ul>
+                </div>
+                <button
+                  onClick={clearWarnings}
+                  className="text-muted hover:text-default transition-colors"
+                  aria-label="Dismiss warnings"
+                >
+                  <IconX size={16} />
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Results table */}
           {isLoading ? (
@@ -285,36 +329,68 @@ export function AnalysisStep() {
                     </tr>
                   </thead>
                   <tbody>
-                    {sortedResults.map((result, index) => (
-                      <tr
-                        key={result.id}
-                        className="border-b border-border last:border-0 hover:bg-bg-muted/30 transition-colors animate-fade-in"
-                        style={{ animationDelay: `${Math.min(index, 15) * 30}ms` }}
-                      >
-                        <td className="p-4">
-                          <span className="font-medium text-default">
-                            {result.name}
-                          </span>
-                        </td>
-                        <td className="p-4">
-                          <span className="text-default tabular-nums">
-                            {result.rowCount ?? '-'}
-                          </span>
-                        </td>
-                        <td className="p-4">
-                          <MiniBar value={result.exposure} />
-                        </td>
-                        <td className="p-4">
-                          <MiniBar value={result.impact} />
-                        </td>
-                        <td className="p-4">
-                          <MiniBar value={result.priority} />
-                        </td>
-                        <td className="p-4">
-                          <TierBadge tier={result.tier} />
-                        </td>
-                      </tr>
-                    ))}
+                    {sortedResults.map((result, index) => {
+                      const isExpandable = activeDimension === 'role' && !!result.roleMappingId
+                      const isExpanded = expandedRowId === result.id
+
+                      return (
+                        <Fragment key={result.id}>
+                          <tr
+                            onClick={() => handleRowClick(result.id, result.roleMappingId)}
+                            className={`
+                              border-b border-border transition-colors animate-fade-in
+                              ${isExpandable ? 'cursor-pointer hover:bg-bg-muted/30' : ''}
+                              ${isExpanded ? 'bg-bg-muted/20' : ''}
+                            `}
+                            style={{ animationDelay: `${Math.min(index, 15) * 30}ms` }}
+                          >
+                            <td className="p-4">
+                              <div className="flex items-center gap-2">
+                                {isExpandable && (
+                                  <span className="text-muted shrink-0">
+                                    {isExpanded ? (
+                                      <IconChevronDown size={16} />
+                                    ) : (
+                                      <IconChevronRight size={16} />
+                                    )}
+                                  </span>
+                                )}
+                                <span className="font-medium text-default">
+                                  {result.name}
+                                </span>
+                              </div>
+                            </td>
+                            <td className="p-4">
+                              <span className="text-default tabular-nums">
+                                {result.rowCount ?? '-'}
+                              </span>
+                            </td>
+                            <td className="p-4">
+                              <MiniBar value={result.exposure} />
+                            </td>
+                            <td className="p-4">
+                              <MiniBar value={result.impact} />
+                            </td>
+                            <td className="p-4">
+                              <MiniBar value={result.priority} />
+                            </td>
+                            <td className="p-4">
+                              <TierBadge tier={result.tier} />
+                            </td>
+                          </tr>
+                          {isExpanded && result.roleMappingId && sessionId && (
+                            <tr>
+                              <td colSpan={6} className="p-0">
+                                <RoleTaskBreakdown
+                                  sessionId={sessionId}
+                                  roleMappingId={result.roleMappingId}
+                                />
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>

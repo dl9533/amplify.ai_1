@@ -10,7 +10,7 @@ export { ApiError }
 
 export type SessionStatus = 'draft' | 'in_progress' | 'completed'
 export type PriorityTier = 'HIGH' | 'MEDIUM' | 'LOW'
-export type AnalysisDimension = 'role' | 'department' | 'geography' | 'task' | 'lob'
+export type AnalysisDimension = 'role' | 'department' | 'geography' | 'lob'
 export type RoadmapPhase = 'NOW' | 'NEXT' | 'LATER'
 export type EstimatedEffort = 'low' | 'medium' | 'high'
 
@@ -786,6 +786,51 @@ export const tasksApi = {
    */
   getGroupedBySourceRole: (sessionId: string): Promise<GroupedTasksByRoleResponse> =>
     api.get(`/discovery/sessions/${sessionId}/tasks/grouped-by-source-role`),
+
+  /**
+   * Search O*NET tasks by description.
+   * Use this to find tasks from other occupations to add to a role.
+   * @param query - Search query (min 2 characters)
+   * @param limit - Maximum number of results (default 50)
+   * @param excludeRoleMappingId - Exclude tasks already in this role mapping
+   */
+  searchTasks: (
+    query: string,
+    limit = 50,
+    excludeRoleMappingId?: string
+  ): Promise<TaskSearchResult[]> => {
+    let url = `/discovery/tasks/search?q=${encodeURIComponent(query)}&limit=${limit}`
+    if (excludeRoleMappingId) {
+      url += `&exclude_role_mapping_id=${excludeRoleMappingId}`
+    }
+    return api.get(url)
+  },
+
+  /**
+   * Add a task from any O*NET occupation to a role mapping.
+   * @param sessionId - Discovery session ID
+   * @param roleMappingId - Role mapping ID
+   * @param taskId - O*NET task ID to add
+   */
+  addTaskToRole: (
+    sessionId: string,
+    roleMappingId: string,
+    taskId: number
+  ): Promise<TaskResponse> =>
+    api.post(
+      `/discovery/role-mappings/${roleMappingId}/tasks/add?session_id=${sessionId}`,
+      { task_id: taskId }
+    ),
+}
+
+// ============ Task Search Types ============
+
+export interface TaskSearchResult {
+  task_id: number
+  description: string
+  importance: number | null
+  occupation_code: string
+  occupation_title: string
 }
 
 // ============ Analysis API ============
@@ -793,6 +838,7 @@ export const tasksApi = {
 export interface AnalysisResult {
   id: string
   name: string
+  role_mapping_id?: string  // For drill-down navigation (ROLE dimension only)
   ai_exposure_score: number
   impact_score: number
   complexity_score: number
@@ -815,9 +861,47 @@ export type AllDimensionsResponse = Record<string, DimensionSummary>
 
 export interface TriggerAnalysisResponse {
   status: string
+  result_count: number
+  warnings: string[]
 }
 
 export type AnalysisSource = 'tasks' | 'activities'
+
+// Task breakdown types for drill-down
+export interface TaskDWADetail {
+  dwa_id: string
+  dwa_name: string
+  gwa_id: string
+  gwa_name: string
+  exposure_score: number
+  is_override: boolean
+}
+
+export interface TaskExposureDetail {
+  task_id: number
+  description: string
+  importance: number | null
+  exposure_score: number
+  dwa_count: number
+  dwas: TaskDWADetail[]
+}
+
+export interface RoleTaskBreakdownSummary {
+  selected_tasks: number
+  unique_dwas: number
+  avg_exposure: number
+}
+
+export interface RoleTaskBreakdownResponse {
+  role_mapping_id: string
+  role_name: string
+  onet_code: string
+  onet_title: string
+  total_exposure_score: number
+  priority_tier: PriorityTier
+  summary: RoleTaskBreakdownSummary
+  tasks: TaskExposureDetail[]
+}
 
 export const analysisApi = {
   /**
@@ -848,6 +932,15 @@ export const analysisApi = {
    */
   getAllDimensions: (sessionId: string): Promise<AllDimensionsResponse> =>
     api.get(`/discovery/sessions/${sessionId}/analysis`),
+
+  /**
+   * Get detailed task breakdown with DWA exposure scores for a role.
+   */
+  getRoleTaskBreakdown: (
+    sessionId: string,
+    roleMappingId: string
+  ): Promise<RoleTaskBreakdownResponse> =>
+    api.get(`/discovery/sessions/${sessionId}/roles/${roleMappingId}/task-breakdown`),
 }
 
 // ============ Roadmap API ============
@@ -860,6 +953,7 @@ export interface RoadmapItem {
   phase: RoadmapPhase
   estimated_effort: EstimatedEffort
   order?: number
+  lob?: string | null
 }
 
 export interface RoadmapItemsResponse {

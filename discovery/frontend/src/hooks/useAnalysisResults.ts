@@ -1,13 +1,14 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { analysisApi, ApiError } from '../services'
 import type { AnalysisDimension as ApiDimension, PriorityTier as ApiTier } from '../services'
 
-export type Dimension = 'role' | 'department' | 'geography' | 'task' | 'lob'
+export type Dimension = 'role' | 'department' | 'geography' | 'lob'
 export type PriorityTier = 'HIGH' | 'MEDIUM' | 'LOW'
 
 export interface AnalysisResult {
   id: string
   name: string
+  roleMappingId?: string  // For drill-down navigation (role dimension only)
   dimension: Dimension
   exposure: number
   impact: number
@@ -31,7 +32,11 @@ export function useAnalysisResults(
   const [results, setResults] = useState<AnalysisResult[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [warnings, setWarnings] = useState<string[]>([])
   const [isTriggering, setIsTriggering] = useState(false)
+
+  // Track the current fetch request version to prevent stale updates
+  const fetchVersionRef = useRef(0)
 
   const fetchResults = useCallback(async () => {
     if (!sessionId) {
@@ -39,6 +44,9 @@ export function useAnalysisResults(
       setIsLoading(false)
       return
     }
+
+    // Increment version to track this request
+    const currentVersion = ++fetchVersionRef.current
 
     try {
       setIsLoading(true)
@@ -50,10 +58,17 @@ export function useAnalysisResults(
         tier as ApiTier | undefined
       )
 
+      // Only update state if this is still the most recent request
+      // This prevents race conditions when dimension/tier changes rapidly
+      if (currentVersion !== fetchVersionRef.current) {
+        return // Stale request, ignore results
+      }
+
       // Map API response to frontend interface
       const mappedResults: AnalysisResult[] = response.results.map((r) => ({
         id: r.id,
         name: r.name,
+        roleMappingId: r.role_mapping_id,
         dimension: dimension,
         exposure: r.ai_exposure_score,
         impact: r.impact_score,
@@ -64,6 +79,11 @@ export function useAnalysisResults(
 
       setResults(mappedResults)
     } catch (err) {
+      // Only handle errors for the current request
+      if (currentVersion !== fetchVersionRef.current) {
+        return // Stale request, ignore error
+      }
+
       // If analysis hasn't been run yet, show empty results instead of error
       if (err instanceof ApiError && err.status === 404) {
         setResults([])
@@ -78,7 +98,10 @@ export function useAnalysisResults(
         setError(message)
       }
     } finally {
-      setIsLoading(false)
+      // Only clear loading for the current request
+      if (currentVersion === fetchVersionRef.current) {
+        setIsLoading(false)
+      }
     }
   }, [sessionId, dimension, tier])
 
@@ -92,8 +115,14 @@ export function useAnalysisResults(
     try {
       setIsTriggering(true)
       setError(null)
+      setWarnings([])
 
-      await analysisApi.trigger(sessionId)
+      const response = await analysisApi.trigger(sessionId)
+
+      // Capture any warnings from the response
+      if (response.warnings && response.warnings.length > 0) {
+        setWarnings(response.warnings)
+      }
 
       // Refresh results after triggering analysis
       await fetchResults()
@@ -114,7 +143,9 @@ export function useAnalysisResults(
     results,
     isLoading,
     error,
+    warnings,
     triggerAnalysis,
     isTriggering,
+    clearWarnings: () => setWarnings([]),
   }
 }
