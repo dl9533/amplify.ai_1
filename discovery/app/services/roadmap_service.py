@@ -23,9 +23,21 @@ class RoadmapService:
         self,
         session_id: UUID,
     ) -> list[dict[str, Any]]:
-        """Generate agentification candidates from analysis results."""
+        """Generate agentification candidates from analysis results.
+
+        Deletes any existing candidates for the session before creating new ones
+        to prevent duplicates when analysis is re-run.
+        """
         if not self.analysis_repository:
             return []
+
+        # Delete existing candidates to prevent duplicates on re-analysis
+        deleted_count = await self.candidate_repository.delete_for_session(session_id)
+        if deleted_count > 0:
+            import logging
+            logging.getLogger(__name__).info(
+                f"Deleted {deleted_count} existing candidates for session {session_id}"
+            )
 
         # Get role-dimension analysis results
         from app.models.discovery_analysis import AnalysisDimension
@@ -57,7 +69,7 @@ class RoadmapService:
                 "id": str(candidate.id),
                 "name": candidate.name,
                 "description": candidate.description,
-                "priority_tier": candidate.priority_tier.value,
+                "priority_tier": candidate.priority_tier,
                 "estimated_impact": candidate.estimated_impact,
             })
 
@@ -77,7 +89,7 @@ class RoadmapService:
                 "id": str(c.id),
                 "name": c.name,
                 "description": c.description,
-                "priority_tier": c.priority_tier.value,
+                "priority_tier": c.priority_tier,
                 "estimated_impact": c.estimated_impact,
                 "selected_for_build": c.selected_for_build,
             }
@@ -105,10 +117,11 @@ class RoadmapService:
             "id": str(candidate.id),
             "role_name": candidate.name,
             "priority_score": candidate.estimated_impact or 0.0,
-            "priority_tier": candidate.priority_tier.value,
-            "phase": tier_to_phase.get(candidate.priority_tier.value, "LATER"),
+            "priority_tier": candidate.priority_tier,
+            "phase": tier_to_phase.get(candidate.priority_tier, "LATER"),
             "estimated_effort": "medium",
-            "order": None,
+            "order": candidate.display_order,
+            "lob": candidate.role_mapping.lob_value if candidate.role_mapping else None,
         }
 
     async def select_for_build(
@@ -162,10 +175,11 @@ class RoadmapService:
                 "id": str(c.id),
                 "role_name": c.name,
                 "priority_score": c.estimated_impact or 0.0,
-                "priority_tier": c.priority_tier.value,
-                "phase": tier_to_phase.get(c.priority_tier.value, "LATER"),
+                "priority_tier": c.priority_tier,
+                "phase": tier_to_phase.get(c.priority_tier, "LATER"),
                 "estimated_effort": "medium",  # Default effort
-                "order": None,
+                "order": c.display_order,
+                "lob": c.role_mapping.lob_value if c.role_mapping else None,
             }
             for c in candidates
         ]
@@ -189,8 +203,16 @@ class RoadmapService:
         session_id: UUID,
         item_ids: list[UUID],
     ) -> Optional[bool]:
-        """Reorder roadmap items (not yet implemented)."""
-        return True
+        """Reorder roadmap items by updating their display_order.
+
+        Args:
+            session_id: Discovery session ID (for authorization validation).
+            item_ids: Ordered list of candidate IDs representing the new order.
+
+        Returns:
+            True if reorder succeeded, None if session not found.
+        """
+        return await self.candidate_repository.reorder(session_id, item_ids)
 
     async def bulk_update(
         self,

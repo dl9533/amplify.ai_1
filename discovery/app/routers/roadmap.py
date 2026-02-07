@@ -44,6 +44,7 @@ def _dict_to_roadmap_item(data: dict) -> RoadmapItem:
         phase=RoadmapPhase(data["phase"]),
         estimated_effort=EstimatedEffort(data["estimated_effort"]),
         order=data.get("order"),
+        lob=data.get("lob"),
     )
 
 
