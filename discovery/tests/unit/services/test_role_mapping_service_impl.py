@@ -45,7 +45,12 @@ async def test_create_mappings_from_upload():
     mock_mapping.confidence_score = 0.95
     mock_mapping.row_count = 1
     mock_mapping.user_confirmed = False
-    mock_repo.create.return_value = mock_mapping
+    mock_mapping.industry_match_score = None
+    mock_mapping.lob_value = None
+    mock_mapping.department_value = None
+    mock_mapping.geography_value = None
+    # Service now uses bulk_upsert instead of individual create calls
+    mock_repo.bulk_upsert.return_value = [mock_mapping]
 
     service = RoleMappingService(
         repository=mock_repo,
@@ -71,6 +76,7 @@ async def test_create_mappings_from_upload():
     assert result[0]["source_role"] == "Engineer"
     assert result[0]["confidence_tier"] == "HIGH"
     mock_agent.map_roles.assert_called_once()
+    mock_repo.bulk_upsert.assert_called_once()
 
 
 @pytest.mark.asyncio

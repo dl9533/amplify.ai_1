@@ -1,15 +1,41 @@
 """Discovery role mapping repository."""
+import logging
 from typing import Sequence
 from uuid import UUID
 
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import lazyload
 
 from app.models.discovery_role_mapping import DiscoveryRoleMapping
 
+logger = logging.getLogger(__name__)
+
 # Maximum PostgreSQL INTEGER value for bounds checking
 MAX_ROW_COUNT = 2_147_483_647
+
+# The unique constraint name for duplicate detection
+UNIQUE_CONSTRAINT_NAME = "uq_role_mapping_session_role_lob"
+
+
+def _normalize_lob_value(lob_value: str | None) -> str | None:
+    """Normalize LOB value to match database COALESCE behavior.
+
+    The unique constraint uses COALESCE(lob_value, '') which treats
+    NULL and empty string as equivalent. This function normalizes
+    both to None for consistent comparison in Python.
+
+    Args:
+        lob_value: The LOB value to normalize.
+
+    Returns:
+        None if the value is None or empty string, otherwise the original value.
+    """
+    if lob_value is None or lob_value == "":
+        return None
+    return lob_value
 
 
 class RoleMappingRepository:
@@ -27,6 +53,8 @@ class RoleMappingRepository:
         row_count: int | None = None,
         industry_match_score: float | None = None,
         lob_value: str | None = None,
+        department_value: str | None = None,
+        geography_value: str | None = None,
     ) -> DiscoveryRoleMapping:
         """Create a single role mapping.
 
@@ -38,6 +66,8 @@ class RoleMappingRepository:
             row_count: Number of employees with this role.
             industry_match_score: Industry match score for boosting.
             lob_value: Line of Business value for grouping.
+            department_value: Department value for grouping.
+            geography_value: Geography/location value for grouping.
 
         Returns:
             Created role mapping record.
@@ -50,6 +80,8 @@ class RoleMappingRepository:
             row_count=row_count,
             industry_match_score=industry_match_score,
             lob_value=lob_value,
+            department_value=department_value,
+            geography_value=geography_value,
         )
         self.session.add(mapping)
         await self.session.commit()
@@ -71,69 +103,134 @@ class RoleMappingRepository:
     async def bulk_upsert(
         self,
         mappings: list[dict],
+        replace_counts: bool = True,
     ) -> Sequence[DiscoveryRoleMapping]:
         """Create or update multiple role mappings using upsert.
 
-        Uses PostgreSQL ON CONFLICT to handle duplicates based on
+        Uses row-level locking (SELECT FOR UPDATE) to handle duplicates based on
         (session_id, source_role, lob_value) unique constraint.
-        On conflict, updates the O*NET code, confidence score, and row count.
+        On conflict, updates all mapping fields.
 
         Args:
             mappings: List of mapping dicts with session_id, source_role, etc.
+            replace_counts: If True, replace row_count values. If False, add to existing.
 
         Returns:
             List of created/updated role mappings.
+
+        Raises:
+            ValueError: If required fields are missing from mapping dicts.
         """
         if not mappings:
             return []
+
+        # Validate required fields upfront
+        for i, m in enumerate(mappings):
+            if "session_id" not in m:
+                raise ValueError(f"Mapping at index {i} missing required field: session_id")
+            if "source_role" not in m:
+                raise ValueError(f"Mapping at index {i} missing required field: source_role")
 
         # Use SELECT FOR UPDATE to prevent race conditions when multiple
         # requests try to upsert the same role mapping concurrently.
         # SQLAlchemy's insert().on_conflict_do_update() doesn't work well
         # with functional indexes (COALESCE), so we use explicit locking.
+        created_mappings: list[DiscoveryRoleMapping] = []
+
         for m in mappings:
+            # Normalize lob_value to match database COALESCE behavior
+            # The unique constraint treats NULL and '' as equivalent
+            lob_value = _normalize_lob_value(m.get("lob_value"))
+
             # Check if mapping exists with row-level lock to prevent races
+            # Use consistent NULL/empty string handling for lookup
+            if lob_value is None:
+                # Match both NULL and empty string in the database
+                # since COALESCE(lob_value, '') treats them as equivalent
+                lob_condition = (
+                    (DiscoveryRoleMapping.lob_value.is_(None)) |
+                    (DiscoveryRoleMapping.lob_value == "")
+                )
+            else:
+                lob_condition = DiscoveryRoleMapping.lob_value == lob_value
+
             stmt = (
                 select(DiscoveryRoleMapping)
                 .where(
                     DiscoveryRoleMapping.session_id == m["session_id"],
                     DiscoveryRoleMapping.source_role == m["source_role"],
-                    # Handle NULL lob_value comparison
-                    (DiscoveryRoleMapping.lob_value == m.get("lob_value"))
-                    if m.get("lob_value")
-                    else DiscoveryRoleMapping.lob_value.is_(None),
+                    lob_condition,
                 )
+                # Use lazyload to prevent eager loading of relationships
+                # This avoids "FOR UPDATE cannot be applied to outer join" error
+                .options(lazyload("*"))
                 .with_for_update()
             )
             result = await self.session.execute(stmt)
             existing = result.scalar_one_or_none()
 
             if existing:
-                # Update existing mapping
+                # Update existing mapping with all provided fields
                 if m.get("onet_code") is not None:
                     existing.onet_code = m["onet_code"]
                 if m.get("confidence_score") is not None:
                     existing.confidence_score = m["confidence_score"]
                 if m.get("row_count") is not None:
-                    # Bounds checking to prevent integer overflow
-                    new_count = (existing.row_count or 0) + m["row_count"]
-                    if new_count > MAX_ROW_COUNT:
-                        new_count = MAX_ROW_COUNT
-                    existing.row_count = new_count
+                    if replace_counts:
+                        # Replace with new value (used after delete)
+                        existing.row_count = min(m["row_count"], MAX_ROW_COUNT)
+                    else:
+                        # Add to existing (incremental update)
+                        new_count = (existing.row_count or 0) + m["row_count"]
+                        existing.row_count = min(new_count, MAX_ROW_COUNT)
                 if m.get("industry_match_score") is not None:
                     existing.industry_match_score = m["industry_match_score"]
+                if m.get("department_value") is not None:
+                    existing.department_value = m["department_value"]
+                if m.get("geography_value") is not None:
+                    existing.geography_value = m["geography_value"]
+                created_mappings.append(existing)
             else:
-                # Create new mapping
-                db_mapping = DiscoveryRoleMapping(**m)
-                self.session.add(db_mapping)
+                # Create new mapping with normalized lob_value
+                mapping_data = m.copy()
+                mapping_data["lob_value"] = lob_value
+                try:
+                    db_mapping = DiscoveryRoleMapping(**mapping_data)
+                    self.session.add(db_mapping)
+                    # Flush to detect constraint violations early
+                    await self.session.flush()
+                    created_mappings.append(db_mapping)
+                except IntegrityError as e:
+                    # Handle race condition: another transaction inserted first
+                    if UNIQUE_CONSTRAINT_NAME in str(e.orig):
+                        logger.warning(
+                            f"Race condition detected for role mapping: "
+                            f"session={m['session_id']}, role={m['source_role']}, lob={lob_value}. "
+                            "Fetching existing record."
+                        )
+                        await self.session.rollback()
+                        # Re-fetch the existing record that was just inserted
+                        result = await self.session.execute(stmt)
+                        existing = result.scalar_one_or_none()
+                        if existing:
+                            created_mappings.append(existing)
+                        else:
+                            # This shouldn't happen, but log and continue
+                            logger.error(
+                                f"Failed to find existing mapping after race condition: "
+                                f"session={m['session_id']}, role={m['source_role']}, lob={lob_value}"
+                            )
+                    else:
+                        # Different integrity error - re-raise
+                        raise
 
         await self.session.commit()
 
-        # Return all mappings for the session
-        if mappings and "session_id" in mappings[0]:
-            session_id = mappings[0]["session_id"]
-            return await self.get_for_session(session_id)
-        return []
+        # Refresh all created/updated mappings to get database-generated fields
+        for mapping in created_mappings:
+            await self.session.refresh(mapping)
+
+        return created_mappings
 
     async def get_for_session(
         self,
@@ -147,6 +244,28 @@ class RoleMappingRepository:
         )
         result = await self.session.execute(stmt)
         return result.scalars().all()
+
+    async def get_by_id(
+        self,
+        mapping_id: UUID,
+        session_id: UUID | None = None,
+    ) -> DiscoveryRoleMapping | None:
+        """Get a single role mapping by ID.
+
+        Args:
+            mapping_id: The role mapping ID.
+            session_id: Optional session ID for authorization validation.
+                       If provided, only returns the mapping if it belongs
+                       to the specified session (prevents cross-session access).
+
+        Returns:
+            The role mapping or None if not found (or unauthorized).
+        """
+        stmt = select(DiscoveryRoleMapping).where(DiscoveryRoleMapping.id == mapping_id)
+        if session_id is not None:
+            stmt = stmt.where(DiscoveryRoleMapping.session_id == session_id)
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
 
     async def confirm(
         self,

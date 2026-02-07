@@ -68,6 +68,8 @@ class RoleMappingService:
         lob_column: str | None = None,
         headcount_column: str | None = None,
         industry_naics_sector: str | None = None,
+        department_column: str | None = None,
+        geography_column: str | None = None,
     ) -> list[dict[str, Any]]:
         """Create role mappings from uploaded file.
 
@@ -84,6 +86,8 @@ class RoleMappingService:
             lob_column: Optional column name containing LOB values for grouping.
             headcount_column: Optional column name containing employee counts to sum.
             industry_naics_sector: Optional 2-digit NAICS sector for industry boosting.
+            department_column: Optional column name containing department values.
+            geography_column: Optional column name containing geography/location values.
 
         Returns:
             List of created mapping dicts.
@@ -105,21 +109,41 @@ class RoleMappingService:
         # Extract unique roles with optional LOB grouping and headcount summing
         upload = await self.upload_service.repository.get_by_id(upload_id)
         role_lob_data = self._file_parser.extract_role_lob_values(
-            content, upload.file_name, role_column, lob_column, headcount_column
+            content,
+            upload.file_name,
+            role_column,
+            lob_column,
+            headcount_column,
+            department_column,
+            geography_column,
         )
 
         if not role_lob_data:
             return []
 
-        # Build role->LOB mapping and aggregate counts per unique role
-        # (A role may appear in multiple LOBs, but we map once per unique role+LOB)
-        role_entries = []
+        # Build role->LOB mapping and aggregate counts per unique role+LOB
+        # The unique constraint is on (session_id, source_role, lob_value), so we must
+        # deduplicate by (role, lob) and aggregate counts before inserting
+        role_lob_aggregated: dict[tuple[str, str | None], dict] = {}
         for entry in role_lob_data:
-            role_entries.append({
-                "role": entry["role"],
-                "lob": entry["lob"],
-                "count": entry["count"],
-            })
+            key = (entry["role"], entry["lob"])
+            if key in role_lob_aggregated:
+                # Aggregate counts for duplicate role+LOB combinations
+                role_lob_aggregated[key]["count"] += entry["count"]
+            else:
+                role_lob_aggregated[key] = {
+                    "role": entry["role"],
+                    "lob": entry["lob"],
+                    "count": entry["count"],
+                    "department": entry.get("department"),
+                    "geography": entry.get("geography"),
+                }
+
+        role_entries = list(role_lob_aggregated.values())
+
+        logger.info(
+            f"Deduplication: {len(role_lob_data)} raw entries -> {len(role_entries)} unique role+LOB combinations"
+        )
 
         # Get unique role names for LLM mapping (deduplicated)
         unique_role_names = list(set(e["role"] for e in role_entries))
@@ -132,12 +156,17 @@ class RoleMappingService:
         # Build lookup from role name to mapping result
         result_by_role = {r.source_role: r for r in results}
 
-        # Create mapping records for each role+LOB combination
-        mappings = []
+        # Build list of mapping dicts for bulk upsert
+        # This prevents race conditions from concurrent requests
+        mapping_dicts = []
+        entry_metadata = {}  # Store additional data for response building
+
         for entry in role_entries:
             role_name = entry["role"]
             lob_value = entry["lob"]
             row_count = entry["count"]
+            department_value = entry.get("department")
+            geography_value = entry.get("geography")
 
             result = result_by_role.get(role_name)
             if not result:
@@ -164,28 +193,60 @@ class RoleMappingService:
                         f"(industry_score={industry_match_score:.2f})"
                     )
 
-            mapping = await self.repository.create(
-                session_id=session_id,
-                source_role=result.source_role,
-                onet_code=result.onet_code,
-                confidence_score=final_confidence,
-                row_count=row_count,
-                industry_match_score=industry_match_score,
-                lob_value=lob_value,
-            )
+            # Normalize empty strings to None for consistency with database COALESCE
+            normalized_lob = lob_value if lob_value else None
+            normalized_dept = department_value if department_value else None
+            normalized_geo = geography_value if geography_value else None
+
+            mapping_dict = {
+                "session_id": session_id,
+                "source_role": result.source_role,
+                "onet_code": result.onet_code,
+                "confidence_score": final_confidence,
+                "row_count": row_count,
+                "industry_match_score": industry_match_score,
+                "lob_value": normalized_lob,
+                "department_value": normalized_dept,
+                "geography_value": normalized_geo,
+            }
+            mapping_dicts.append(mapping_dict)
+
+            # Store metadata for response building (keyed by role+lob)
+            key = (result.source_role, lob_value)
+            entry_metadata[key] = {
+                "onet_title": result.onet_title,
+                "confidence_tier": result.confidence.value,
+                "reasoning": result.reasoning,
+            }
+
+        # Use bulk_upsert to create all mappings in a single transaction
+        # This uses SELECT FOR UPDATE to prevent duplicate key violations
+        logger.info(f"Creating {len(mapping_dicts)} role mappings via bulk_upsert")
+        created_mappings = await self.repository.bulk_upsert(
+            mapping_dicts,
+            replace_counts=True,  # Replace counts since we deleted existing mappings
+        )
+
+        # Build response from created mappings
+        mappings = []
+        for mapping in created_mappings:
+            key = (mapping.source_role, mapping.lob_value)
+            metadata = entry_metadata.get(key, {})
 
             mappings.append({
                 "id": str(mapping.id),
                 "source_role": mapping.source_role,
                 "onet_code": mapping.onet_code,
-                "onet_title": result.onet_title,
+                "onet_title": metadata.get("onet_title"),
                 "confidence_score": mapping.confidence_score,
-                "confidence_tier": result.confidence.value,
-                "reasoning": result.reasoning,
+                "confidence_tier": metadata.get("confidence_tier"),
+                "reasoning": metadata.get("reasoning"),
                 "row_count": mapping.row_count,
                 "is_confirmed": mapping.user_confirmed,
-                "industry_match_score": industry_match_score,
-                "lob_value": lob_value,
+                "industry_match_score": mapping.industry_match_score,
+                "lob_value": mapping.lob_value,
+                "department_value": mapping.department_value,
+                "geography_value": mapping.geography_value,
             })
 
         return mappings

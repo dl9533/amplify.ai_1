@@ -1,8 +1,14 @@
 """Role mappings router for the Discovery module."""
+import logging
 from typing import Annotated, List
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
+from sqlalchemy.exc import IntegrityError
+
+from app.repositories.role_mapping_repository import UNIQUE_CONSTRAINT_NAME
+
+logger = logging.getLogger(__name__)
 
 from app.schemas.role_mapping import (
     BulkConfirmRequest,
@@ -97,8 +103,10 @@ async def generate_role_mappings(
     4. Triggers the LLM-powered role mapping process
     """
     # Check if mappings already exist for this session
+    logger.info(f"generate_role_mappings called for session {session_id}, force={force}")
     if not force:
         existing = await service.get_by_session_id(session_id)
+        logger.info(f"Found {len(existing)} existing mappings for session {session_id}")
         if existing:
             return CreateMappingsResponse(
                 created_count=0,
@@ -138,12 +146,14 @@ async def generate_role_mappings(
     # Use the most recent upload
     upload = uploads[0]
 
-    # Find the role, LOB, and headcount columns from column_mappings
+    # Find the role, LOB, headcount, department, and geography columns from column_mappings
     # Format is { "role": "Job Title", "lob": "Line of Business", "headcount": "Employee Count", ... }
     column_mappings = upload.column_mappings or {}
     role_column = column_mappings.get("role")
     lob_column = column_mappings.get("lob")
     headcount_column = column_mappings.get("headcount")
+    department_column = column_mappings.get("department")
+    geography_column = column_mappings.get("geography")
 
     if not role_column:
         raise HTTPException(
@@ -161,14 +171,28 @@ async def generate_role_mappings(
     industry_naics_sector = session_data.get("industry_naics_sector")
 
     # Create mappings using LLM agent with optional industry boosting, LOB grouping, and headcount summing
-    result = await service.create_mappings_from_upload(
-        session_id=session_id,
-        upload_id=upload.id,
-        role_column=role_column,
-        lob_column=lob_column,
-        headcount_column=headcount_column,
-        industry_naics_sector=industry_naics_sector,
-    )
+    try:
+        result = await service.create_mappings_from_upload(
+            session_id=session_id,
+            upload_id=upload.id,
+            role_column=role_column,
+            lob_column=lob_column,
+            headcount_column=headcount_column,
+            industry_naics_sector=industry_naics_sector,
+            department_column=department_column,
+            geography_column=geography_column,
+        )
+    except IntegrityError as e:
+        # Only catch the specific unique constraint violation for duplicate role mappings
+        if UNIQUE_CONSTRAINT_NAME in str(e.orig):
+            logger.error(f"Duplicate role mapping constraint violation for session {session_id}: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Role mapping is already in progress for this session. Please wait and try again.",
+            )
+        # Re-raise other integrity errors (foreign key violations, etc.)
+        logger.error(f"Database integrity error during role mapping for session {session_id}: {e}")
+        raise
 
     return CreateMappingsResponse(
         created_count=len(result),
@@ -230,12 +254,14 @@ async def create_role_mappings(
             detail="Upload does not belong to this session",
         )
 
-    # Find the role, LOB, and headcount columns from column_mappings
+    # Find the role, LOB, headcount, department, and geography columns from column_mappings
     # Format is { "role": "Job Title", "lob": "Line of Business", "headcount": "Employee Count", ... }
     column_mappings = upload.column_mappings or {}
     role_column = column_mappings.get("role")
     lob_column = column_mappings.get("lob")
     headcount_column = column_mappings.get("headcount")
+    department_column = column_mappings.get("department")
+    geography_column = column_mappings.get("geography")
 
     if not role_column:
         raise HTTPException(
@@ -253,14 +279,28 @@ async def create_role_mappings(
     industry_naics_sector = session_data.get("industry_naics_sector")
 
     # Create mappings using LLM agent with optional industry boosting, LOB grouping, and headcount summing
-    result = await service.create_mappings_from_upload(
-        session_id=session_id,
-        upload_id=request.upload_id,
-        role_column=role_column,
-        lob_column=lob_column,
-        headcount_column=headcount_column,
-        industry_naics_sector=industry_naics_sector,
-    )
+    try:
+        result = await service.create_mappings_from_upload(
+            session_id=session_id,
+            upload_id=request.upload_id,
+            role_column=role_column,
+            lob_column=lob_column,
+            headcount_column=headcount_column,
+            industry_naics_sector=industry_naics_sector,
+            department_column=department_column,
+            geography_column=geography_column,
+        )
+    except IntegrityError as e:
+        # Only catch the specific unique constraint violation for duplicate role mappings
+        if UNIQUE_CONSTRAINT_NAME in str(e.orig):
+            logger.error(f"Duplicate role mapping constraint violation for session {session_id}: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Role mapping is already in progress for this session. Please wait and try again.",
+            )
+        # Re-raise other integrity errors (foreign key violations, etc.)
+        logger.error(f"Database integrity error during role mapping for session {session_id}: {e}")
+        raise
 
     return CreateMappingsResponse(
         created_count=len(result),
